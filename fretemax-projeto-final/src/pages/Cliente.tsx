@@ -12,7 +12,7 @@ export default function Cliente() {
   const [coleta, setColeta] = useState({ cep: '', bairro: '', rua: '', num: '' });
   const [entrega, setEntrega] = useState({ cep: '', bairro: '', rua: '', num: '' });
   
-  // NOVOS CAMPOS DE CARGA (Passo 2)
+  // NOVOS CAMPOS DE CARGA
   const [peso, setPeso] = useState('');
   const [tipoMaterial, setTipoMaterial] = useState('');
 
@@ -42,7 +42,6 @@ export default function Cliente() {
 
   const valorTotalBruto = calcularValorFinal();
 
-  // Fim do Loop
   useEffect(() => {
     const savedOrderId = localStorage.getItem('fretogo_current_order');
     if (savedOrderId && savedOrderId !== 'null') { 
@@ -72,25 +71,21 @@ export default function Cliente() {
     try {
       const coords = await obterCoordenadas(coleta.cep);
       
-      // ✅ SALVAMENTO ESTRUTURADO NO FIRESTORE
       const docRef = await addDoc(collection(db, 'fretes'), {
         distancia: dist, 
         veiculo: vehicle, 
         valorTotal: Number(valorTotalBruto.toFixed(2)),
         valorMotorista: Number((valorTotalBruto * 0.80).toFixed(2)),
         
-        // Objetos de Endereço Completos
         coleta: coleta,
         entrega: entrega,
         
-        // Dados Vitais da Carga
         peso: peso,
         tipoMaterial: tipoMaterial,
         
         origemLat: coords?.lat || 0, 
         origemLng: coords?.lng || 0,
         
-        // Controle Duplo de Status
         status: 'aguardando_pagamento',
         statusPagamento: 'pendente',
         
@@ -116,13 +111,13 @@ export default function Cliente() {
           {step !== 'form' && (
             <ArrowLeft 
               onClick={() => {
-                if (step === 'busca') {
-                  localStorage.removeItem('fretogo_current_order');
-                  setCurrentOrderId(null);
-                }
+                // ✅ CORREÇÃO CIRÚRGICA: Limpeza agressiva do estado e cache
+                localStorage.removeItem('fretogo_current_order');
+                setCurrentOrderId(null);
+                setOrderData(null);
                 setStep('form');
               }} 
-              className="cursor-pointer" 
+              className="cursor-pointer hover:text-slate-300 transition-colors" 
             />
           )}
           <Zap className="text-yellow-400 fill-yellow-400" />
@@ -134,7 +129,11 @@ export default function Cliente() {
         {step === 'form' && (
           <div className="space-y-4 animate-in fade-in duration-500">
             <button
-              onClick={() => window.location.href = '/'}
+              onClick={() => {
+                // ✅ CORREÇÃO CIRÚRGICA: Limpeza agressiva ao ir para Home
+                localStorage.removeItem('fretogo_current_order');
+                window.location.href = '/';
+              }}
               className="flex items-center gap-2 text-slate-500 font-bold text-xs uppercase tracking-widest hover:text-slate-800 transition-colors"
             >
               <ArrowLeft className="w-4 h-4" /> Início
@@ -151,7 +150,6 @@ export default function Cliente() {
                   ))}
               </select>
               
-              {/* ✅ NOVOS CAMPOS DE INFORMAÇÃO DA CARGA */}
               <input className="w-full p-4 bg-slate-100 rounded-2xl font-bold border border-slate-200 outline-none text-slate-950 placeholder:text-slate-400 mt-2" placeholder="Peso estimado (ex: 200kg)" onChange={e => setPeso(e.target.value)} />
               <input className="w-full p-4 bg-slate-100 rounded-2xl font-bold border border-slate-200 outline-none text-slate-950 placeholder:text-slate-400" placeholder="Tipo de material (ex: caixas, móveis)" onChange={e => setTipoMaterial(e.target.value)} />
             </div>
@@ -172,7 +170,6 @@ export default function Cliente() {
                 <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Valor Estimado do Frete</p>
                 <p className="text-5xl font-black text-green-600 italic mb-6">R$ {valorTotalBruto.toFixed(2).replace('.', ',')}</p>
                 
-                {/* Validação visual dos dados da carga antes de pagar */}
                 <div className="flex justify-center gap-4 mb-6 text-slate-500 text-xs font-bold uppercase">
                    <span>⚖️ {peso}</span>
                    <span>📦 {tipoMaterial}</span>
