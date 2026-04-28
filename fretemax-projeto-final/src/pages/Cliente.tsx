@@ -7,8 +7,15 @@ import MapaCliente from '../components/MapaCliente';
 export default function Cliente() {
   const [step, setStep] = useState('form'); 
   const [loadingPay, setLoadingPay] = useState(false);
+  
+  // Estrutura de Endereços mantida
   const [coleta, setColeta] = useState({ cep: '', bairro: '', rua: '', num: '' });
   const [entrega, setEntrega] = useState({ cep: '', bairro: '', rua: '', num: '' });
+  
+  // NOVOS CAMPOS DE CARGA (Passo 2)
+  const [peso, setPeso] = useState('');
+  const [tipoMaterial, setTipoMaterial] = useState('');
+
   const [vehicle, setVehicle] = useState('carro_pequeno');
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [orderData, setOrderData] = useState<any>(null);
@@ -35,7 +42,7 @@ export default function Cliente() {
 
   const valorTotalBruto = calcularValorFinal();
 
-  // ✅ CORREÇÃO DO LOOP: Só pula para busca se houver um ID válido e real no Storage
+  // Fim do Loop
   useEffect(() => {
     const savedOrderId = localStorage.getItem('fretogo_current_order');
     if (savedOrderId && savedOrderId !== 'null') { 
@@ -64,17 +71,32 @@ export default function Cliente() {
     setLoadingPay(true);
     try {
       const coords = await obterCoordenadas(coleta.cep);
+      
+      // ✅ SALVAMENTO ESTRUTURADO NO FIRESTORE
       const docRef = await addDoc(collection(db, 'fretes'), {
         distancia: dist, 
         veiculo: vehicle, 
         valorTotal: Number(valorTotalBruto.toFixed(2)),
         valorMotorista: Number((valorTotalBruto * 0.80).toFixed(2)),
-        cidadeOrigem: coleta.bairro, 
+        
+        // Objetos de Endereço Completos
+        coleta: coleta,
+        entrega: entrega,
+        
+        // Dados Vitais da Carga
+        peso: peso,
+        tipoMaterial: tipoMaterial,
+        
         origemLat: coords?.lat || 0, 
         origemLng: coords?.lng || 0,
+        
+        // Controle Duplo de Status
         status: 'aguardando_pagamento',
+        statusPagamento: 'pendente',
+        
         createdAt: serverTimestamp()
       });
+      
       setCurrentOrderId(docRef.id);
       localStorage.setItem('fretogo_current_order', docRef.id);
       
@@ -91,7 +113,6 @@ export default function Cliente() {
     <div className="min-h-screen bg-slate-50 font-sans pb-10">
       <nav className="bg-slate-950 p-4 flex items-center justify-between shadow-xl sticky top-0 z-50">
         <div className="flex items-center gap-2 text-white">
-          {/* ✅ NAVEGAÇÃO CORRIGIDA: Limpa o estado ao voltar manualmente */}
           {step !== 'form' && (
             <ArrowLeft 
               onClick={() => {
@@ -129,8 +150,13 @@ export default function Cliente() {
                     <option key={key} value={key}>{configuracao[key].nome}</option>
                   ))}
               </select>
+              
+              {/* ✅ NOVOS CAMPOS DE INFORMAÇÃO DA CARGA */}
+              <input className="w-full p-4 bg-slate-100 rounded-2xl font-bold border border-slate-200 outline-none text-slate-950 placeholder:text-slate-400 mt-2" placeholder="Peso estimado (ex: 200kg)" onChange={e => setPeso(e.target.value)} />
+              <input className="w-full p-4 bg-slate-100 rounded-2xl font-bold border border-slate-200 outline-none text-slate-950 placeholder:text-slate-400" placeholder="Tipo de material (ex: caixas, móveis)" onChange={e => setTipoMaterial(e.target.value)} />
             </div>
-            <button onClick={() => setStep('preview')} disabled={dist <= 0} className="w-full bg-blue-600 text-white font-black py-5 rounded-[2rem] text-lg uppercase italic shadow-xl active:scale-95 transition-transform">VER RADAR E PREÇO</button>
+            
+            <button onClick={() => setStep('preview')} disabled={dist <= 0 || !peso || !tipoMaterial} className="w-full bg-blue-600 text-white font-black py-5 rounded-[2rem] text-lg uppercase italic shadow-xl active:scale-95 transition-transform mt-4 disabled:opacity-50 disabled:active:scale-100">VER RADAR E PREÇO</button>
           </div>
         )}
 
@@ -145,6 +171,13 @@ export default function Cliente() {
                 </div>
                 <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Valor Estimado do Frete</p>
                 <p className="text-5xl font-black text-green-600 italic mb-6">R$ {valorTotalBruto.toFixed(2).replace('.', ',')}</p>
+                
+                {/* Validação visual dos dados da carga antes de pagar */}
+                <div className="flex justify-center gap-4 mb-6 text-slate-500 text-xs font-bold uppercase">
+                   <span>⚖️ {peso}</span>
+                   <span>📦 {tipoMaterial}</span>
+                </div>
+
                 <button onClick={handleContratar} className="w-full bg-slate-950 text-white py-5 rounded-2xl font-black uppercase italic flex items-center justify-center gap-3">
                    {loadingPay ? <Loader2 className="animate-spin" /> : <>CONTRATAR AGORA <CheckCircle className="text-green-500"/></>}
                 </button>
