@@ -1,4 +1,3 @@
-// Substitua o conteúdo de Motorista.tsx
 import { useState, useEffect } from 'react';
 import { auth, provider, db } from '../firebase';
 import { signInWithPopup, signOut } from 'firebase/auth';
@@ -50,48 +49,68 @@ export default function Motorista() {
   return (
     <div className="min-h-screen bg-slate-950 text-white font-sans p-4">
       {!user ? (
-        <div className="text-center py-20">
-          <Truck className="w-16 h-16 text-blue-500 mx-auto mb-6" />
-          <h1 className="text-2xl font-black italic mb-6 uppercase">Operação Motorista</h1>
-          <button onClick={() => signInWithPopup(auth, provider)} className="w-full bg-blue-600 p-5 rounded-2xl font-black uppercase italic shadow-xl">Entrar no Radar</button>
+        <div className="text-center py-20 bg-slate-900 rounded-[3rem] border border-slate-800 shadow-2xl">
+          <Truck className="w-16 h-16 text-blue-500 mx-auto mb-6 animate-bounce" />
+          <h1 className="text-2xl font-black italic mb-8 uppercase tracking-widest text-white">Modo Motorista</h1>
+          <button onClick={() => signInWithPopup(auth, provider)} className="w-4/5 mx-auto bg-blue-600 p-5 rounded-2xl font-black uppercase italic shadow-xl active:scale-95 transition-transform">ENTRAR NO RADAR</button>
         </div>
       ) : activeFrete ? (
-        <div className="bg-slate-900 p-6 rounded-[2rem] border border-blue-500/30 shadow-2xl">
-          <h2 className="text-xl font-black uppercase mb-4 flex items-center gap-2"><Truck className="w-5 h-5 text-blue-500"/> Carga Ativa</h2>
-          <div className="grid gap-3">
+        <div className="bg-slate-900 p-6 rounded-[2.5rem] border border-blue-500/30 shadow-2xl animate-in zoom-in">
+          <h2 className="text-xl font-black uppercase mb-6 flex items-center gap-2"><Truck className="w-6 h-6 text-blue-500"/> Carga em Curso</h2>
+          <div className="grid gap-4">
             {activeFrete.status === 'aceito' && (
               <>
-                <button onClick={() => abrirGPS(activeFrete.origemLat, activeFrete.origemLng)} className="bg-white text-black p-4 rounded-xl font-black uppercase text-xs flex items-center justify-center gap-2"><MapPin className="w-4 h-4"/> Rota até a Coleta</button>
-                <button onClick={() => handleUpdateStatus('coleta')} className="bg-blue-600 p-5 rounded-xl font-black uppercase text-sm">Cheguei na Coleta</button>
+                <button onClick={() => abrirGPS(activeFrete.origemLat, activeFrete.origemLng)} className="bg-white text-black p-5 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 shadow-lg"><MapPin className="w-5 h-5"/> Rota de Coleta</button>
+                <button onClick={() => handleUpdateStatus('coleta')} className="bg-blue-600 p-6 rounded-2xl font-black uppercase text-lg shadow-xl">Cheguei na Coleta</button>
               </>
             )}
             {activeFrete.status === 'coleta' && (
               <>
-                <button onClick={() => abrirGPS(activeFrete.destinoLat, activeFrete.destinoLng)} className="bg-white text-black p-4 rounded-xl font-black uppercase text-xs flex items-center justify-center gap-2"><Navigation className="w-4 h-4"/> Rota até o Destino</button>
-                <button onClick={() => handleUpdateStatus('em_transporte')} className="bg-orange-500 p-5 rounded-xl font-black uppercase text-sm">Iniciar Transporte</button>
+                <button onClick={() => abrirGPS(activeFrete.destinoLat, activeFrete.destinoLng)} className="bg-white text-black p-5 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 shadow-lg"><Navigation className="w-5 h-5"/> Rota de Entrega</button>
+                <button onClick={() => handleUpdateStatus('em_transporte')} className="bg-orange-500 p-6 rounded-2xl font-black uppercase text-lg shadow-xl">Iniciar Transporte</button>
               </>
             )}
-            {activeFrete.status === 'em_transporte' && <button onClick={() => handleUpdateStatus('entregue')} className="bg-green-600 p-5 rounded-xl font-black uppercase text-sm flex gap-2 justify-center"><CheckCircle className="w-4 h-4"/> Finalizar Entrega</button>}
+            {activeFrete.status === 'em_transporte' && <button onClick={() => handleUpdateStatus('entregue')} className="bg-green-600 p-6 rounded-2xl font-black uppercase text-lg flex gap-3 justify-center shadow-xl"><CheckCircle className="w-6 h-6"/> Finalizar Frete</button>}
           </div>
         </div>
       ) : (
-        <div className="space-y-4">
-           {availableFretes.length === 0 ? <p className="text-center text-slate-500 italic mt-20">Buscando cargas para {driverData?.categoria}...</p> : 
+        <div className="space-y-6">
+           {availableFretes.length === 0 ? <p className="text-center text-slate-600 italic mt-20 font-black uppercase text-xs tracking-widest">Buscando cargas próximas...</p> : 
              availableFretes.map(f => (
-               <div key={f.id} className="bg-white text-black p-6 rounded-[2.5rem] shadow-xl border-b-[8px] border-blue-600">
-                  <div className="flex justify-between items-center mb-4 text-[10px] font-black uppercase">
-                    <span className="bg-green-100 text-green-700 px-2 py-1 rounded">PAGO</span>
-                    <span className="text-slate-400">📍 {f.distancia}km</span>
+               <div key={f.id} className="bg-white text-slate-950 p-6 rounded-[2rem] shadow-2xl border-b-[10px] border-blue-600 animate-in fade-in slide-in-from-bottom-4">
+                  <div className="flex justify-between items-center mb-4">
+                    <span className="bg-green-600 text-white px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest">PAGO</span>
+                    <span className="text-slate-500 text-xs font-black">📍 {f.distancia || '??'} KM</span>
                   </div>
-                  <p className="text-lg font-black uppercase leading-tight mb-4">{f.coleta?.bairro} → {f.entrega?.bairro}</p>
-                  <p className="text-4xl font-black italic mb-4">R$ {f.valorMotorista?.toFixed(2).replace('.', ',')}</p>
-                  <button onClick={async () => {
-                    await runTransaction(db, async (t) => {
-                      const d = await t.get(doc(db, 'fretes', f.id));
-                      if (d.data()?.status !== 'aguardando_motorista') throw "Indisponível";
-                      t.update(doc(db, 'fretes', f.id), { status: 'aceito', motoristaId: user.uid, motoristaNome: driverData.nome, motoristaZap: driverData.whatsapp });
-                    });
-                  }} className="w-full bg-slate-900 text-white p-5 rounded-2xl font-black italic uppercase">Aceitar Frete</button>
+                  
+                  <div className="mb-6">
+                    <p className="text-[10px] font-black text-blue-600 uppercase mb-1 tracking-widest">Trajeto da Carga:</p>
+                    <p className="text-3xl font-black uppercase leading-none text-slate-950 break-words">
+                      {f.coleta?.bairro || 'ORIGEM'} <span className="text-blue-600 text-xl">➔</span> {f.entrega?.bairro || 'DESTINO'}
+                    </p>
+                  </div>
+
+                  <div className="flex justify-between items-center bg-slate-100 p-4 rounded-2xl mb-6">
+                    <div className="flex gap-4 text-slate-700 text-xs font-black uppercase">
+                      <span>⚖️ {f.peso || 'N/A'}</span>
+                      <span>📦 {f.tipoMaterial || 'CARGA'}</span>
+                    </div>
+                    {f.veiculo === 'moto' ? <Bike className="text-blue-600"/> : <Truck className="text-blue-600"/>}
+                  </div>
+
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex flex-col">
+                      <p className="text-slate-400 font-black text-[10px] uppercase leading-none">Você recebe:</p>
+                      <p className="text-4xl font-black text-slate-950 italic">R$ {f.valorMotorista?.toFixed(2).replace('.', ',')}</p>
+                    </div>
+                    <button onClick={async () => {
+                      await runTransaction(db, async (t) => {
+                        const d = await t.get(doc(db, 'fretes', f.id));
+                        if (d.data()?.status !== 'aguardando_motorista') throw "Carga já aceita";
+                        t.update(doc(db, 'fretes', f.id), { status: 'aceito', motoristaId: user.uid, motoristaNome: driverData?.nome || 'Motorista', motoristaZap: driverData?.whatsapp || '' });
+                      });
+                    }} className="bg-slate-900 text-white px-8 py-5 rounded-2xl font-black uppercase italic text-sm shadow-xl active:scale-95 transition-all">ACEITAR</button>
+                  </div>
                </div>
              ))
            }
