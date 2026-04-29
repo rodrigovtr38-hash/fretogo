@@ -27,10 +27,13 @@ export default async function handler(req, res) {
             unit_price: valor
           }
         ],
-        // ✅ AJUSTE DE OURO: Payer dinâmico baseado no ID do Pedido
-        // Isso remove o erro de "transação de teste" e libera Pix/Cartão
+        // AJUSTE DE OURO: Payer dinâmico com CPF genérico para destravar a opção PIX na API
         payer: {
-          email: `${idPedido}@fretogo.com` 
+          email: `${idPedido}@fretogo.com`,
+          identification: {
+            type: "CPF",
+            number: "19119119100" 
+          }
         },
         external_reference: idPedido,
         notification_url: `https://www.fretogo.com.br/api/webhook`, 
@@ -59,7 +62,7 @@ export default async function handler(req, res) {
       console.error("Erro MP:", data);
       return res.status(500).json({ 
         error: 'Erro ao criar preferência',
-        detalhe: data // Mantendo o detalhe para seu debug
+        detalhe: data 
       });
     }
 
