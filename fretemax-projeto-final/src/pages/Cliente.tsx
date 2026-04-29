@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc } from 'firebase/firestore';
-import { ArrowLeft, Zap, Truck, Package, Loader2, CheckCircle, Bike } from 'lucide-react';
+import { ArrowLeft, Zap, Truck, Package, Loader2, CheckCircle, Bike, Calendar } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
+import ChatFrete from '../components/ChatFrete'; // ✅ Importado
 
 export default function Cliente() {
   const [step, setStep] = useState('form'); 
@@ -12,6 +13,11 @@ export default function Cliente() {
   const [peso, setPeso] = useState('');
   const [tipoMaterial, setTipoMaterial] = useState('');
   const [vehicle, setVehicle] = useState('carro_pequeno');
+  
+  // ✅ LOGICA DE AGENDAMENTO
+  const [tipoFrete, setTipoFrete] = useState<'imediato' | 'agendado'>('imediato');
+  const [dataAgendada, setDataAgendada] = useState('');
+
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [orderData, setOrderData] = useState<any>(null);
 
@@ -22,7 +28,7 @@ export default function Cliente() {
     'toco': { nome: 'Caminhão Toco', fator: 2.9 },
     'truck': { nome: 'Caminhão Truck', fator: 3.8 },
     'carreta_ls': { nome: 'Carreta LS', fator: 5.5 },
-    'bi_trem_cegonha': { nome: 'Bi-trem / Cegonha', fator: 7.2 } // ✅ Sincronizado para escala
+    'bi_trem_cegonha': { nome: 'Bi-trem / Cegonha', fator: 7.2 } // ✅ Mantido
   };
 
   const dist = (coleta.cep.length >= 8 && entrega.cep.length >= 8) ? 25 : 0;
@@ -30,10 +36,7 @@ export default function Cliente() {
 
   useEffect(() => {
     const saved = localStorage.getItem('fretogo_current_order');
-    if (saved && saved !== 'null') { 
-      setCurrentOrderId(saved); 
-      setStep('busca'); 
-    }
+    if (saved && saved !== 'null') { setCurrentOrderId(saved); setStep('busca'); }
   }, []);
 
   useEffect(() => {
@@ -52,6 +55,10 @@ export default function Cliente() {
   };
 
   const handleContratar = async () => {
+    if (tipoFrete === 'agendado' && (!dataAgendada || new Date(dataAgendada) < new Date())) {
+      alert("Selecione uma data futura válida para o agendamento.");
+      return;
+    }
     setLoadingPay(true);
     try {
       const c1 = await getCoords(`${coleta.bairro}, ${coleta.cep}, Brasil`);
@@ -63,7 +70,10 @@ export default function Cliente() {
         coleta, entrega, peso, tipoMaterial,
         origemLat: c1?.lat || 0, origemLng: c1?.lng || 0,
         destinoLat: c2?.lat || 0, destinoLng: c2?.lng || 0,
-        status: 'aguardando_pagamento', createdAt: serverTimestamp()
+        tipoFrete,
+        dataAgendada: tipoFrete === 'agendado' ? new Date(dataAgendada) : null,
+        status: tipoFrete === 'agendado' ? 'agendado' : 'aguardando_pagamento',
+        createdAt: serverTimestamp()
       });
 
       localStorage.setItem('fretogo_current_order', docRef.id);
@@ -76,10 +86,7 @@ export default function Cliente() {
       const data = await res.json();
       if (data.url) window.location.href = data.url;
       else setStep('busca');
-    } catch (e) { 
-      alert("Erro no processo de contratação."); 
-      setLoadingPay(false); 
-    }
+    } catch (e) { alert("Erro ao processar."); setLoadingPay(false); }
   };
 
   return (
@@ -94,16 +101,27 @@ export default function Cliente() {
       <div className="max-w-md mx-auto px-4 mt-6">
         {step === 'form' && (
           <div className="space-y-3 bg-white p-6 rounded-3xl shadow-2xl">
-            <h2 className="text-slate-900 font-black uppercase text-xs mb-4 tracking-widest">Solicitar Frete</h2>
-            <input className="w-full p-4 bg-slate-100 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500" placeholder="Bairro Coleta" onChange={e => setColeta({...coleta, bairro: e.target.value})} />
-            <input className="w-full p-4 bg-slate-100 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500" placeholder="CEP Coleta" onChange={e => setColeta({...coleta, cep: e.target.value})} />
-            <input className="w-full p-4 bg-slate-100 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500" placeholder="Bairro Entrega" onChange={e => setEntrega({...entrega, bairro: e.target.value})} />
-            <input className="w-full p-4 bg-slate-100 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500" placeholder="CEP Entrega" onChange={e => setEntrega({...entrega, cep: e.target.value})} />
+            <h2 className="text-slate-900 font-black uppercase text-xs mb-4">Solicitar Frete</h2>
+            <input className="w-full p-4 bg-slate-100 rounded-xl border-2 border-slate-200 text-slate-950 font-black" placeholder="Bairro Coleta" onChange={e => setColeta({...coleta, bairro: e.target.value})} />
+            <input className="w-full p-4 bg-slate-100 rounded-xl border-2 border-slate-200 text-slate-950 font-black" placeholder="CEP Coleta" onChange={e => setColeta({...coleta, cep: e.target.value})} />
+            <input className="w-full p-4 bg-slate-100 rounded-xl border-2 border-slate-200 text-slate-950 font-black" placeholder="Bairro Entrega" onChange={e => setEntrega({...entrega, bairro: e.target.value})} />
+            <input className="w-full p-4 bg-slate-100 rounded-xl border-2 border-slate-200 text-slate-950 font-black" placeholder="CEP Entrega" onChange={e => setEntrega({...entrega, cep: e.target.value})} />
             <select className="w-full p-4 bg-slate-100 rounded-xl border-2 border-slate-200 text-slate-950 font-black outline-none" value={vehicle} onChange={e => setVehicle(e.target.value)}>
               {Object.keys(configuracao).map(k => <option key={k} value={k}>{configuracao[k].nome}</option>)}
             </select>
-            <input className="w-full p-4 bg-slate-100 rounded-xl border-2 border-slate-200 text-slate-950 font-black outline-none" placeholder="Peso (ex: 20kg)" onChange={e => setPeso(e.target.value)} />
-            <input className="w-full p-4 bg-slate-100 rounded-xl border-2 border-slate-200 text-slate-950 font-black outline-none" placeholder="Material (ex: Móveis)" onChange={e => setTipoMaterial(e.target.value)} />
+
+            {/* ✅ SELETOR DE AGENDAMENTO (NOVO) */}
+            <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-200">
+               <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Quando coletar?</p>
+               <div className="flex gap-2">
+                 <button onClick={() => setTipoFrete('imediato')} className={`flex-1 p-3 rounded-xl font-black text-xs uppercase ${tipoFrete === 'imediato' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600'}`}>Agora</button>
+                 <button onClick={() => setTipoFrete('agendado')} className={`flex-1 p-3 rounded-xl font-black text-xs uppercase ${tipoFrete === 'agendado' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600'}`}>Agendar</button>
+               </div>
+               {tipoFrete === 'agendado' && <input type="datetime-local" className="w-full mt-3 p-3 rounded-xl border-2 text-slate-900 font-bold" value={dataAgendada} onChange={(e) => setDataAgendada(e.target.value)} />}
+            </div>
+
+            <input className="w-full p-4 bg-slate-100 rounded-xl border-2 border-slate-200 text-slate-950 font-black" placeholder="Peso (ex: 20kg)" onChange={e => setPeso(e.target.value)} />
+            <input className="w-full p-4 bg-slate-100 rounded-xl border-2 border-slate-200 text-slate-950 font-black" placeholder="Material (ex: Móveis)" onChange={e => setTipoMaterial(e.target.value)} />
             <button onClick={() => setStep('preview')} disabled={!peso || dist === 0} className="w-full bg-blue-600 text-white font-black py-5 rounded-2xl shadow-xl uppercase italic mt-4 active:scale-95 transition-transform">CALCULAR FRETE</button>
           </div>
         )}
@@ -125,19 +143,23 @@ export default function Cliente() {
         )}
 
         {step === 'busca' && (
-           <div className="bg-white rounded-[3rem] p-10 text-center shadow-2xl border-4 border-slate-100 mt-10">
+           <div className="bg-white rounded-[3rem] p-8 text-center shadow-2xl border-4 border-slate-100 mt-10">
               {['aceito', 'coleta', 'em_transporte'].includes(orderData?.status) ? (
                  <div className="animate-in fade-in">
-                    <CheckCircle className="text-green-500 w-20 h-20 mx-auto mb-4" />
-                    <h2 className="text-3xl font-black italic uppercase text-slate-950 leading-none">Motorista<br/>Confirmado</h2>
+                    <CheckCircle className="text-green-500 w-16 h-16 mx-auto mb-4" />
+                    <h2 className="text-2xl font-black italic uppercase text-slate-950 leading-none">Motorista<br/>Confirmado</h2>
                     <p className="font-black text-blue-600 mt-4 text-xl uppercase">{orderData?.motoristaNome}</p>
-                    <button onClick={() => window.open(`https://wa.me/55${orderData?.motoristaZap?.replace(/\D/g,'')}`)} className="w-full bg-green-500 py-5 rounded-2xl font-black mt-8 text-white uppercase shadow-2xl text-lg italic">WHATSAPP AGORA</button>
+                    
+                    {/* ✅ CHAT NO CLIENTE */}
+                    <ChatFrete freteId={currentOrderId} tipoUsuario="cliente" nome="Você (Cliente)" />
+                    
+                    <button onClick={() => window.open(`https://wa.me/55${orderData?.motoristaZap?.replace(/\D/g,'')}`)} className="w-full bg-green-500 py-5 rounded-2xl font-black mt-8 text-white uppercase shadow-2xl text-lg italic">WhatsApp Direto</button>
                  </div>
               ) : (
-                 <div className="py-10">
+                 <div className="py-10 text-center">
                     <Package className="text-blue-600 w-20 h-20 mx-auto mb-6 animate-bounce" />
                     <h2 className="text-2xl font-black italic uppercase text-slate-950 animate-pulse">Aguardando Pagamento...</h2>
-                    <p className="text-slate-500 font-bold mt-4 text-sm px-4">Os motoristas serão notificados assim que o seu Pix for aprovado pelo Mercado Pago.</p>
+                    {orderData?.tipoFrete === 'agendado' && <div className="bg-blue-100 text-blue-700 p-4 rounded-2xl mt-4 font-black text-xs uppercase"><Calendar className="w-4 h-4 mx-auto mb-1"/> Agendado para: {new Date(orderData.dataAgendada.seconds * 1000).toLocaleString()}</div>}
                  </div>
               )}
            </div>
