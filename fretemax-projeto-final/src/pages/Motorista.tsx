@@ -23,7 +23,7 @@ export default function Motorista() {
           setActiveFrete(ativo);
           setLoading(false);
         });
-      } else { setLoading(false); }
+      } else { setUser(null); setLoading(false); }
     });
   }, []);
 
@@ -49,67 +49,68 @@ export default function Motorista() {
   return (
     <div className="min-h-screen bg-slate-950 text-white font-sans p-4">
       {!user ? (
-        <div className="text-center py-20 bg-slate-900 rounded-[3rem] border border-slate-800 shadow-2xl">
-          <Truck className="w-16 h-16 text-blue-500 mx-auto mb-6 animate-bounce" />
-          <h1 className="text-2xl font-black italic mb-8 uppercase tracking-widest text-white">Modo Motorista</h1>
-          <button onClick={() => signInWithPopup(auth, provider)} className="w-4/5 mx-auto bg-blue-600 p-5 rounded-2xl font-black uppercase italic shadow-xl active:scale-95 transition-transform">ENTRAR NO RADAR</button>
+        <div className="text-center py-20 bg-slate-900 rounded-[3rem] border-2 border-slate-800 shadow-2xl">
+          <Truck className="w-20 h-20 text-blue-500 mx-auto mb-6 animate-pulse" />
+          <h1 className="text-3xl font-black italic mb-8 uppercase tracking-tighter">Painel de Cargas</h1>
+          <button onClick={() => signInWithPopup(auth, provider)} className="w-4/5 mx-auto bg-blue-600 p-6 rounded-2xl font-black uppercase italic shadow-2xl text-lg">ENTRAR NO RADAR</button>
         </div>
       ) : activeFrete ? (
-        <div className="bg-slate-900 p-6 rounded-[2.5rem] border border-blue-500/30 shadow-2xl animate-in zoom-in">
-          <h2 className="text-xl font-black uppercase mb-6 flex items-center gap-2"><Truck className="w-6 h-6 text-blue-500"/> Carga em Curso</h2>
+        <div className="bg-slate-900 p-6 rounded-[2.5rem] border-2 border-blue-500/50 shadow-2xl animate-in zoom-in">
+          <h2 className="text-2xl font-black uppercase mb-6 flex items-center gap-2 text-blue-400">CARGA ATIVA</h2>
           <div className="grid gap-4">
             {activeFrete.status === 'aceito' && (
               <>
-                <button onClick={() => abrirGPS(activeFrete.origemLat, activeFrete.origemLng)} className="bg-white text-black p-5 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 shadow-lg"><MapPin className="w-5 h-5"/> Rota de Coleta</button>
-                <button onClick={() => handleUpdateStatus('coleta')} className="bg-blue-600 p-6 rounded-2xl font-black uppercase text-lg shadow-xl">Cheguei na Coleta</button>
+                <button onClick={() => abrirGPS(activeFrete.origemLat, activeFrete.origemLng)} className="bg-white text-black p-5 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 shadow-xl"><MapPin className="w-6 h-6"/> Rota até a Coleta</button>
+                <button onClick={() => handleUpdateStatus('coleta')} className="bg-blue-600 p-6 rounded-2xl font-black uppercase text-xl shadow-2xl">Cheguei na Coleta</button>
               </>
             )}
             {activeFrete.status === 'coleta' && (
               <>
-                <button onClick={() => abrirGPS(activeFrete.destinoLat, activeFrete.destinoLng)} className="bg-white text-black p-5 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 shadow-lg"><Navigation className="w-5 h-5"/> Rota de Entrega</button>
-                <button onClick={() => handleUpdateStatus('em_transporte')} className="bg-orange-500 p-6 rounded-2xl font-black uppercase text-lg shadow-xl">Iniciar Transporte</button>
+                <button onClick={() => abrirGPS(activeFrete.destinoLat, activeFrete.destinoLng)} className="bg-white text-black p-5 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 shadow-xl"><Navigation className="w-6 h-6"/> Rota até o Destino</button>
+                <button onClick={() => handleUpdateStatus('em_transporte')} className="bg-orange-500 p-6 rounded-2xl font-black uppercase text-xl shadow-2xl">Carga Embarcada</button>
               </>
             )}
-            {activeFrete.status === 'em_transporte' && <button onClick={() => handleUpdateStatus('entregue')} className="bg-green-600 p-6 rounded-2xl font-black uppercase text-lg flex gap-3 justify-center shadow-xl"><CheckCircle className="w-6 h-6"/> Finalizar Frete</button>}
+            {activeFrete.status === 'em_transporte' && <button onClick={() => handleUpdateStatus('entregue')} className="bg-green-600 p-7 rounded-2xl font-black uppercase text-xl flex gap-3 justify-center shadow-2xl"><CheckCircle className="w-7 h-7"/> Finalizar Entrega</button>}
           </div>
         </div>
       ) : (
         <div className="space-y-6">
-           {availableFretes.length === 0 ? <p className="text-center text-slate-600 italic mt-20 font-black uppercase text-xs tracking-widest">Buscando cargas próximas...</p> : 
+           {availableFretes.length === 0 ? <p className="text-center text-slate-600 italic mt-20 font-black uppercase text-xs tracking-widest animate-pulse">Radar buscando fretes próximos...</p> : 
              availableFretes.map(f => (
-               <div key={f.id} className="bg-white text-slate-950 p-6 rounded-[2rem] shadow-2xl border-b-[10px] border-blue-600 animate-in fade-in slide-in-from-bottom-4">
-                  <div className="flex justify-between items-center mb-4">
-                    <span className="bg-green-600 text-white px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest">PAGO</span>
-                    <span className="text-slate-500 text-xs font-black">📍 {f.distancia || '??'} KM</span>
+               <div key={f.id} className="bg-white text-slate-950 p-6 rounded-[2.5rem] shadow-2xl border-b-[12px] border-blue-600">
+                  <div className="flex justify-between items-center mb-6">
+                    <span className="bg-green-600 text-white px-4 py-1 rounded-lg text-xs font-black uppercase tracking-widest shadow-md">PAGO VIA PIX</span>
+                    <span className="text-slate-500 text-sm font-black">📍 {f.distancia || '??'} KM</span>
                   </div>
                   
-                  <div className="mb-6">
-                    <p className="text-[10px] font-black text-blue-600 uppercase mb-1 tracking-widest">Trajeto da Carga:</p>
-                    <p className="text-3xl font-black uppercase leading-none text-slate-950 break-words">
-                      {f.coleta?.bairro || 'ORIGEM'} <span className="text-blue-600 text-xl">➔</span> {f.entrega?.bairro || 'DESTINO'}
+                  <div className="mb-8">
+                    <p className="text-[12px] font-black text-blue-600 uppercase mb-2 tracking-widest">Trajeto Obrigatório:</p>
+                    <p className="text-4xl font-black uppercase leading-none text-slate-950 tracking-tighter">
+                      {f.coleta?.bairro || 'ORIGEM'} <br/>
+                      <span className="text-blue-600">➔</span> {f.entrega?.bairro || 'DESTINO'}
                     </p>
                   </div>
 
-                  <div className="flex justify-between items-center bg-slate-100 p-4 rounded-2xl mb-6">
-                    <div className="flex gap-4 text-slate-700 text-xs font-black uppercase">
+                  <div className="flex justify-between items-center bg-slate-100 p-5 rounded-2xl mb-8 border border-slate-200">
+                    <div className="flex gap-6 text-slate-800 text-sm font-black uppercase">
                       <span>⚖️ {f.peso || 'N/A'}</span>
                       <span>📦 {f.tipoMaterial || 'CARGA'}</span>
                     </div>
-                    {f.veiculo === 'moto' ? <Bike className="text-blue-600"/> : <Truck className="text-blue-600"/>}
+                    {f.veiculo === 'moto' ? <Bike className="w-7 h-7 text-blue-600"/> : <Truck className="w-7 h-7 text-blue-600"/>}
                   </div>
 
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex flex-col">
-                      <p className="text-slate-400 font-black text-[10px] uppercase leading-none">Você recebe:</p>
-                      <p className="text-4xl font-black text-slate-950 italic">R$ {f.valorMotorista?.toFixed(2).replace('.', ',')}</p>
+                  <div className="flex flex-col gap-4">
+                    <div className="flex justify-between items-end px-2">
+                       <span className="text-slate-400 font-black text-xs uppercase italic">Seu ganho:</span>
+                       <p className="text-6xl font-black text-slate-950 italic leading-none">R$ {f.valorMotorista?.toFixed(2).replace('.', ',')}</p>
                     </div>
                     <button onClick={async () => {
                       await runTransaction(db, async (t) => {
                         const d = await t.get(doc(db, 'fretes', f.id));
-                        if (d.data()?.status !== 'aguardando_motorista') throw "Carga já aceita";
+                        if (d.data()?.status !== 'aguardando_motorista') throw "Carga indisponível";
                         t.update(doc(db, 'fretes', f.id), { status: 'aceito', motoristaId: user.uid, motoristaNome: driverData?.nome || 'Motorista', motoristaZap: driverData?.whatsapp || '' });
                       });
-                    }} className="bg-slate-900 text-white px-8 py-5 rounded-2xl font-black uppercase italic text-sm shadow-xl active:scale-95 transition-all">ACEITAR</button>
+                    }} className="w-full bg-slate-900 text-white py-6 rounded-3xl font-black uppercase italic text-xl shadow-2xl active:scale-95 transition-all">ACEITAR AGORA</button>
                   </div>
                </div>
              ))
