@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { auth, provider, db } from '../firebase';
 import { signInWithPopup, signOut } from 'firebase/auth';
 import { collection, query, where, onSnapshot, doc, setDoc, runTransaction } from 'firebase/firestore';
-import { Loader2, Truck, CheckCircle, Navigation, MapPin, Bike, Clock } from 'lucide-react';
+import { Loader2, Truck, CheckCircle, Navigation, MapPin, Bike, Clock, AlertCircle } from 'lucide-react';
 
 export default function Motorista() {
   const [user, setUser] = useState<any>(null);
@@ -28,6 +28,7 @@ export default function Motorista() {
   }, []);
 
   useEffect(() => {
+    // RIGOR: Só vê frete se estiver aprovado pelo administrador
     if (driverData?.status === 'aprovado' && !activeFrete) {
       return onSnapshot(query(collection(db, 'fretes'), where('status', '==', 'aguardando_motorista')), (s) => {
         const minhaCat = String(driverData.categoria || '').toLowerCase().trim();
@@ -48,15 +49,27 @@ export default function Motorista() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white font-sans p-4">
+      <nav className="bg-slate-900 p-4 flex items-center justify-between border-b border-slate-800 font-black italic mb-4 rounded-b-3xl">
+        FRETOGO 
+        {user && <button onClick={() => signOut(auth)} className="text-[10px] bg-slate-800 px-3 py-1 rounded-full">SAIR</button>}
+      </nav>
+
       {!user ? (
         <div className="text-center py-20 bg-slate-900 rounded-[3rem] border-2 border-slate-800 shadow-2xl">
           <Truck className="w-20 h-20 text-blue-500 mx-auto mb-6 animate-pulse" />
           <h1 className="text-3xl font-black italic mb-8 uppercase tracking-tighter">Painel de Cargas</h1>
           <button onClick={() => signInWithPopup(auth, provider)} className="w-4/5 mx-auto bg-blue-600 p-6 rounded-2xl font-black uppercase italic shadow-2xl text-lg">ENTRAR NO RADAR</button>
         </div>
+      ) : driverData?.status !== 'aprovado' ? (
+        /* ✅ BLOQUEIO DE SEGURANÇA: Se não estiver aprovado, não vê cargas */
+        <div className="text-center py-16 bg-slate-900 rounded-[3rem] border-2 border-yellow-600 shadow-2xl px-6">
+          <AlertCircle className="w-16 h-16 text-yellow-500 mx-auto mb-6" />
+          <h2 className="text-2xl font-black italic uppercase mb-4">Cadastro em Análise</h2>
+          <p className="text-slate-400 font-bold text-sm">Nossa equipe está validando seus documentos (CNH e Categoria). Você será notificado assim que puder aceitar fretes.</p>
+        </div>
       ) : activeFrete ? (
-        <div className="bg-slate-900 p-6 rounded-[2.5rem] border-2 border-blue-500/50 shadow-2xl animate-in zoom-in">
-          <h2 className="text-2xl font-black uppercase mb-6 flex items-center gap-2 text-blue-400">CARGA ATIVA</h2>
+        <div className="bg-slate-900 p-6 rounded-[2.5rem] border-2 border-blue-500/50 shadow-2xl">
+          <h2 className="text-2xl font-black uppercase mb-6 flex items-center gap-2 text-blue-400 italic">Carga Ativa</h2>
           <div className="grid gap-4">
             {activeFrete.status === 'aceito' && (
               <>
@@ -67,7 +80,7 @@ export default function Motorista() {
             {activeFrete.status === 'coleta' && (
               <>
                 <button onClick={() => abrirGPS(activeFrete.destinoLat, activeFrete.destinoLng)} className="bg-white text-black p-5 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 shadow-xl"><Navigation className="w-6 h-6"/> Rota até o Destino</button>
-                <button onClick={() => handleUpdateStatus('em_transporte')} className="bg-orange-500 p-6 rounded-2xl font-black uppercase text-xl shadow-2xl">Carga Embarcada</button>
+                <button onClick={() => handleUpdateStatus('em_transporte')} className="bg-orange-500 p-6 rounded-2xl font-black uppercase text-xl shadow-2xl">Finalizar Coleta e Iniciar Entrega</button>
               </>
             )}
             {activeFrete.status === 'em_transporte' && <button onClick={() => handleUpdateStatus('entregue')} className="bg-green-600 p-7 rounded-2xl font-black uppercase text-xl flex gap-3 justify-center shadow-2xl"><CheckCircle className="w-7 h-7"/> Finalizar Entrega</button>}
@@ -75,24 +88,24 @@ export default function Motorista() {
         </div>
       ) : (
         <div className="space-y-6">
-           {availableFretes.length === 0 ? <p className="text-center text-slate-600 italic mt-20 font-black uppercase text-xs tracking-widest animate-pulse">Radar buscando fretes próximos...</p> : 
+           {availableFretes.length === 0 ? <p className="text-center text-slate-600 italic mt-20 font-black uppercase text-xs tracking-widest animate-pulse">Radar buscando fretes de {driverData.categoria}...</p> : 
              availableFretes.map(f => (
                <div key={f.id} className="bg-white text-slate-950 p-6 rounded-[2.5rem] shadow-2xl border-b-[12px] border-blue-600">
-                  <div className="flex justify-between items-center mb-6">
-                    <span className="bg-green-600 text-white px-4 py-1 rounded-lg text-xs font-black uppercase tracking-widest shadow-md">PAGO VIA PIX</span>
-                    <span className="text-slate-500 text-sm font-black">📍 {f.distancia || '??'} KM</span>
+                  <div className="flex justify-between items-center mb-6 font-black uppercase">
+                    <span className="bg-green-600 text-white px-4 py-1 rounded-lg text-xs tracking-widest shadow-md">PAGO VIA PIX</span>
+                    <span className="text-slate-500 text-sm">📍 {f.distancia || '??'} KM</span>
                   </div>
                   
                   <div className="mb-8">
-                    <p className="text-[12px] font-black text-blue-600 uppercase mb-2 tracking-widest">Trajeto Obrigatório:</p>
+                    <p className="text-[12px] font-black text-blue-600 uppercase mb-2 tracking-widest">Trajeto do Frete:</p>
                     <p className="text-4xl font-black uppercase leading-none text-slate-950 tracking-tighter">
                       {f.coleta?.bairro || 'ORIGEM'} <br/>
                       <span className="text-blue-600">➔</span> {f.entrega?.bairro || 'DESTINO'}
                     </p>
                   </div>
 
-                  <div className="flex justify-between items-center bg-slate-100 p-5 rounded-2xl mb-8 border border-slate-200">
-                    <div className="flex gap-6 text-slate-800 text-sm font-black uppercase">
+                  <div className="flex justify-between items-center bg-slate-100 p-5 rounded-2xl mb-8 border border-slate-200 font-black uppercase text-sm">
+                    <div className="flex gap-6 text-slate-800">
                       <span>⚖️ {f.peso || 'N/A'}</span>
                       <span>📦 {f.tipoMaterial || 'CARGA'}</span>
                     </div>
