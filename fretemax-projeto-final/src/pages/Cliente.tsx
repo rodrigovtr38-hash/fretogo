@@ -21,7 +21,8 @@ export default function Cliente() {
     'utilitario': { nome: 'Utilitário', fator: 1.6 },
     'toco': { nome: 'Caminhão Toco', fator: 2.9 },
     'truck': { nome: 'Caminhão Truck', fator: 3.8 },
-    'carreta_ls': { nome: 'Carreta LS', fator: 5.5 }
+    'carreta_ls': { nome: 'Carreta LS', fator: 5.5 },
+    'bi_trem_cegonha': { nome: 'Bi-trem / Cegonha', fator: 7.2 } // ✅ Sincronizado para escala
   };
 
   const dist = (coleta.cep.length >= 8 && entrega.cep.length >= 8) ? 25 : 0;
@@ -94,7 +95,6 @@ export default function Cliente() {
         {step === 'form' && (
           <div className="space-y-3 bg-white p-6 rounded-3xl shadow-2xl">
             <h2 className="text-slate-900 font-black uppercase text-xs mb-4 tracking-widest">Solicitar Frete</h2>
-            {/* INPUTS COM CONTRASTE FORTE */}
             <input className="w-full p-4 bg-slate-100 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500" placeholder="Bairro Coleta" onChange={e => setColeta({...coleta, bairro: e.target.value})} />
             <input className="w-full p-4 bg-slate-100 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500" placeholder="CEP Coleta" onChange={e => setColeta({...coleta, cep: e.target.value})} />
             <input className="w-full p-4 bg-slate-100 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500" placeholder="Bairro Entrega" onChange={e => setEntrega({...entrega, bairro: e.target.value})} />
