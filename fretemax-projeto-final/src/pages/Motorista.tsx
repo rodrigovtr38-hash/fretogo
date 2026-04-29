@@ -61,15 +61,14 @@ export default function Motorista() {
           <button onClick={() => signInWithPopup(auth, provider)} className="w-4/5 mx-auto bg-blue-600 p-6 rounded-2xl font-black uppercase italic shadow-2xl text-lg">ENTRAR NO RADAR</button>
         </div>
       ) : driverData?.status !== 'aprovado' ? (
-        /* ✅ BLOQUEIO DE SEGURANÇA: Se não estiver aprovado, não vê cargas */
         <div className="text-center py-16 bg-slate-900 rounded-[3rem] border-2 border-yellow-600 shadow-2xl px-6">
           <AlertCircle className="w-16 h-16 text-yellow-500 mx-auto mb-6" />
           <h2 className="text-2xl font-black italic uppercase mb-4">Cadastro em Análise</h2>
           <p className="text-slate-400 font-bold text-sm">Nossa equipe está validando seus documentos (CNH e Categoria). Você será notificado assim que puder aceitar fretes.</p>
         </div>
       ) : activeFrete ? (
-        <div className="bg-slate-900 p-6 rounded-[2.5rem] border-2 border-blue-500/50 shadow-2xl">
-          <h2 className="text-2xl font-black uppercase mb-6 flex items-center gap-2 text-blue-400 italic">Carga Ativa</h2>
+        <div className="bg-slate-900 p-6 rounded-[2.5rem] border-2 border-blue-500/50 shadow-2xl animate-in zoom-in">
+          <h2 className="text-2xl font-black uppercase mb-6 flex items-center gap-2 text-blue-400 italic font-black">Carga Ativa</h2>
           <div className="grid gap-4">
             {activeFrete.status === 'aceito' && (
               <>
@@ -80,7 +79,7 @@ export default function Motorista() {
             {activeFrete.status === 'coleta' && (
               <>
                 <button onClick={() => abrirGPS(activeFrete.destinoLat, activeFrete.destinoLng)} className="bg-white text-black p-5 rounded-2xl font-black uppercase text-sm flex items-center justify-center gap-2 shadow-xl"><Navigation className="w-6 h-6"/> Rota até o Destino</button>
-                <button onClick={() => handleUpdateStatus('em_transporte')} className="bg-orange-500 p-6 rounded-2xl font-black uppercase text-xl shadow-2xl">Finalizar Coleta e Iniciar Entrega</button>
+                <button onClick={() => handleUpdateStatus('em_transporte')} className="bg-orange-500 p-6 rounded-2xl font-black uppercase text-xl shadow-2xl font-black">Finalizar Coleta e Iniciar Entrega</button>
               </>
             )}
             {activeFrete.status === 'em_transporte' && <button onClick={() => handleUpdateStatus('entregue')} className="bg-green-600 p-7 rounded-2xl font-black uppercase text-xl flex gap-3 justify-center shadow-2xl"><CheckCircle className="w-7 h-7"/> Finalizar Entrega</button>}
@@ -91,9 +90,9 @@ export default function Motorista() {
            {availableFretes.length === 0 ? <p className="text-center text-slate-600 italic mt-20 font-black uppercase text-xs tracking-widest animate-pulse">Radar buscando fretes de {driverData.categoria}...</p> : 
              availableFretes.map(f => (
                <div key={f.id} className="bg-white text-slate-950 p-6 rounded-[2.5rem] shadow-2xl border-b-[12px] border-blue-600">
-                  <div className="flex justify-between items-center mb-6 font-black uppercase">
-                    <span className="bg-green-600 text-white px-4 py-1 rounded-lg text-xs tracking-widest shadow-md">PAGO VIA PIX</span>
-                    <span className="text-slate-500 text-sm">📍 {f.distancia || '??'} KM</span>
+                  <div className="flex justify-between items-center mb-6">
+                    <span className="bg-green-600 text-white px-4 py-1 rounded-lg text-xs font-black uppercase tracking-widest shadow-md">PAGO VIA PIX</span>
+                    <span className="text-slate-500 text-sm font-black">📍 {f.distancia || '??'} KM</span>
                   </div>
                   
                   <div className="mb-8">
@@ -109,7 +108,7 @@ export default function Motorista() {
                       <span>⚖️ {f.peso || 'N/A'}</span>
                       <span>📦 {f.tipoMaterial || 'CARGA'}</span>
                     </div>
-                    {f.veiculo === 'moto' ? <Bike className="w-7 h-7 text-blue-600"/> : <Truck className="w-7 h-7 text-blue-600"/>}
+                    {f.veiculo === 'bi_trem_cegonha' || f.veiculo === 'carreta_ls' || f.veiculo === 'truck' ? <Truck className="w-7 h-7 text-blue-600"/> : f.veiculo === 'moto' ? <Bike className="w-7 h-7 text-blue-600"/> : <Truck className="w-7 h-7 text-blue-600"/>}
                   </div>
 
                   <div className="flex flex-col gap-4">
