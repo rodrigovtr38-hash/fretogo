@@ -13,10 +13,8 @@ export default function Cliente() {
   const [peso, setPeso] = useState('');
   const [tipoMaterial, setTipoMaterial] = useState('');
   const [vehicle, setVehicle] = useState('carro_pequeno');
-  
   const [tipoFrete, setTipoFrete] = useState<'imediato' | 'agendado'>('imediato');
   const [dataAgendada, setDataAgendada] = useState('');
-
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [orderData, setOrderData] = useState<any>(null);
 
@@ -33,10 +31,35 @@ export default function Cliente() {
   const dist = (coleta.cep.length >= 8 && entrega.cep.length >= 8) ? 25 : 0;
   const valorTotalBruto = (32 + (dist * 3.80)) * configuracao[vehicle].fator;
 
+  // 1. RECUPERAR TUDO AO CARREGAR (Evita tela branca e perda de preço)
   useEffect(() => {
-    const saved = localStorage.getItem('fretogo_current_order');
-    if (saved && saved !== 'null') { setCurrentOrderId(saved); setStep('busca'); }
+    const savedOrder = localStorage.getItem('fretogo_current_order');
+    const savedForm = localStorage.getItem('fretogo_form_backup');
+
+    if (savedForm) {
+      const data = JSON.parse(savedForm);
+      setColeta(data.coleta); setEntrega(data.entrega);
+      setPeso(data.peso); setTipoMaterial(data.tipoMaterial);
+      setVehicle(data.vehicle); setTipoFrete(data.tipoFrete);
+      setDataAgendada(data.dataAgendada);
+    }
+
+    if (savedOrder && savedOrder !== 'null') {
+      setCurrentOrderId(savedOrder);
+      setStep('busca');
+    }
   }, []);
+
+  // 2. SALVAR FORMULÁRIO EM TEMPO REAL
+  useEffect(() => {
+    const formData = { coleta, entrega, peso, tipoMaterial, vehicle, tipoFrete, dataAgendada };
+    localStorage.setItem('fretogo_form_backup', JSON.stringify(formData));
+  }, [coleta, entrega, peso, tipoMaterial, vehicle, tipoFrete, dataAgendada]);
+
+  // AUTO-CORREÇÃO: Se estiver no preview sem dados (ex: voltou no navegador), volta pro form
+  useEffect(() => {
+    if (step === 'preview' && dist === 0) setStep('form');
+  }, [step, dist]);
 
   useEffect(() => {
     if (!currentOrderId) return;
@@ -61,28 +84,20 @@ export default function Cliente() {
     try {
       const c1 = await getCoords(`${coleta.bairro}, ${coleta.cep}, Brasil`);
       const c2 = await getCoords(`${entrega.bairro}, ${entrega.cep}, Brasil`);
-      
       const docRef = await addDoc(collection(db, 'fretes'), {
         distancia: dist, veiculo: vehicle, 
         valorTotal: Number(valorTotalBruto.toFixed(2)),
         valorMotorista: Number((valorTotalBruto * 0.8).toFixed(2)),
-        // 📍 DADOS RICOS (BACKHAUL READY)
-        cidadeOrigem: coleta.bairro,
-        cidadeDestino: entrega.bairro,
-        peso: peso || 'Não informado',
-        tipoMaterial: tipoMaterial || 'Carga geral',
-        coleta, entrega,
-        origemLat: c1?.lat || 0, origemLng: c1?.lng || 0,
+        cidadeOrigem: coleta.bairro, cidadeDestino: entrega.bairro,
+        peso: peso || 'Não informado', tipoMaterial: tipoMaterial || 'Carga geral',
+        coleta, entrega, origemLat: c1?.lat || 0, origemLng: c1?.lng || 0,
         destinoLat: c2?.lat || 0, destinoLng: c2?.lng || 0,
-        tipoFrete,
-        dataAgendada: tipoFrete === 'agendado' ? new Date(dataAgendada) : null,
+        tipoFrete, dataAgendada: tipoFrete === 'agendado' ? new Date(dataAgendada) : null,
         status: tipoFrete === 'agendado' ? 'agendado' : 'aguardando_pagamento',
         createdAt: serverTimestamp()
       });
-
       localStorage.setItem('fretogo_current_order', docRef.id);
       setCurrentOrderId(docRef.id);
-      
       const res = await fetch('/api/pagamento', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ titulo: `FRETOGO - ${configuracao[vehicle].nome}`, preco: valorTotalBruto.toFixed(2), idPedido: docRef.id })
@@ -97,23 +112,33 @@ export default function Cliente() {
     <div className="min-h-screen bg-slate-100 pb-10">
       <nav className="bg-slate-950 p-4 flex items-center justify-between text-white font-black italic sticky top-0 z-50">
         <div className="flex items-center gap-2">
-          {step !== 'form' && <ArrowLeft onClick={() => { localStorage.removeItem('fretogo_current_order'); setStep('form'); }} className="cursor-pointer" />}
+          {/* ✅ SETA DE VOLTAR CORRIGIDA: Sempre visível e inteligente */}
+          <ArrowLeft 
+            onClick={() => { 
+              if (step === 'form') {
+                window.location.href = '/'; // Volta para a Landing Page (Home)
+              } else {
+                localStorage.removeItem('fretogo_current_order'); 
+                setStep('form'); 
+              }
+            }} 
+            className="cursor-pointer" 
+          />
           <Zap className="text-yellow-400" /> FRETOGO
         </div>
       </nav>
 
       <div className="max-w-md mx-auto px-4 mt-6">
         {step === 'form' && (
-          <div className="space-y-3 bg-white p-6 rounded-3xl shadow-2xl">
+          <div className="space-y-3 bg-white p-6 rounded-3xl shadow-2xl animate-in fade-in">
             <h2 className="text-slate-900 font-black uppercase text-xs mb-4">Dados do Frete</h2>
-            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black" placeholder="Bairro Coleta" onChange={e => setColeta({...coleta, bairro: e.target.value})} />
-            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black" placeholder="CEP Coleta" onChange={e => setColeta({...coleta, cep: e.target.value})} />
-            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black" placeholder="Bairro Entrega" onChange={e => setEntrega({...entrega, bairro: e.target.value})} />
-            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black" placeholder="CEP Entrega" onChange={e => setEntrega({...entrega, cep: e.target.value})} />
+            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black" placeholder="Bairro Coleta" value={coleta.bairro} onChange={e => setColeta({...coleta, bairro: e.target.value})} />
+            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black" placeholder="CEP Coleta" value={coleta.cep} onChange={e => setColeta({...coleta, cep: e.target.value})} />
+            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black" placeholder="Bairro Entrega" value={entrega.bairro} onChange={e => setEntrega({...entrega, bairro: e.target.value})} />
+            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black" placeholder="CEP Entrega" value={entrega.cep} onChange={e => setEntrega({...entrega, cep: e.target.value})} />
             <select className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black outline-none" value={vehicle} onChange={e => setVehicle(e.target.value)}>
               {Object.keys(configuracao).map(k => <option key={k} value={k}>{configuracao[k].nome}</option>)}
             </select>
-
             <div className="bg-slate-100 p-4 rounded-2xl border-2 border-slate-200">
                <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Quando coletar?</p>
                <div className="flex gap-2">
@@ -122,9 +147,8 @@ export default function Cliente() {
                </div>
                {tipoFrete === 'agendado' && <input type="datetime-local" className="w-full mt-3 p-3 rounded-xl border-2 text-slate-900 font-bold" value={dataAgendada} onChange={(e) => setDataAgendada(e.target.value)} />}
             </div>
-
-            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black" placeholder="Peso (ex: 20kg)" onChange={e => setPeso(e.target.value)} />
-            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black" placeholder="Material (ex: Peças)" onChange={e => setTipoMaterial(e.target.value)} />
+            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black" placeholder="Peso (ex: 20kg)" value={peso} onChange={e => setPeso(e.target.value)} />
+            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black" placeholder="Material (ex: Peças)" value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)} />
             <button onClick={() => setStep('preview')} disabled={!peso || dist === 0} className="w-full bg-blue-600 text-white font-black py-5 rounded-2xl shadow-xl uppercase italic mt-4 active:scale-95 transition-transform">CALCULAR FRETE</button>
           </div>
         )}
@@ -134,10 +158,10 @@ export default function Cliente() {
             <MapaCliente />
             <div className="bg-white p-8 rounded-[2.5rem] shadow-2xl mt-4 text-center border-t-8 border-green-500">
                 <p className="text-6xl font-black text-slate-950 italic mb-6">R$ {valorTotalBruto.toFixed(2).replace('.', ',')}</p>
-                <div className="flex justify-center gap-6 mb-8 text-slate-600 text-xs font-black uppercase bg-slate-50 p-4 rounded-2xl">
+                <div className="flex justify-center gap-6 mb-8 text-slate-600 text-xs font-black uppercase bg-slate-50 p-4 rounded-2xl border border-slate-100">
                    <span>⚖️ {peso}</span> <span>📦 {tipoMaterial}</span>
                 </div>
-                <button onClick={handleContratar} disabled={loadingPay} className="w-full bg-slate-950 text-white py-6 rounded-3xl font-black uppercase italic flex items-center justify-center gap-3">
+                <button onClick={handleContratar} disabled={loadingPay} className="w-full bg-slate-950 text-white py-6 rounded-3xl font-black uppercase italic flex items-center justify-center gap-3 active:scale-95 transition-transform shadow-2xl">
                    {loadingPay ? <Loader2 className="animate-spin" /> : 'CONTRATAR AGORA'}
                 </button>
             </div>
@@ -150,9 +174,9 @@ export default function Cliente() {
                  <div className="animate-in fade-in">
                     <CheckCircle className="text-green-500 w-16 h-16 mx-auto mb-4" />
                     <h2 className="text-2xl font-black italic uppercase text-slate-950">Motorista Confirmado</h2>
-                    <p className="font-black text-blue-600 mt-2 text-xl">{orderData?.motoristaNome}</p>
+                    <p className="font-black text-blue-600 mt-4 text-xl uppercase">{orderData?.motoristaNome}</p>
                     <ChatFrete freteId={currentOrderId} tipoUsuario="cliente" nome="Você (Cliente)" />
-                    <button onClick={() => window.open(`https://wa.me/55${orderData?.motoristaZap?.replace(/\D/g,'')}`)} className="w-full bg-green-500 py-5 rounded-2xl font-black mt-6 text-white uppercase text-lg italic">WhatsApp Direto</button>
+                    <button onClick={() => window.open(`https://wa.me/55${orderData?.motoristaZap?.replace(/\D/g,'')}`)} className="w-full bg-green-500 py-5 rounded-2xl font-black mt-8 text-white uppercase shadow-2xl text-lg italic">WhatsApp Direto</button>
                  </div>
               ) : (
                  <div className="py-10 text-center">
