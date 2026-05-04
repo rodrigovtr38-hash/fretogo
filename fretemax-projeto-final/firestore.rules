@@ -1,0 +1,59 @@
+// firestore.rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Auth helper function
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Ownership helper function
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    match /motoristas_cadastros/{userId} {
+      allow read: if isAuthenticated();
+      // Allow create if authenticated and user ID matches document ID
+      allow create: if isOwner(userId);
+      // Allow update if owner, prevent modifying rating and totalCorridas to protect Score System
+      allow update: if isOwner(userId) && 
+                       (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['rating', 'totalCorridas']));
+      allow delete: if false; // Soft deletes usually better
+    }
+
+    match /motoristas_online/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId); 
+    }
+
+    match /fretes/{freteId} {
+      allow read: if true; // Clients need to read, consider restricting in production
+      allow create: if true; // Clients create fretes, consider restricting to auth or appcheck
+      // Prevent random updates. Allow motorista to update status if they are the assigned motorista, 
+      // or if they are accepting it (transitioning from disponivel to aceito and setting themselves)
+      allow update: if isAuthenticated() && (
+        (resource.data.status == 'disponivel' && request.resource.data.status == 'aceito' && request.resource.data.motoristaId == request.auth.uid) ||
+        (resource.data.motoristaId == request.auth.uid) ||
+        // Allow client to update initially, but might need tighter rules depending on exact client auth state
+        (resource.data.status == 'aguardando_pagamento')
+      );
+      allow delete: if false;
+    }
+
+    match /ofertas/{ofertaId} {
+      allow read: if isAuthenticated();
+      // Allow driver to read and update their own offers (e.g., status to aceito/recusado)
+      allow update: if isAuthenticated() && resource.data.motoristaId == request.auth.uid;
+      // Creation mostly happens via Cloud Functions (Admin SDK bypasses rules)
+      allow create: if false; 
+      allow delete: if false;
+    }
+    
+    match /analytics_demand/{docId} {
+        // Admin SDK handles creation
+        allow read, write: if false;
+    }
+  }
+}
