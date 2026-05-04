@@ -15,8 +15,14 @@ function calcularKM(lat1, lon1, lat2, lon2) {
 
 export async function verificarMotoristasEmRota(freteData) {
   try {
+    // ✅ PROTEÇÃO 1 (BLINDAGEM TOTAL): Verifica se a requisição tem a base mínima.
+    // Garante que veiculo, origemLat, origemLng, destinoLat e destinoLng existam antes de qualquer coisa.
+    if (!freteData || !freteData.veiculo || !freteData.origemLat || !freteData.origemLng || !freteData.destinoLat || !freteData.destinoLng) {
+      console.warn("[ROTA INTELIGENTE AVISO] Dados do frete incompletos. Abortando verificação.");
+      return { encontrou: false };
+    }
+
     const motoristasRef = collection(db, 'motoristas_online');
-    // Busca apenas motoristas que já estão em rota (ocupados com outra carga)
     const q = query(motoristasRef, where('emRota', '==', true));
     const snapshot = await getDocs(q);
 
@@ -25,31 +31,31 @@ export async function verificarMotoristasEmRota(freteData) {
     snapshot.forEach(docSnap => {
       const m = docSnap.data();
       
-      // Proteção: ignora se faltar dados ou se o veículo for incompatível
-      if (!m.origemAtualLat || !m.destinoAtualLat) return;
-      if (!m.categoria || m.categoria.toLowerCase() !== freteData.veiculo.toLowerCase()) return;
+      // ✅ PROTEÇÃO 2: Garante que TODAS as coordenadas do motorista existam antes do cálculo. Ignora com return seguro se faltar.
+      if (!m.origemAtualLat || !m.origemAtualLng || !m.destinoAtualLat || !m.destinoAtualLng) return;
+      
+      // ✅ AJUSTE 1 (CRÍTICO): Proteção rigorosa contra undefined para evitar crash silencioso
+      if (!m.categoria || (m.categoria || '').toLowerCase() !== (freteData.veiculo || '').toLowerCase()) return;
 
-      // 1. Calcula a distância da rota ORIGINAL do motorista
       const distRotaOriginal = calcularKM(m.origemAtualLat, m.origemAtualLng, m.destinoAtualLat, m.destinoAtualLng);
-
-      // 2. Calcula a nova distância se ele desviar para pegar o novo frete
       const distAteColeta = calcularKM(m.origemAtualLat, m.origemAtualLng, freteData.origemLat, freteData.origemLng);
       const distFrete = calcularKM(freteData.origemLat, freteData.origemLng, freteData.destinoLat, freteData.destinoLng);
       const distAteDestinoMot = calcularKM(freteData.destinoLat, freteData.destinoLng, m.destinoAtualLat, m.destinoAtualLng);
 
       const novaDistanciaTotal = distAteColeta + distFrete + distAteDestinoMot;
-      
-      // 3. O desvio é a diferença entre a rota nova e a rota original
       const desvio = novaDistanciaTotal - distRotaOriginal;
 
-      // Se o desvio for de até 5km, ele é um candidato inteligente
-      if (desvio <= 5) {
+      const lucroMinimo = 8; 
+      const custoPorKm = 2.0;
+      const custoDesvio = desvio * custoPorKm;
+
+      // ✅ AJUSTE 2 (CRÍTICO): Fallback inteligente ajustado (Evita bloqueio agressivo no matching)
+      if (desvio <= 5 && (custoDesvio <= lucroMinimo || desvio <= 2 || custoDesvio <= lucroMinimo * 1.5)) {
         candidatos.push({ id: docSnap.id, ...m, desvio });
       }
     });
 
     if (candidatos.length > 0) {
-      // Ordena pelo menor desvio (o que sai menos da rota ganha)
       candidatos.sort((a, b) => a.desvio - b.desvio);
       console.log(`[ROTA INTELIGENTE] Encontrado candidato ideal: ${candidatos[0].nome}`);
       return { encontrou: true, motorista: candidatos[0] };
