@@ -1,9 +1,9 @@
 import { db } from '../src/firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 
-// Cálculo de distância via fórmula de Haversine
 function calcularKM(lat1, lon1, lat2, lon2) {
-  if (!lat1 || !lon1 || !lat2 || !lon2) return 9999;
+  // ✅ AJUSTE 1: Validação de null para coordenadas (permite coordenada zero)
+  if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return 9999;
   const R = 6371; 
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
@@ -15,10 +15,8 @@ function calcularKM(lat1, lon1, lat2, lon2) {
 
 export async function verificarMotoristasEmRota(freteData) {
   try {
-    // ✅ PROTEÇÃO 1 (BLINDAGEM TOTAL): Verifica se a requisição tem a base mínima.
-    // Garante que veiculo, origemLat, origemLng, destinoLat e destinoLng existam antes de qualquer coisa.
-    if (!freteData || !freteData.veiculo || !freteData.origemLat || !freteData.origemLng || !freteData.destinoLat || !freteData.destinoLng) {
-      console.warn("[ROTA INTELIGENTE AVISO] Dados do frete incompletos. Abortando verificação.");
+    if (!freteData || !freteData.veiculo || freteData.origemLat == null || freteData.origemLng == null || freteData.destinoLat == null || freteData.destinoLng == null) {
+      console.warn("[ROTA INTELIGENTE] Dados do frete incompletos. Ignorando cálculo.");
       return { encontrou: false };
     }
 
@@ -31,10 +29,10 @@ export async function verificarMotoristasEmRota(freteData) {
     snapshot.forEach(docSnap => {
       const m = docSnap.data();
       
-      // ✅ PROTEÇÃO 2: Garante que TODAS as coordenadas do motorista existam antes do cálculo. Ignora com return seguro se faltar.
-      if (!m.origemAtualLat || !m.origemAtualLng || !m.destinoAtualLat || !m.destinoAtualLng) return;
+      // 🔥 MICRO AJUSTE FINAL: Proteção contra nulos (aceita coord 0)
+      if (m.origemAtualLat == null || m.origemAtualLng == null || m.destinoAtualLat == null || m.destinoAtualLng == null) return;
       
-      // ✅ AJUSTE 1 (CRÍTICO): Proteção rigorosa contra undefined para evitar crash silencioso
+      // ✅ AJUSTE 4: Segurança absoluta no toLowerCase
       if (!m.categoria || (m.categoria || '').toLowerCase() !== (freteData.veiculo || '').toLowerCase()) return;
 
       const distRotaOriginal = calcularKM(m.origemAtualLat, m.origemAtualLng, m.destinoAtualLat, m.destinoAtualLng);
@@ -49,7 +47,6 @@ export async function verificarMotoristasEmRota(freteData) {
       const custoPorKm = 2.0;
       const custoDesvio = desvio * custoPorKm;
 
-      // ✅ AJUSTE 2 (CRÍTICO): Fallback inteligente ajustado (Evita bloqueio agressivo no matching)
       if (desvio <= 5 && (custoDesvio <= lucroMinimo || desvio <= 2 || custoDesvio <= lucroMinimo * 1.5)) {
         candidatos.push({ id: docSnap.id, ...m, desvio });
       }
