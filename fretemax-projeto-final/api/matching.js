@@ -1,7 +1,9 @@
 import { db } from '../src/firebase';
-import { collection, getDocs, doc, updateDoc, query, where, getDoc } from 'firebase/firestore'; // AJUSTE: Importado getDoc
+import { collection, getDocs, doc, updateDoc, query, where, getDoc } from 'firebase/firestore';
+import { verificarMotoristasEmRota } from './rota-inteligente'; // INJEÇÃO DA ROTA INTELIGENTE
 
 function calcularKM(lat1, lon1, lat2, lon2) {
+  if (!lat1 || !lon1 || !lat2 || !lon2) return 9999;
   const R = 6371; 
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
@@ -15,13 +17,44 @@ function calcularKM(lat1, lon1, lat2, lon2) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).send('Método não permitido');
 
-  // AJUSTE: Proteção contra undefined no request payload
   const { freteId, lat, lng, veiculo } = req.body;
+  
   if (!freteId || !lat || !lng || !veiculo) {
       return res.status(400).json({ error: "Dados incompletos no corpo da requisição" });
   }
 
   try {
+    const freteRef = doc(db, 'fretes', freteId);
+    const freteSnap = await getDoc(freteRef);
+    if (!freteSnap.exists()) {
+        throw new Error("Frete não encontrado no Firestore");
+    }
+    const freteData = freteSnap.data();
+
+    // ========================================================
+    // 🔥 TENTATIVA 1: ROTA INTELIGENTE (NO CAMINHO)
+    // ========================================================
+    const tentativaRota = await verificarMotoristasEmRota(freteData);
+
+    if (tentativaRota.encontrou) {
+      const escolhido = tentativaRota.motorista;
+      
+      await updateDoc(freteRef, {
+        status: 'aceito',
+        motoristaId: escolhido.id,
+        motoristaNome: escolhido.nome,
+        motoristaZap: escolhido.whatsapp,
+        filaMatching: [escolhido.id], 
+        logs: [{ tipo: 'match_rota_inteligente', data: new Date().toISOString(), motorista: escolhido.nome, desvio: escolhido.desvio }]
+      });
+
+      console.log(`[MATCHING] Frete ${freteId} associado via Rota Inteligente para ${escolhido.nome}.`);
+      return res.status(200).json({ ok: true, motorista: escolhido.nome, rotaInteligente: true });
+    }
+
+    // ========================================================
+    // 🔥 TENTATIVA 2: FLUXO NORMAL (MOTORISTA DISPONÍVEL)
+    // ========================================================
     const motoristasRef = collection(db, 'motoristas_online');
     const q = query(motoristasRef, where('status', '==', 'disponivel'));
     const snapshot = await getDocs(q);
@@ -30,8 +63,6 @@ export default async function handler(req, res) {
 
     snapshot.forEach(docSnap => {
       const motorista = docSnap.data();
-      
-      // AJUSTE: Evita quebrar se um motorista não enviou GPS
       if (!motorista.lat || !motorista.lng) return;
 
       const distancia = calcularKM(lat, lng, motorista.lat, motorista.lng);
@@ -49,14 +80,6 @@ export default async function handler(req, res) {
     }
 
     const escolhido = motoristasProximos[0];
-    const freteRef = doc(db, 'fretes', freteId);
-
-    // AJUSTE [ROTA INTELIGENTE]: Buscar dados reais do frete para injetar no motorista
-    const freteSnap = await getDoc(freteRef);
-    if (!freteSnap.exists()) {
-        throw new Error("Frete não encontrado no Firestore");
-    }
-    const freteData = freteSnap.data();
 
     await updateDoc(freteRef, {
       status: 'aceito',
@@ -69,7 +92,7 @@ export default async function handler(req, res) {
 
     const motRef = doc(db, 'motoristas_online', escolhido.id);
     
-    // AJUSTE [ROTA INTELIGENTE]: Preparando o terreno gravando as variáveis do trajeto atual
+    // Prepara o motorista para futuras rotas inteligentes
     await updateDoc(motRef, { 
         status: 'ocupado',
         emRota: true,
