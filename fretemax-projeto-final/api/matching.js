@@ -1,9 +1,10 @@
 import { db } from '../src/firebase';
 import { collection, getDocs, doc, updateDoc, query, where, getDoc } from 'firebase/firestore';
-import { verificarMotoristasEmRota } from './rota-inteligente'; // INJEÇÃO DA ROTA INTELIGENTE
+import { verificarMotoristasEmRota } from './rota-inteligente'; 
 
 function calcularKM(lat1, lon1, lat2, lon2) {
-  if (!lat1 || !lon1 || !lat2 || !lon2) return 9999;
+  // ✅ AJUSTE 1 (CRÍTICO): Validação de null para coordenadas (permite coordenada zero)
+  if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return 9999;
   const R = 6371; 
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
@@ -14,12 +15,21 @@ function calcularKM(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
+function calcularScore(m) {
+  // ✅ AJUSTE 3: Blindagem contra NaN usando Number()
+  const rating = Number(m.score) || 5;
+  const corridas = Number(m.totalCorridas) || 1;
+  const aceite = Number(m.taxaAceite) || 1;
+  const cancel = Number(m.cancelamentos) || 0;
+  return (rating * 0.5) + (aceite * 3) + (corridas * 0.01) - (cancel * 0.2);
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).send('Método não permitido');
 
   const { freteId, lat, lng, veiculo } = req.body;
   
-  if (!freteId || !lat || !lng || !veiculo) {
+  if (freteId == null || lat == null || lng == null || !veiculo) {
       return res.status(400).json({ error: "Dados incompletos no corpo da requisição" });
   }
 
@@ -44,8 +54,10 @@ export default async function handler(req, res) {
         motoristaId: escolhido.id,
         motoristaNome: escolhido.nome,
         motoristaZap: escolhido.whatsapp,
+        rotaInteligente: true, 
         filaMatching: [escolhido.id], 
-        logs: [{ tipo: 'match_rota_inteligente', data: new Date().toISOString(), motorista: escolhido.nome, desvio: escolhido.desvio }]
+        // ✅ AJUSTE 2: Histórico de logs não será sobrescrito
+        logs: [...(freteData.logs || []), { tipo: 'match_rota_inteligente', data: new Date().toISOString(), motorista: escolhido.nome, desvio: escolhido.desvio }]
       });
 
       console.log(`[MATCHING] Frete ${freteId} associado via Rota Inteligente para ${escolhido.nome}.`);
@@ -63,21 +75,27 @@ export default async function handler(req, res) {
 
     snapshot.forEach(docSnap => {
       const motorista = docSnap.data();
-      if (!motorista.lat || !motorista.lng) return;
+      // 🔥 MICRO AJUSTE FINAL: Proteção contra nulos (aceita coord 0)
+      if (motorista.lat == null || motorista.lng == null) return;
 
       const distancia = calcularKM(lat, lng, motorista.lat, motorista.lng);
       
-      if (distancia <= 15 && motorista.categoria.toLowerCase() === veiculo.toLowerCase()) {
+      // ✅ AJUSTE 4: Segurança absoluta no toLowerCase
+      if (distancia <= 15 && (motorista.categoria || '').toLowerCase() === (veiculo || '').toLowerCase()) {
         motoristasProximos.push({ id: docSnap.id, ...motorista, distancia });
       }
     });
-
-    motoristasProximos.sort((a, b) => a.distancia - b.distancia);
 
     if (motoristasProximos.length === 0) {
       console.log(`[MATCHING] Nenhum motorista encontrado no raio para frete ${freteId}.`);
       return res.status(200).json({ ok: false, message: "Nenhum motorista no raio" });
     }
+
+    motoristasProximos.sort((a, b) => {
+      const scoreA = calcularScore(a) - (a.distancia * 0.25);
+      const scoreB = calcularScore(b) - (b.distancia * 0.25);
+      return scoreB - scoreA;
+    });
 
     const escolhido = motoristasProximos[0];
 
@@ -86,13 +104,14 @@ export default async function handler(req, res) {
       motoristaId: escolhido.id,
       motoristaNome: escolhido.nome,
       motoristaZap: escolhido.whatsapp,
+      rotaInteligente: false, 
       filaMatching: motoristasProximos.map(m => m.id), 
-      logs: [{ tipo: 'match_automatico_fila', data: new Date().toISOString(), motorista: escolhido.nome }]
+      // ✅ AJUSTE 2: Histórico de logs não será sobrescrito
+      logs: [...(freteData.logs || []), { tipo: 'match_automatico_fila', data: new Date().toISOString(), motorista: escolhido.nome }]
     });
 
     const motRef = doc(db, 'motoristas_online', escolhido.id);
     
-    // Prepara o motorista para futuras rotas inteligentes
     await updateDoc(motRef, { 
         status: 'ocupado',
         emRota: true,
