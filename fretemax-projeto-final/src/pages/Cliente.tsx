@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, addDoc, serverTimestamp, onSnapshot, doc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { ArrowLeft, Zap, Truck, Package, Loader2, CheckCircle, Bike, MapPin, Calendar } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
