@@ -1,210 +1,299 @@
 import { useState, useEffect } from 'react';
-import { auth, provider, db, storage } from '../firebase'; 
-import { signInWithPopup, signOut } from 'firebase/auth';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'; 
-import { collection, query, where, onSnapshot, doc, setDoc, runTransaction, serverTimestamp, updateDoc } from 'firebase/firestore';
-import { getMessaging, getToken } from 'firebase/messaging'; 
-import { Loader2, Truck, CheckCircle, Navigation, MapPin, AlertCircle, ShieldCheck, UserPlus, Camera } from 'lucide-react';
+import { db } from '../firebase';
+import { collection, addDoc, serverTimestamp, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { ArrowLeft, Zap, Truck, Package, Loader2, CheckCircle, MapPin } from 'lucide-react';
+import MapaCliente from '../components/MapaCliente';
 import ChatFrete from '../components/ChatFrete';
 
-export default function Motorista() {
-  const [user, setUser] = useState<any>(null);
-  const [driverData, setDriverData] = useState<any>(null);
-  const [activeFrete, setActiveFrete] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [minhaPosicao, setMinhaPosicao] = useState<any>(null);
-  const [comprovante, setComprovante] = useState<any>(null);
-  const [minhaOferta, setMinhaOferta] = useState<any>(null); 
-  const [backhaulDestino, setBackhaulDestino] = useState(''); 
-  const [form, setForm] = useState({ nome: '', whatsapp: '', placa: '', categoria: 'carro_pequeno' });
-  const [formStep, setFormStep] = useState(false);
+export default function Cliente() {
+  const [step, setStep] = useState('form'); 
+  const [loadingPay, setLoadingPay] = useState(false);
+  const [coleta, setColeta] = useState({ cep: '', bairro: '', rua: '', num: '' });
+  const [entrega, setEntrega] = useState({ cep: '', bairro: '', rua: '', num: '' });
+  const [peso, setPeso] = useState('');
+  const [tipoMaterial, setTipoMaterial] = useState('');
+  const [vehicle, setVehicle] = useState('carro_pequeno');
+  const [tipoFrete, setTipoFrete] = useState<'imediato' | 'agendado'>('imediato');
+  const [dataAgendada, setDataAgendada] = useState('');
+  const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
+  const [orderData, setOrderData] = useState<any>(null);
+  const [distanciaReal, setDistanciaReal] = useState(0);
 
-  // Solicita Permissão FCM e Guarda Token Local
-  useEffect(() => {
-    const requestPermission = async () => {
-      try {
-        const messaging = getMessaging();
-        const token = await getToken(messaging, { vapidKey: 'SUA_CHAVE_VAPID_AQUI' });
-        if (token) localStorage.setItem('fcm_token', token);
-      } catch (e) { console.warn("Aviso: Permissão push bloqueada ou falhou."); }
-    };
-    if (user) requestPermission();
-  }, [user]);
+  const configuracao: any = { 
+    'moto': { nome: 'Moto', fator: 0.6 },
+    'carro_pequeno': { nome: 'Carro Pequeno', fator: 1.0 },
+    'utilitario': { nome: 'Utilitário', fator: 1.6 },
+    'toco': { nome: 'Caminhão Toco', fator: 2.9 },
+    'truck': { nome: 'Caminhão Truck', fator: 3.8 },
+    'carreta_ls': { nome: 'Carreta LS', fator: 5.5 },
+    'bi_trem_cegonha': { nome: 'Bi-trem / Cegonha', fator: 7.2 }
+  };
 
-  // GPS Contínuo + Atualização Online
+  // MATEMÁTICA DE PREÇO BLINDADA (ANCORAGEM)
+  const valorTotalBruto = (32 + (distanciaReal * 3.80)) * configuracao[vehicle].fator;
+  const valorAncora = valorTotalBruto * 1.42; // Cria um preço fictício 42% maior para a âncora
+
   useEffect(() => {
-    if (user && driverData?.status === 'aprovado') {
-      const watchId = navigator.geolocation.watchPosition(async (pos) => {
-        const { latitude, longitude } = pos.coords;
-        setMinhaPosicao({ lat: latitude, lng: longitude });
-        await setDoc(doc(db, 'motoristas_online', user.uid), {
-          lat: latitude, 
-          lng: longitude,
-          categoria: driverData.categoria,
-          destinoPreferencial: backhaulDestino,
-          tokenFCM: localStorage.getItem('fcm_token') || null,
-          lastSeen: serverTimestamp() 
-        }, { merge: true });
-      }, null, { enableHighAccuracy: true });
-      return () => navigator.geolocation.clearWatch(watchId);
+    const savedOrder = localStorage.getItem('fretogo_current_order');
+    const savedForm = localStorage.getItem('fretogo_form_backup');
+    if (savedForm) {
+      const data = JSON.parse(savedForm);
+      setColeta(data.coleta); setEntrega(data.entrega);
+      setPeso(data.peso); setTipoMaterial(data.tipoMaterial);
+      setVehicle(data.vehicle); setTipoFrete(data.tipoFrete);
+      setDataAgendada(data.dataAgendada);
     }
-  }, [user, driverData, backhaulDestino]);
-
-  // Listener da Oferta
-  useEffect(() => {
-    if (user && driverData?.status === 'aprovado') {
-      return onSnapshot(query(collection(db, 'ofertas'), 
-        where('motoristaId', '==', user.uid), 
-        where('status', '==', 'pendente')), (snap) => {
-          if (!snap.empty) setMinhaOferta({ id: snap.docs[0].id, ...snap.docs[0].data() });
-          else setMinhaOferta(null);
-      });
+    if (savedOrder && savedOrder !== 'null') {
+      setCurrentOrderId(savedOrder);
+      setStep('busca');
     }
-  }, [user, driverData]);
-
-  useEffect(() => {
-    return auth.onAuthStateChanged((u) => {
-      setUser(u);
-      if (u) {
-        onSnapshot(query(collection(db, 'motoristas_cadastros'), where('email', '==', u.email)), (s) => {
-          if (!s.empty) { setDriverData(s.docs[0].data()); setFormStep(false); }
-          else { setFormStep(true); }
-        });
-        onSnapshot(query(collection(db, 'fretes'), where('motoristaId', '==', u.uid)), (s) => {
-          const ativo = s.docs.map(d => ({id: d.id, ...d.data()})).find((f: any) => ['aceito', 'coleta', 'em_transporte'].includes(f.status));
-          setActiveFrete(ativo);
-          setLoading(false);
-        });
-      } else { setUser(null); setLoading(false); }
-    });
   }, []);
 
-  // Aceitar Oferta com Limpeza de Fila
-  const handleAccept = async () => {
-    if (!minhaOferta) return;
-    const freteRef = doc(db, 'fretes', minhaOferta.freteId);
-    const ofertaRef = doc(db, 'ofertas', minhaOferta.id);
+  useEffect(() => {
+    const formData = { coleta, entrega, peso, tipoMaterial, vehicle, tipoFrete, dataAgendada };
+    localStorage.setItem('fretogo_form_backup', JSON.stringify(formData));
+  }, [coleta, entrega, peso, tipoMaterial, vehicle, tipoFrete, dataAgendada]);
+
+  const calcularDistanciaReal = async () => {
+    if (!coleta.rua || !coleta.num || !entrega.rua || !entrega.num || coleta.cep.length < 8 || entrega.cep.length < 8) {
+      alert("Preencha todos os campos corretamente. Rua, Número e CEP (mín. 8 caracteres) são obrigatórios.");
+      return;
+    }
+
+    setLoadingPay(true);
     try {
-      await runTransaction(db, async (t) => {
-        const frete = await t.get(freteRef);
-        if (frete.data()?.status !== 'disponivel') throw "Carga indisponível ou assumida por outro motorista.";
-        
-        t.update(freteRef, { 
-          status: 'aceito', 
-          motoristaId: user.uid, 
-          motoristaNome: driverData.nome, 
-          motoristaZap: driverData.whatsapp,
-          dispatchQueue: [], 
-          currentDriverIndex: null 
-        });
-        t.update(ofertaRef, { status: 'aceito' });
-      });
-      setMinhaOferta(null);
-    } catch (e) { alert(e); setMinhaOferta(null); }
-  };
+      const functions = getFunctions();
+      const getDistanceBackend = httpsCallable(functions, 'getDistance');
+      const result: any = await getDistanceBackend({ origin: coleta.cep, destination: entrega.cep });
+      
+      const km = Number(result.data);
+      if (isNaN(km) || km < 0) throw new Error("Distância inválida retornada.");
 
-  const handleRecusar = async () => {
-    if (minhaOferta) await updateDoc(doc(db, 'ofertas', minhaOferta.id), { status: 'recusado' });
-  };
-
-  const updateStatus = async (status: string) => {
-    if (!activeFrete) return;
-    if (status === 'entregue') {
-      if (!comprovante) return alert("⚠️ Foto da carga ou NF é obrigatória para finalizar!");
-      const fileRef = ref(storage, `comprovantes/${activeFrete.id}`);
-      await uploadBytes(fileRef, comprovante);
-      const url = await getDownloadURL(fileRef);
-      await updateDoc(doc(db, 'fretes', activeFrete.id), { status, comprovanteUrl: url });
-    } else {
-      await updateDoc(doc(db, 'fretes', activeFrete.id), { status });
+      setDistanciaReal(km);
+      setStep('preview');
+    } catch (e) { 
+      alert("Erro ao processar rota segura."); 
+    } finally { 
+      setLoadingPay(false); 
     }
   };
 
-  const openMaps = (lat: number, lng: number) => {
-    window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`);
+  useEffect(() => {
+    if (!currentOrderId) return;
+    return onSnapshot(doc(db, 'fretes', currentOrderId), async (snap) => {
+      if (snap.exists()) {
+          const data = snap.data();
+          setOrderData(data);
+          
+          if (data.status === 'erro_pagamento' || data.status === 'sem_motorista') {
+              alert(`Problema com o pedido: ${data.status}. Retornando ao início.`);
+              localStorage.removeItem('fretogo_current_order');
+              setCurrentOrderId(null);
+              setStep('form');
+          }
+      }
+    });
+  }, [currentOrderId]);
+
+  const getCoordsBackend = async (address: string): Promise<{ lat: number; lng: number } | null> => {
+    try {
+      const functions = getFunctions();
+      const getCoordsCall = httpsCallable(functions, 'getCoords');
+      const result: any = await getCoordsCall({ address });
+      return result.data;
+    } catch (e) {
+      console.warn('getCoords falhou para:', address, e);
+      return null;
+    }
   };
 
-  if (loading) return <div className="h-screen bg-slate-950 flex flex-col items-center justify-center gap-4"><div className="w-20 h-20 bg-blue-600 rounded-3xl flex items-center justify-center animate-pulse"><Truck className="text-white w-12 h-12" /></div><Loader2 className="animate-spin text-blue-500 w-8 h-8" /></div>;
+  const handleContratar = async () => {
+    if (isNaN(valorTotalBruto) || valorTotalBruto <= 0) {
+        alert("Erro no cálculo do valor. Tente novamente.");
+        return;
+    }
+
+    if (tipoFrete === 'agendado' && (!dataAgendada || new Date(dataAgendada) < new Date())) {
+      alert("Data de agendamento inválida."); return;
+    }
+    setLoadingPay(true);
+    try {
+      const c1 = await getCoordsBackend(`${coleta.rua}, ${coleta.num}, ${coleta.bairro}, Brazil`);
+      const c2 = await getCoordsBackend(`${entrega.rua}, ${entrega.num}, ${entrega.bairro}, Brazil`);
+      
+      if (!c1 || !c2) {
+        alert('Não foi possível localizar as coordenadas dos endereços fornecidos.');
+        setLoadingPay(false);
+        return;
+      }
+
+      const docRef = await addDoc(collection(db, 'fretes'), {
+        distancia: distanciaReal, veiculo: vehicle, 
+        valorTotal: Number(valorTotalBruto.toFixed(2)),
+        valorMotorista: Number((valorTotalBruto * 0.8).toFixed(2)),
+        cidadeOrigem: coleta.bairro, cidadeDestino: entrega.bairro,
+        enderecoColetaTexto: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`,
+        enderecoEntregaTexto: `${entrega.rua}, ${entrega.num} - ${entrega.bairro}`,
+        peso: peso || 'Não informado', tipoMaterial: tipoMaterial || 'Carga geral',
+        coleta, entrega, origemLat: c1.lat, origemLng: c1.lng,
+        destinoLat: c2.lat, destinoLng: c2.lng,
+        tipoFrete, dataAgendada: tipoFrete === 'agendado' ? new Date(dataAgendada) : null,
+        status: 'aguardando_pagamento',
+        createdAt: serverTimestamp()
+      });
+      localStorage.setItem('fretogo_current_order', docRef.id);
+      setCurrentOrderId(docRef.id);
+      
+      const res = await fetch('/api/pagamento', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ titulo: `FRETOGO - ${configuracao[vehicle].nome}`, preco: valorTotalBruto.toFixed(2), idPedido: docRef.id })
+      });
+      const data = await res.json();
+      
+      if (data.url) {
+          const checkInterval = setInterval(async () => {
+             const checkDoc = await getDoc(doc(db, 'fretes', docRef.id));
+             if (checkDoc.exists() && checkDoc.data().status === 'disponivel') {
+                 clearInterval(checkInterval);
+                 setStep('busca');
+             }
+          }, 3000);
+          
+          window.location.href = data.url; 
+      }
+      else {
+          throw new Error("Erro ao gerar URL de pagamento.");
+      }
+    } catch (e) { 
+        alert("Erro na contratação. Verifique sua conexão e tente novamente."); 
+        localStorage.removeItem('fretogo_current_order');
+        setCurrentOrderId(null);
+        setLoadingPay(false); 
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white font-sans p-4">
-      <nav className="bg-slate-900 p-4 flex items-center justify-between border-b border-slate-800 font-black italic mb-4 rounded-b-3xl text-sm sticky top-0 z-50">
-        <div className="flex items-center gap-2"><div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg"><Truck className="text-white w-5 h-5" /></div> FRETOGO RADAR</div>
-        {user && <button onClick={() => signOut(auth)} className="text-[10px] bg-slate-800 px-3 py-1 rounded-full uppercase">Sair</button>}
+    <div className="min-h-screen bg-slate-100 pb-10">
+      <nav className="bg-slate-950 p-4 flex items-center justify-between text-white font-black italic sticky top-0 z-50 shadow-md">
+        <div className="flex items-center gap-2 text-xl tracking-tight">
+          <ArrowLeft onClick={() => { if (step === 'form') window.location.href = '/'; else { localStorage.removeItem('fretogo_current_order'); setStep('form'); } }} className="cursor-pointer hover:scale-110 transition-all" />
+          <Zap className="text-yellow-400 fill-yellow-400" size={24} /> FRETOGO
+        </div>
       </nav>
 
-      {driverData?.status === 'aprovado' && !activeFrete && (
-        <div className="bg-slate-900 p-4 rounded-2xl mb-4 border border-blue-500/30">
-          <p className="text-[10px] font-black uppercase text-blue-400 mb-2">Modo Destino (Backhaul)</p>
-          <input className="w-full bg-transparent border-b border-slate-700 p-2 font-bold outline-none" placeholder="Ex: Santos" value={backhaulDestino} onChange={e => setBackhaulDestino(e.target.value)} />
-        </div>
-      )}
-
-      {minhaOferta && (
-        <div className="fixed inset-0 bg-blue-600 z-[100] p-8 flex flex-col justify-center animate-in slide-in-from-bottom">
-           <Truck className="w-20 h-20 mb-4 animate-bounce" />
-           <h2 className="text-4xl font-black italic mb-2 uppercase">Nova Carga!</h2>
-           <p className="text-2xl font-black mb-8">{minhaOferta.cidadeOrigem} ➔ {minhaOferta.cidadeDestino}</p>
-           <p className="text-5xl font-black mb-10 italic">R$ {minhaOferta.valor}</p>
-           <div className="flex gap-4">
-             <button onClick={handleAccept} className="flex-1 bg-white text-blue-600 p-6 rounded-2xl font-black text-2xl uppercase">Aceitar</button>
-             <button onClick={handleRecusar} className="bg-blue-800 p-6 rounded-2xl font-black uppercase text-xs">Recusar</button>
-           </div>
-        </div>
-      )}
-
-      {!user ? (
-        <div className="text-center py-20 bg-slate-900 rounded-[3rem] border-2 border-slate-800 shadow-2xl">
-          <Truck className="w-20 h-20 text-blue-500 mx-auto mb-6 animate-pulse" />
-          <h1 className="text-4xl font-black italic mb-8 uppercase tracking-tighter leading-none">Login<br/>Motorista</h1>
-          <button onClick={() => signInWithPopup(auth, provider)} className="w-4/5 mx-auto bg-blue-600 p-6 rounded-2xl font-black uppercase italic shadow-2xl text-xl">ENTRAR NO RADAR</button>
-        </div>
-      ) : formStep ? (
-        <div className="bg-white text-slate-950 p-8 rounded-[3rem] shadow-2xl">
-          <div className="flex items-center gap-3 mb-6"><UserPlus className="text-blue-600 w-8 h-8" /><h2 className="text-2xl font-black uppercase italic tracking-tighter">Finalizar Cadastro</h2></div>
-          <div className="space-y-4">
-            <input className="w-full p-4 bg-slate-100 rounded-xl font-bold" placeholder="Nome" onChange={e => setForm({...form, nome: e.target.value})} />
-            <input className="w-full p-4 bg-slate-100 rounded-xl font-bold" placeholder="WhatsApp" onChange={e => setForm({...form, whatsapp: e.target.value})} />
-            <input className="w-full p-4 bg-slate-100 rounded-xl font-bold uppercase" placeholder="Placa" onChange={e => setForm({...form, placa: e.target.value})} />
-            <select className="w-full p-4 bg-slate-100 rounded-xl font-bold" onChange={e => setForm({...form, categoria: e.target.value})}>
-              <option value="carro_pequeno">Carro Pequeno</option><option value="truck">Caminhão Truck</option><option value="bi_trem_cegonha">Bi-trem / Cegonha</option>
-            </select>
-            <button onClick={() => setDoc(doc(db, 'motoristas_cadastros', user.uid), {...form, email: user.email, status: 'pendente', createdAt: serverTimestamp()})} className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black uppercase italic shadow-xl">Enviar para Análise</button>
-          </div>
-        </div>
-      ) : driverData?.status !== 'aprovado' ? (
-        <div className="text-center py-16 bg-slate-900 rounded-[3rem] border-2 border-yellow-600 px-6"><AlertCircle className="w-20 h-20 text-yellow-500 mx-auto mb-6" /><h2 className="text-3xl font-black italic uppercase mb-4 text-yellow-500">Análise de Segurança</h2><p className="text-slate-200 font-black text-lg">Aguarde o sinal verde da central.</p></div>
-      ) : activeFrete ? (
-        <div className="bg-slate-900 p-6 rounded-[2.5rem] border-2 border-blue-500/50">
-          <h2 className="text-3xl font-black uppercase mb-4 text-blue-400 italic">Frete Ativo</h2>
-          <div className="bg-slate-800 p-4 rounded-2xl mb-6">
-            <p className="text-xs font-black text-slate-500 uppercase">📍 Endereço:</p>
-            <p className="text-lg font-black text-white">{activeFrete.status === 'aceito' ? activeFrete.enderecoColetaTexto : activeFrete.enderecoEntregaTexto}</p>
-          </div>
-          <div className="flex flex-col gap-3">
-             <button onClick={() => openMaps(activeFrete.status === 'aceito' ? activeFrete.origemLat : activeFrete.destinoLat, activeFrete.status === 'aceito' ? activeFrete.origemLng : activeFrete.destinoLng)} className="bg-white text-black p-5 rounded-2xl font-black uppercase flex items-center justify-center gap-2"><Navigation className="w-6 h-6"/> Abrir Rota</button>
-             {activeFrete.status === 'aceito' && <button onClick={() => updateStatus('coleta')} className="bg-blue-600 p-6 rounded-2xl font-black text-xl uppercase italic">Cheguei na Coleta</button>}
-             {activeFrete.status === 'coleta' && <button onClick={() => updateStatus('em_transporte')} className="bg-orange-500 p-6 rounded-2xl font-black text-xl uppercase italic">Carga Embarcada</button>}
-             {activeFrete.status === 'em_transporte' && (
-               <>
-                 <input type="file" id="foto" className="hidden" capture="environment" onChange={(e) => setComprovante(e.target.files?.[0])} />
-                 <label htmlFor="foto" className="bg-slate-700 p-5 rounded-2xl font-black text-center flex items-center justify-center gap-2 cursor-pointer"><Camera/> {comprovante ? "✅ FOTO OK" : "📸 TIRAR FOTO NF"}</label>
-                 <button onClick={() => updateStatus('entregue')} className="bg-green-600 p-6 rounded-2xl font-black text-2xl uppercase italic">Finalizar Entrega</button>
-               </>
-             )}
-          </div>
-          <ChatFrete freteId={activeFrete.id} tipoUsuario="motorista" nome={driverData?.nome} />
-        </div>
-      ) : (
-        <div className="text-center py-20 flex flex-col items-center">
-            <div className="relative w-48 h-48 mb-8">
-              <div className="absolute inset-0 rounded-full border-4 border-blue-500 opacity-20 animate-ping"></div>
-              <div className="absolute inset-8 rounded-3xl bg-blue-600 flex items-center justify-center shadow-lg"><Truck className="text-white w-20 h-20 animate-bounce" /></div>
+      <div className="max-w-md mx-auto px-4 mt-6">
+        {step === 'form' && (
+          <div className="space-y-3 bg-white p-6 rounded-3xl shadow-2xl animate-in fade-in slide-in-from-bottom-4">
+            <h2 className="text-slate-950 font-black uppercase text-xs mb-4 flex items-center gap-2"><MapPin className="text-blue-600 w-4 h-4"/> Onde coletamos?</h2>
+            
+            <div className="grid grid-cols-3 gap-2">
+              <input className="col-span-2 p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 text-sm focus:border-blue-500 outline-none transition-all" placeholder="Rua Coleta" value={coleta.rua} onChange={e => setColeta({...coleta, rua: e.target.value})} />
+              <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 text-sm focus:border-blue-500 outline-none transition-all" placeholder="Nº" value={coleta.num} onChange={e => setColeta({...coleta, num: e.target.value})} />
             </div>
-            <h2 className="text-3xl font-black italic uppercase">Buscando Carga...</h2>
-            <p className="text-slate-400 font-bold text-lg mt-2">Radar ativo categoria {driverData?.categoria}</p>
-        </div>
-      )}
+            <div className="grid grid-cols-2 gap-2">
+              <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 text-sm focus:border-blue-500 outline-none transition-all" placeholder="Bairro" value={coleta.bairro} onChange={e => setColeta({...coleta, bairro: e.target.value})} />
+              <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 text-sm focus:border-blue-500 outline-none transition-all" placeholder="CEP" value={coleta.cep} onChange={e => setColeta({...coleta, cep: e.target.value})} />
+            </div>
+            
+            <hr className="my-4 border-slate-100" />
+            
+            <h2 className="text-slate-950 font-black uppercase text-xs mb-4 flex items-center gap-2"><Truck className="text-blue-600 w-4 h-4"/> Destino da Carga</h2>
+            <div className="grid grid-cols-3 gap-2">
+              <input className="col-span-2 p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 text-sm focus:border-blue-500 outline-none transition-all" placeholder="Rua Entrega" value={entrega.rua} onChange={e => setEntrega({...entrega, rua: e.target.value})} />
+              <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 text-sm focus:border-blue-500 outline-none transition-all" placeholder="Nº" value={entrega.num} onChange={e => setEntrega({...entrega, num: e.target.value})} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 text-sm focus:border-blue-500 outline-none transition-all" placeholder="Bairro" value={entrega.bairro} onChange={e => setEntrega({...entrega, bairro: e.target.value})} />
+              <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 text-sm focus:border-blue-500 outline-none transition-all" placeholder="CEP" value={entrega.cep} onChange={e => setEntrega({...entrega, cep: e.target.value})} />
+            </div>
+            
+            <select className="w-full p-4 bg-slate-950 text-white rounded-xl font-black outline-none cursor-pointer hover:bg-slate-900 transition-all" value={vehicle} onChange={e => setVehicle(e.target.value)}>
+              {Object.keys(configuracao).map(k => <option key={k} value={k}>{configuracao[k].nome}</option>)}
+            </select>
+            
+            <div className="bg-slate-100 p-4 rounded-2xl border-2 border-slate-200">
+               <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Previsão</p>
+               <div className="flex gap-2">
+                 <button onClick={() => setTipoFrete('imediato')} className={`flex-1 p-3 rounded-xl font-black text-xs uppercase transition-all ${tipoFrete === 'imediato' ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}>Agora</button>
+                 <button onClick={() => setTipoFrete('agendado')} className={`flex-1 p-3 rounded-xl font-black text-xs uppercase transition-all ${tipoFrete === 'agendado' ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}>Agendar</button>
+               </div>
+               {tipoFrete === 'agendado' && <input type="datetime-local" className="w-full mt-3 p-3 rounded-xl border-2 text-slate-950 font-black outline-none focus:border-blue-500 transition-all" value={dataAgendada} onChange={(e) => setDataAgendada(e.target.value)} />}
+            </div>
+            
+            <div className="grid grid-cols-2 gap-2">
+              <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="Peso (ex: 20kg)" value={peso} onChange={e => setPeso(e.target.value)} />
+              <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="Material" value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)} />
+            </div>
+
+            <button onClick={calcularDistanciaReal} disabled={!peso || loadingPay} className="w-full bg-blue-600 text-white font-black py-5 rounded-2xl shadow-xl uppercase italic mt-4 hover:scale-[1.02] hover:bg-blue-700 transition-all duration-200 flex items-center justify-center gap-2">
+              {loadingPay ? <><Loader2 className="animate-spin w-5 h-5"/> Calculando rota...</> : 'CALCULAR FRETE'}
+            </button>
+          </div>
+        )}
+
+        {step === 'preview' && (
+          <div className="animate-in fade-in zoom-in duration-300">
+            <MapaCliente />
+            <div className="bg-white p-8 rounded-[2.5rem] shadow-2xl mt-4 text-center border-t-8 border-green-500 relative overflow-hidden">
+                
+                {/* GATILHO PSICOLÓGICO: Ancoragem de Preço */}
+                <p className="text-sm text-slate-400 line-through font-bold">
+                  De R$ {valorAncora.toFixed(2).replace('.', ',')}
+                </p>
+
+                <p className="text-6xl font-black text-green-600 italic mb-2 drop-shadow-sm">
+                  R$ {valorTotalBruto.toFixed(2).replace('.', ',')}
+                </p>
+
+                {/* TEXTO AJUSTADO: Seguro contra passivos, sem prometer a rota mágica antes de existir no backend */}
+                <p className="text-[11px] font-black uppercase text-green-700 bg-green-100 inline-block px-4 py-2 rounded-xl mb-6">
+                  Melhor preço disponível agora
+                </p>
+
+                <div className="bg-slate-50 p-4 rounded-2xl mb-8 text-slate-900 font-bold text-xs border border-slate-100 shadow-inner">
+                  {coleta.rua}, {coleta.num} ➔ {entrega.bairro} <br/>
+                  <span className="text-blue-600 font-black">({distanciaReal.toFixed(1)} KM)</span>
+                </div>
+                
+                <button onClick={handleContratar} disabled={loadingPay} className="w-full bg-slate-950 text-white py-6 rounded-3xl font-black uppercase italic shadow-2xl hover:scale-[1.02] hover:bg-black transition-all duration-200 flex items-center justify-center gap-2">
+                  {loadingPay ? <><Loader2 className="animate-spin w-5 h-5" /> Processando Pagamento...</> : 'CONTRATAR AGORA'}
+                </button>
+            </div>
+          </div>
+        )}
+
+        {step === 'busca' && (
+           <div className="bg-white rounded-[3rem] p-8 text-center shadow-2xl border-4 border-slate-100 mt-10 animate-in slide-in-from-bottom-6">
+              {['aceito', 'coleta', 'em_transporte', 'entregue'].includes(orderData?.status) ? (
+                 <div className="animate-in zoom-in fade-in duration-500">
+                    <CheckCircle className="text-green-500 w-20 h-20 mx-auto mb-4 drop-shadow-md" />
+                    <h2 className="text-2xl font-black italic uppercase text-slate-950">Motorista Confirmado</h2>
+                    <p className="font-black text-blue-600 mt-4 text-xl uppercase bg-blue-50 py-2 rounded-xl inline-block px-6">{orderData?.motoristaNome}</p>
+                    <div className="mt-6">
+                      <ChatFrete freteId={currentOrderId} tipoUsuario="cliente" nome="Você (Cliente)" />
+                    </div>
+                    <button onClick={() => window.open(`https://wa.me/55${orderData?.motoristaZap?.replace(/\D/g,'')}`)} className="w-full bg-green-500 py-5 rounded-2xl font-black mt-8 text-white uppercase shadow-xl hover:scale-[1.02] transition-all text-lg italic flex items-center justify-center gap-2">
+                      WhatsApp Direto
+                    </button>
+                 </div>
+              ) : (
+                 <div className="py-10 text-center flex flex-col items-center">
+                    <div className="relative">
+                      <div className="absolute inset-0 bg-blue-100 rounded-full animate-ping opacity-75"></div>
+                      <Package className="text-blue-600 w-24 h-24 relative z-10 animate-bounce" />
+                    </div>
+                    <h2 className="text-3xl font-black italic uppercase text-slate-950 mt-8 mb-2">
+                        {orderData?.status === 'disponivel' ? 'Buscando Motorista...' : 'Aguardando Pagamento...'}
+                    </h2>
+                    <p className="text-slate-500 font-bold text-sm uppercase tracking-wide">
+                        {orderData?.status === 'disponivel' ? 'Sua carga está no radar' : 'Confirme no Mercado Pago'}
+                    </p>
+                 </div>
+              )}
+           </div>
+        )}
+      </div>
     </div>
   );
 }
