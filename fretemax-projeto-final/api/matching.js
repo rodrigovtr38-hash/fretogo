@@ -41,6 +41,9 @@ export default async function handler(req, res) {
     }
     const freteData = freteSnap.data();
 
+    let filaMatching = [];
+    let novosLogs = [];
+
     // ========================================================
     // 🔥 TENTATIVA 1: ROTA INTELIGENTE (NO CAMINHO)
     // ========================================================
@@ -49,19 +52,17 @@ export default async function handler(req, res) {
     if (tentativaRota.encontrou) {
       const escolhido = tentativaRota.motorista;
       
-      await updateDoc(freteRef, {
-        status: 'aceito',
-        motoristaId: escolhido.id,
-        motoristaNome: escolhido.nome,
-        motoristaZap: escolhido.whatsapp,
-        rotaInteligente: true, 
-        filaMatching: [escolhido.id], 
-        // ✅ AJUSTE 2: Histórico de logs não será sobrescrito
-        logs: [...(freteData.logs || []), { tipo: 'match_rota_inteligente', data: new Date().toISOString(), motorista: escolhido.nome, desvio: escolhido.desvio }]
+      // ✅ Apenas coloca na frente da fila (prioridade máxima), sem aceitar direto
+      filaMatching.push(escolhido.id);
+      
+      novosLogs.push({ 
+        tipo: 'match_rota_inteligente_priorizado', 
+        data: new Date().toISOString(), 
+        motorista: escolhido.nome, 
+        desvio: escolhido.desvio 
       });
-
-      console.log(`[MATCHING] Frete ${freteId} associado via Rota Inteligente para ${escolhido.nome}.`);
-      return res.status(200).json({ ok: true, motorista: escolhido.nome, rotaInteligente: true });
+      
+      console.log(`[MATCHING] Motorista ${escolhido.nome} priorizado na fila via Rota Inteligente.`);
     }
 
     // ========================================================
@@ -86,43 +87,43 @@ export default async function handler(req, res) {
       }
     });
 
-    if (motoristasProximos.length === 0) {
-      console.log(`[MATCHING] Nenhum motorista encontrado no raio para frete ${freteId}.`);
-      return res.status(200).json({ ok: false, message: "Nenhum motorista no raio" });
-    }
-
+    // Ordenação mantida: Score - Distância
     motoristasProximos.sort((a, b) => {
       const scoreA = calcularScore(a) - (a.distancia * 0.25);
       const scoreB = calcularScore(b) - (b.distancia * 0.25);
       return scoreB - scoreA;
     });
 
-    const escolhido = motoristasProximos[0];
+    // ✅ Combina a fila normal com a rota inteligente (sem duplicar motoristas)
+    motoristasProximos.forEach(m => {
+      if (!filaMatching.includes(m.id)) {
+        filaMatching.push(m.id);
+      }
+    });
 
+    if (filaMatching.length === 0) {
+      console.log(`[MATCHING] Nenhum motorista encontrado no raio para frete ${freteId}.`);
+      return res.status(200).json({ ok: false, message: "Nenhum motorista no raio" });
+    }
+
+    novosLogs.push({ 
+      tipo: 'fila_matching_gerada', 
+      data: new Date().toISOString(), 
+      tamanhoFila: filaMatching.length 
+    });
+
+    // ========================================================
+    // 🔥 ATUALIZAÇÃO DO FRETE (DISPONÍVEL PARA OFERTA NO FRONT)
+    // ========================================================
     await updateDoc(freteRef, {
-      status: 'aceito',
-      motoristaId: escolhido.id,
-      motoristaNome: escolhido.nome,
-      motoristaZap: escolhido.whatsapp,
-      rotaInteligente: false, 
-      filaMatching: motoristasProximos.map(m => m.id), 
+      status: 'disponivel', 
+      filaMatching: filaMatching, 
       // ✅ AJUSTE 2: Histórico de logs não será sobrescrito
-      logs: [...(freteData.logs || []), { tipo: 'match_automatico_fila', data: new Date().toISOString(), motorista: escolhido.nome }]
+      logs: [...(freteData.logs || []), ...novosLogs]
     });
 
-    const motRef = doc(db, 'motoristas_online', escolhido.id);
-    
-    await updateDoc(motRef, { 
-        status: 'ocupado',
-        emRota: true,
-        origemAtualLat: freteData.origemLat || lat,
-        origemAtualLng: freteData.origemLng || lng,
-        destinoAtualLat: freteData.destinoLat || null,
-        destinoAtualLng: freteData.destinoLng || null
-    });
-
-    console.log(`[MATCHING SUCESSO] Motorista ${escolhido.nome} alocado para frete ${freteId}.`);
-    return res.status(200).json({ ok: true, motorista: escolhido.nome });
+    console.log(`[MATCHING SUCESSO] Fila montada com ${filaMatching.length} motoristas para frete ${freteId}.`);
+    return res.status(200).json({ ok: true, message: "Fila gerada com sucesso" });
 
   } catch (error) {
     console.error("[ERRO MATCHING]:", error.message);
