@@ -1,9 +1,24 @@
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+
+// 🔐 Inicialização segura do Firebase Admin
+if (!getApps().length) {
+  if (process.env.FIREBASE_ADMIN_CREDENTIAL) {
+    initializeApp({
+      credential: cert(JSON.parse(process.env.FIREBASE_ADMIN_CREDENTIAL))
+    });
+  } else {
+    console.error("[ERRO CRÍTICO] FIREBASE_ADMIN_CREDENTIAL não configurado na Vercel.");
+  }
+}
+
+const db = getFirestore();
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).send('Método não permitido');
   }
 
-  // AJUSTE: 'preco' removido da desestruturação para não confiarmos no frontend
   const { titulo, idPedido } = req.body;
 
   try {
@@ -11,29 +26,23 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'ID do pedido é obrigatório' });
     }
 
-    // AJUSTE [SEGURANÇA CRÍTICA]: Buscar o valor DIRETAMENTE do banco de dados via REST API
-    const firebaseUrl = `https://firestore.googleapis.com/v1/projects/${process.env.VITE_FIREBASE_PROJECT_ID}/databases/(default)/documents/fretes/${idPedido}`;
-    const getDoc = await fetch(firebaseUrl);
-    
-    if (!getDoc.ok) {
-      throw new Error('Pedido não encontrado ou ID inválido no banco de dados');
+    // 🔥 BUSCA SEGURA VIA FIREBASE ADMIN (Fim do bug da URL quebrada)
+    const freteRef = db.collection('fretes').doc(idPedido);
+    const freteSnap = await freteRef.get();
+
+    if (!freteSnap.exists) {
+      throw new Error('Pedido não encontrado no banco de dados');
     }
 
-    const docSnap = await getDoc.json();
-    
-    if (!docSnap.fields || !docSnap.fields.valorTotal) {
-      throw new Error('Documento de frete inválido ou sem valor definido');
+    const freteData = freteSnap.data();
+    const valorReal = Number(freteData.valorTotal);
+
+    if (isNaN(valorReal) || valorReal <= 0) {
+      console.error(`[FRAUDE EVITADA] Valor zerado/inválido. Pedido: ${idPedido}`);
+      return res.status(400).json({ error: 'Valor do frete inválido' });
     }
 
-    // Extrai o valor real salvo no banco de forma segura
-    const valorRealBruto = docSnap.fields.valorTotal.doubleValue || docSnap.fields.valorTotal.integerValue;
-    const valorReal = Number(valorRealBruto);
-
-    if (!valorReal || valorReal <= 0) {
-      console.error(`[FRAUDE EVITADA] Tentativa de pagamento zerado. Pedido: ${idPedido}`);
-      return res.status(400).json({ error: 'Valor do frete inválido no banco de dados' });
-    }
-
+    // 🚀 GERAÇÃO DO LINK DO MERCADO PAGO
     const response = await fetch('https://api.mercadopago.com/checkout/preferences', {
       method: 'POST',
       headers: {
@@ -46,21 +55,16 @@ export default async function handler(req, res) {
             title: titulo,
             quantity: 1,
             currency_id: 'BRL',
-            unit_price: valorReal // AJUSTE: Usando o valor blindado do banco
+            unit_price: valorReal // Valor blindado direto do banco
           }
         ],
         payer: {
-          email: `${idPedido}@fretogo.com`,
-          identification: {
-            type: "CPF",
-            number: "19119119100" 
-          }
+          email: `cliente_${idPedido}@fretogo.com`, // E-mail genérico seguro
         },
-        external_reference: idPedido,
+        external_reference: idPedido, // Crucial para o Webhook funcionar
         notification_url: `https://${req.headers.host}/api/webhook`, 
         payment_methods: {
           excluded_payment_types: [], 
-          excluded_payment_methods: [],
           installments: 12,
           default_installments: 1
         },
@@ -77,13 +81,14 @@ export default async function handler(req, res) {
     const data = await response.json();
 
     if (!data.init_point) {
-      console.error("Erro MP:", data);
+      console.error("[ERRO MP]: O Mercado Pago não devolveu o link.", data);
       return res.status(500).json({ 
-        error: 'Erro ao criar preferência',
+        error: 'Erro ao criar preferência no Mercado Pago',
         detalhe: data 
       });
     }
 
+    // ✅ SUCESSO: Devolve a URL do Mercado Pago pro Cliente.tsx
     return res.status(200).json({ url: data.init_point });
 
   } catch (error) {
