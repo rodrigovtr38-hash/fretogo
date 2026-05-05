@@ -2,33 +2,31 @@ import { useState, useEffect, useRef } from 'react';
 import { auth, provider, db, storage } from '../firebase'; 
 import { signInWithPopup, signOut } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'; 
-import { collection, query, where, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp, updateDoc, getDoc, runTransaction, arrayRemove } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp, updateDoc, runTransaction, arrayRemove } from 'firebase/firestore';
 import { getMessaging, getToken } from 'firebase/messaging'; 
 import { Loader2, Truck, CheckCircle, Navigation, MapPin, AlertCircle, ShieldCheck, UserPlus, Camera, Zap, Power } from 'lucide-react';
 import ChatFrete from '../components/ChatFrete';
+import { UserProfile, DriverData, OrderData, VehicleType } from '../types';
 
 export default function Motorista() {
-  const [user, setUser] = useState<any>(null);
-  const [driverData, setDriverData] = useState<any>(null);
-  const [activeFrete, setActiveFrete] = useState<any>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [driverData, setDriverData] = useState<DriverData | null>(null);
+  const [activeFrete, setActiveFrete] = useState<OrderData | null>(null);
   const [loading, setLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(false); 
   const [backhaulDestino, setBackhaulDestino] = useState(''); 
-  const [comprovante, setComprovante] = useState<any>(null);
+  const [comprovante, setComprovante] = useState<File | null>(null);
 
-  const [form, setForm] = useState({ nome: '', whatsapp: '', placa: '', categoria: 'carro_pequeno', cnh: '', renavam: '' });
+  const [form, setForm] = useState({ nome: '', whatsapp: '', placa: '', categoria: 'carro_pequeno' as VehicleType, cnh: '', renavam: '' });
   const [formStep, setFormStep] = useState(false);
 
-  const [ofertaFrete, setOfertaFrete] = useState<any>(null);
+  const [ofertaFrete, setOfertaFrete] = useState<OrderData | null>(null);
   const [tempoRestante, setTempoRestante] = useState(15);
   const [exibindoOferta, setExibindoOferta] = useState(false);
 
-  // ======================================================================
-  // 🔥 REFS DE PROTEÇÃO E PERFORMANCE (NÃO CAUSAM RE-RENDERS)
-  // ======================================================================
   const actionHandled = useRef(false);
-  const lastGpsUpdate = useRef(0); // Evita spam de GPS
-  const currentOfferId = useRef<string | null>(null); // Trava contra reset visual
+  const lastGpsUpdate = useRef(0); 
+  const currentOfferId = useRef<string | null>(null); 
 
   useEffect(() => {
     const requestPermission = async () => {
@@ -41,15 +39,11 @@ export default function Motorista() {
     if (user) requestPermission();
   }, [user]);
 
-  // ======================================================================
-  // 🔥 ATUALIZAÇÃO DE GPS (COM THROTTLE DE 5 SEGUNDOS)
-  // ======================================================================
   useEffect(() => {
     let watchId: number;
 
     if (user && driverData?.status === 'aprovado' && isOnline) {
       watchId = navigator.geolocation.watchPosition(async (pos) => {
-        // Reduzir uso excessivo do GPS (Só atualiza no Firebase a cada 5 segundos)
         const now = Date.now();
         if (now - lastGpsUpdate.current < 5000) return;
         lastGpsUpdate.current = now;
@@ -85,9 +79,6 @@ export default function Motorista() {
     };
   }, [user, driverData, isOnline, activeFrete, backhaulDestino]);
 
-  // ======================================================================
-  // 🔥 LISTENER DE OFERTAS (BLINDADO)
-  // ======================================================================
   useEffect(() => {
     if (!user || !isOnline || activeFrete) {
       setExibindoOferta(false);
@@ -103,7 +94,6 @@ export default function Motorista() {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      // Proteção contra execução zumbi de listener offline
       if (!isOnline) return;
 
       if (snapshot.empty) {
@@ -115,14 +105,14 @@ export default function Motorista() {
 
       let foundOffer = false;
       for (const docSnap of snapshot.docs) {
-        const data = docSnap.data();
+        const data = docSnap.data() as OrderData;
+        const freteId = docSnap.id;
         
         if (!data.motoristaId && data.filaMatching && data.filaMatching[0] === user.uid) {
-          // Valida antes de setar nova oferta (impede resetar timer atoa)
-          if (currentOfferId.current !== docSnap.id) {
+          if (currentOfferId.current !== freteId) {
             actionHandled.current = false; 
-            currentOfferId.current = docSnap.id;
-            setOfertaFrete({ id: docSnap.id, ...data });
+            currentOfferId.current = freteId;
+            setOfertaFrete({ id: freteId, ...data });
             setExibindoOferta(true);
             setTempoRestante(15); 
           }
@@ -141,9 +131,6 @@ export default function Motorista() {
     return () => unsubscribe();
   }, [user, isOnline, activeFrete]);
 
-  // ======================================================================
-  // 🔥 TIMER DA OFERTA
-  // ======================================================================
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (exibindoOferta && tempoRestante > 0) {
@@ -154,11 +141,8 @@ export default function Motorista() {
     return () => clearTimeout(timer);
   }, [exibindoOferta, tempoRestante]);
 
-  // ======================================================================
-  // 🔥 AÇÃO: ACEITAR (TRANSAÇÃO ATÔMICA)
-  // ======================================================================
   const handleAceitar = async () => {
-    if (!ofertaFrete || actionHandled.current) return;
+    if (!ofertaFrete || !ofertaFrete.id || actionHandled.current) return;
     actionHandled.current = true; 
 
     try {
@@ -168,25 +152,23 @@ export default function Motorista() {
         const snap = await transaction.get(freteRef);
         if (!snap.exists()) throw new Error("CANCELADO");
 
-        const data = snap.data();
-        if (data.motoristaId) {
-          throw new Error("JA_ACEITO");
-        }
-
-        // Garante que você ainda é o primeiro da fila
-        if (data.filaMatching && data.filaMatching[0] !== user.uid) {
+        const data = snap.data() as OrderData;
+        if (data.motoristaId) throw new Error("JA_ACEITO");
+        
+        // Garante a fila contra Race Condition
+        if (data.filaMatching && data.filaMatching[0] !== user?.uid) {
           throw new Error("FILA_ANDOU"); 
         }
 
         transaction.update(freteRef, {
           status: 'aceito',
-          motoristaId: user.uid,
+          motoristaId: user?.uid,
           motoristaNome: driverData?.nome || 'Motorista',
           motoristaZap: driverData?.whatsapp || ''
         });
       });
 
-      await updateDoc(doc(db, 'motoristas_online', user.uid), {
+      await updateDoc(doc(db, 'motoristas_online', user!.uid), {
         status: 'ocupado',
         emRota: true
       });
@@ -197,7 +179,7 @@ export default function Motorista() {
     } catch (e: any) {
       console.error("Erro ao aceitar:", e);
       if (e.message === "JA_ACEITO" || e.message === "FILA_ANDOU") {
-        alert("Ops! Você demorou e esta corrida já foi para outro motorista.");
+        alert("Ops! Esta corrida já foi atribuída a outro parceiro.");
       }
       setExibindoOferta(false);
       setOfertaFrete(null);
@@ -205,18 +187,16 @@ export default function Motorista() {
     }
   };
 
-  // ======================================================================
-  // 🔥 AÇÃO: RECUSAR (ARRAY REMOVE)
-  // ======================================================================
   const handleRecusar = async () => {
-    if (!ofertaFrete || actionHandled.current) return;
+    if (!ofertaFrete || !ofertaFrete.id || actionHandled.current) return;
     actionHandled.current = true; 
 
     try {
       const freteRef = doc(db, 'fretes', ofertaFrete.id);
       
+      // Sai da fila para o Backend assumir o próximo
       await updateDoc(freteRef, {
-        filaMatching: arrayRemove(user.uid)
+        filaMatching: arrayRemove(user?.uid)
       });
 
       setExibindoOferta(false);
@@ -232,11 +212,11 @@ export default function Motorista() {
 
   useEffect(() => {
     return auth.onAuthStateChanged((u) => {
-      setUser(u);
       if (u) {
+        setUser({ uid: u.uid, email: u.email });
         onSnapshot(query(collection(db, 'motoristas_cadastros'), where('email', '==', u.email)), (s) => {
           if (!s.empty) { 
-            setDriverData(s.docs[0].data()); 
+            setDriverData(s.docs[0].data() as DriverData); 
             setFormStep(false); 
           } else { 
             setFormStep(true); 
@@ -244,8 +224,8 @@ export default function Motorista() {
         });
         
         onSnapshot(query(collection(db, 'fretes'), where('motoristaId', '==', u.uid)), (s) => {
-          const ativo = s.docs.map(d => ({id: d.id, ...d.data()})).find((f: any) => ['aceito', 'coleta', 'em_transporte'].includes(f.status));
-          setActiveFrete(ativo);
+          const ativo = s.docs.map(d => ({id: d.id, ...d.data()}) as OrderData).find(f => ['aceito', 'coleta', 'em_transporte'].includes(f.status));
+          setActiveFrete(ativo || null);
           setLoading(false);
         });
       } else { 
@@ -256,6 +236,7 @@ export default function Motorista() {
   }, []);
 
   const toggleStatus = async () => {
+    if (!user) return;
     if (isOnline) {
       setIsOnline(false);
       await deleteDoc(doc(db, 'motoristas_online', user.uid));
@@ -265,7 +246,8 @@ export default function Motorista() {
   };
 
   const updateStatusFrete = async (status: string) => {
-    if (!activeFrete) return;
+    if (!activeFrete || !activeFrete.id || !user) return;
+    
     if (status === 'entregue') {
       if (!comprovante) return alert("⚠️ Foto da carga ou canhoto da NF é obrigatória para finalizar!");
       setLoading(true);
@@ -383,7 +365,7 @@ export default function Motorista() {
               <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all uppercase" placeholder="CNH" onChange={e => setForm({...form, cnh: e.target.value})} />
             </div>
             <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all uppercase" placeholder="RENAVAM" onChange={e => setForm({...form, renavam: e.target.value})} />
-            <select className="w-full p-4 bg-slate-950 text-white rounded-xl font-black outline-none cursor-pointer" onChange={e => setForm({...form, categoria: e.target.value})}>
+            <select className="w-full p-4 bg-slate-950 text-white rounded-xl font-black outline-none cursor-pointer" onChange={e => setForm({...form, categoria: e.target.value as VehicleType})}>
               <option value="carro_pequeno">Carro Pequeno</option><option value="truck">Caminhão Truck</option><option value="bi_trem_cegonha">Bi-trem / Cegonha</option>
             </select>
             <button onClick={() => setDoc(doc(db, 'motoristas_cadastros', user.uid), {...form, email: user.email, status: 'pendente', createdAt: serverTimestamp()})} className="w-full bg-blue-600 text-white py-6 rounded-2xl font-black text-xl uppercase italic shadow-xl hover:scale-105 active:scale-95 transition-all duration-200 mt-6 flex justify-center items-center gap-2">
@@ -420,7 +402,7 @@ export default function Motorista() {
              
              {activeFrete.status === 'em_transporte' && (
                <div className="bg-slate-800 p-4 rounded-3xl border border-slate-700 mt-2">
-                 <input type="file" id="foto" className="hidden" capture="environment" onChange={(e) => setComprovante(e.target.files?.[0])} />
+                 <input type="file" id="foto" className="hidden" capture="environment" onChange={(e) => setComprovante(e.target.files?.[0] || null)} />
                  <label htmlFor="foto" className={`p-6 rounded-2xl font-black text-center flex items-center justify-center gap-3 cursor-pointer transition-all mb-4 ${comprovante ? 'bg-green-500/20 text-green-400 border-2 border-green-500' : 'bg-slate-700 text-white hover:bg-slate-600'}`}>
                    <Camera size={24}/> {comprovante ? "COMPROVANTE ANEXADO" : "FOTO DA NOTA / CARGA"}
                  </label>
@@ -431,7 +413,7 @@ export default function Motorista() {
              )}
           </div>
           <div className="mt-8 pt-8 border-t border-slate-800">
-            <ChatFrete freteId={activeFrete.id} tipoUsuario="motorista" nome={driverData?.nome} />
+            {activeFrete.id && <ChatFrete freteId={activeFrete.id} tipoUsuario="motorista" nome={driverData?.nome || "Motorista"} />}
           </div>
         </div>
       ) : (
