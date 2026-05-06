@@ -1,15 +1,27 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ShieldCheck, Zap, Truck, MapPin, Star, ChevronRight, Download } from 'lucide-react';
+import { ShieldCheck, Zap, Truck, MapPin, Star, ChevronRight, Download, XCircle } from 'lucide-react';
 
 export default function Home() {
-
-  // ✅ Função estratégica para o Botão Baixar App (Mantém a autoridade)
-  const handleDownloadClick = () => {
-    alert('O App Fretogo Driver está em fase final de publicação nas lojas! Por enquanto, clique em "Ser Motorista" logo ao lado para acessar o painel e receber corridas pelo navegador.');
-  };
+  // 🔥 GAP 6 CORRIGIDO: Modal UX Profissional ao invés de alert()
+  const [showModal, setShowModal] = useState(false);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white font-sans overflow-x-hidden">
+    <div className="min-h-screen bg-slate-950 text-white font-sans overflow-x-hidden relative">
+      
+      {showModal && (
+        <div className="fixed inset-0 z-[200] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-slate-900 rounded-[2rem] p-8 max-w-sm w-full text-center shadow-[0_0_40px_rgba(59,130,246,0.2)] border border-slate-800">
+            <Download className="w-12 h-12 text-yellow-500 mx-auto mb-4 drop-shadow-md" />
+            <h3 className="text-xl font-black text-white mb-2 uppercase italic">App Em Breve</h3>
+            <p className="text-slate-400 font-medium text-sm mb-6">O App Fretogo Driver está em fase final de publicação nas lojas! Por enquanto, clique em "Ser Motorista" para acessar o painel e receber corridas pelo navegador.</p>
+            <button onClick={() => setShowModal(false)} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-xl transition-colors uppercase text-xs flex items-center justify-center gap-2">
+              Entendi
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* NAVBAR */}
       <nav className="flex items-center justify-between p-6 max-w-7xl mx-auto relative z-10">
         <div className="flex items-center gap-2">
@@ -44,7 +56,6 @@ export default function Home() {
             <span className="text-white font-bold block mt-2">Sem mensalidade. Sem burocracia.</span>
           </p>
 
-          {/* 🔥 SEUS BOTÕES ORIGINAIS + O NOVO BOTÃO DE DOWNLOAD */}
           <div className="flex flex-col sm:flex-row flex-wrap gap-4">
             <Link to="/cliente" className="group bg-blue-600 hover:bg-blue-500 px-8 py-5 rounded-2xl font-black uppercase italic shadow-[0_0_30px_-5px_rgba(37,99,235,0.5)] transition-all flex items-center justify-center gap-2">
               Contratar Frete <ChevronRight className="group-hover:translate-x-1 transition-transform" />
@@ -52,15 +63,12 @@ export default function Home() {
             <Link to="/motorista" className="bg-white text-slate-950 hover:bg-slate-100 px-8 py-5 rounded-2xl font-black uppercase italic transition-all text-center flex items-center justify-center">
               Ser Motorista
             </Link>
-            
-            {/* BOTÃO BAIXAR APP INJETADO SEM QUEBRAR SEU LAYOUT */}
-            <button onClick={handleDownloadClick} className="bg-yellow-500 hover:bg-yellow-400 text-slate-950 px-8 py-5 rounded-2xl font-black uppercase italic transition-all shadow-lg shadow-yellow-500/20 text-center flex items-center justify-center gap-2 sm:w-auto w-full">
+            <button onClick={() => setShowModal(true)} className="bg-yellow-500 hover:bg-yellow-400 text-slate-950 px-8 py-5 rounded-2xl font-black uppercase italic transition-all shadow-lg shadow-yellow-500/20 text-center flex items-center justify-center gap-2 sm:w-auto w-full">
               <Download size={20} /> Baixar App
             </button>
           </div>
         </div>
 
-        {/* VISUAL LADO DIREITO (SIMULAÇÃO DE APP - O SEU DESIGN PREMIUM) */}
         <div className="relative flex justify-center mt-8 md:mt-0">
            <div className="w-full max-w-[340px] aspect-[9/16] bg-slate-900 rounded-[3rem] border-[8px] border-slate-800 shadow-2xl overflow-hidden relative">
               <div className="absolute top-0 w-full h-full bg-[url('https://www.google.com/maps/about/images/home/home-maps-icon.svg')] opacity-20 bg-center bg-cover"></div>
@@ -76,7 +84,6 @@ export default function Home() {
                   </div>
               </div>
            </div>
-           {/* Floating badges */}
            <div className="absolute -left-2 md:-left-6 top-1/4 bg-slate-800 border border-slate-700 p-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-pulse">
               <ShieldCheck className="text-green-500 w-6 h-6" />
               <p className="text-xs font-bold uppercase">Verificado</p>
@@ -84,7 +91,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* PROVAS DE CONFIANÇA */}
       <section className="max-w-7xl mx-auto px-6 py-12 border-t border-slate-900">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
            {[
