@@ -66,7 +66,8 @@ export default async function handler(req, res) {
         notification_url: `https://${req.headers.host}/api/webhook`, 
         payment_methods: {
           excluded_payment_types: [], 
-          installments: 12,
+          // 🛡️ ALERTA A4 RESOLVIDO: Bloqueia parcelamento. Frete é serviço, só à vista.
+          installments: 1,
           default_installments: 1
         },
         statement_descriptor: "FRETOGO", 
