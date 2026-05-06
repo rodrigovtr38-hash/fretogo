@@ -19,6 +19,7 @@ export default async function handler(req, res) {
     return res.status(405).send('Método não permitido');
   }
 
+  // 🔥 GAP 5 RESOLVIDO: O "preco" não é mais recebido do frontend. Confiança zero no cliente.
   const { titulo, idPedido } = req.body;
 
   try {
@@ -26,7 +27,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'ID do pedido é obrigatório' });
     }
 
-    // 🔥 BUSCA SEGURA VIA FIREBASE ADMIN (Fim do bug da URL quebrada)
+    // 🔒 BUSCA SEGURA VIA FIREBASE ADMIN DIRETO NO BANCO
     const freteRef = db.collection('fretes').doc(idPedido);
     const freteSnap = await freteRef.get();
 
@@ -55,13 +56,13 @@ export default async function handler(req, res) {
             title: titulo,
             quantity: 1,
             currency_id: 'BRL',
-            unit_price: valorReal // Valor blindado direto do banco
+            unit_price: valorReal // Valor seguro, tirado diretamente do Firestore
           }
         ],
         payer: {
-          email: `cliente_${idPedido}@fretogo.com`, // E-mail genérico seguro
+          email: `cliente_${idPedido}@fretogo.com`, // E-mail gerado dinamicamente para o MP
         },
-        external_reference: idPedido, // Crucial para o Webhook funcionar
+        external_reference: idPedido, // Crucial para o Webhook saber qual frete liberar
         notification_url: `https://${req.headers.host}/api/webhook`, 
         payment_methods: {
           excluded_payment_types: [], 
@@ -88,7 +89,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // ✅ SUCESSO: Devolve a URL do Mercado Pago pro Cliente.tsx
+    // ✅ SUCESSO: Devolve a URL do Mercado Pago pro Cliente.tsx redirecionar a tela
     return res.status(200).json({ url: data.init_point });
 
   } catch (error) {
