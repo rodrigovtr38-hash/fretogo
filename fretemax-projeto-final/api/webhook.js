@@ -1,5 +1,6 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import crypto from 'crypto';
 
 // 🔐 Inicializa o Firebase apenas uma vez na Vercel (Padrão Serverless Seguro)
 if (!getApps().length) {
@@ -18,19 +19,36 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).send('Método não permitido');
 
   try {
+    // 🛡️ ALERTA A2 RESOLVIDO: Validação de Assinatura HMAC (Antifraude do Mercado Pago)
+    const xSignature = req.headers['x-signature'];
+    const xRequestId = req.headers['x-request-id'];
+    const dataId = req.query?.['data.id'] || req.body?.data?.id;
+
+    if (xSignature && process.env.MP_WEBHOOK_SECRET) {
+      const parts = xSignature.split(',');
+      const ts = parts.find(p => p.startsWith('ts='))?.split('=')[1];
+      const v1 = parts.find(p => p.startsWith('v1='))?.split('=')[1];
+      const manifest = `id:${dataId};request-id:${xRequestId};ts:${ts};`;
+      const hmac = crypto.createHmac('sha256', process.env.MP_WEBHOOK_SECRET)
+        .update(manifest).digest('hex');
+      
+      if (hmac !== v1) {
+        console.error("[FRAUDE BLOQUEADA] Assinatura do Webhook inválida.");
+        return res.status(401).send('Assinatura inválida');
+      }
+    }
+
     const payment = req.body; 
 
     if (payment && payment.type === 'payment' && payment.data && payment.data.id) {
       const paymentId = payment.data.id;
       
-      // ✅ LOG CLARO: Ajuda no debug na Vercel
       console.log(`[WEBHOOK] Notificação de pagamento recebida. ID do MP: ${paymentId}`);
 
       const mpResponse = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
         headers: { Authorization: `Bearer ${process.env.MERCADO_PAGO_ACCESS_TOKEN}` }
       });
 
-      // ✅ AJUSTE 1: Validar erro da API do Mercado Pago antes de tentar ler o JSON
       if (!mpResponse.ok) {
         console.error(`[WEBHOOK] Erro ao consultar Mercado Pago: Status ${mpResponse.status}`);
         return res.status(500).send('Erro ao validar pagamento');
@@ -50,7 +68,6 @@ export default async function handler(req, res) {
       if (freteSnap.exists) {
         const freteData = freteSnap.data();
 
-        // ✅ AJUSTE 3: Tratar pagamento rejeitado/recusado para não travar o app do cliente
         if (paymentData.status === 'rejected' || paymentData.status === 'cancelled') {
           if (!['disponivel', 'aceito', 'em_transporte', 'entregue'].includes(freteData.status)) {
             await freteRef.update({
@@ -65,14 +82,16 @@ export default async function handler(req, res) {
         // 🔥 PAGAMENTO APROVADO
         if (paymentData.status === 'approved' && paymentData.status_detail === 'accredited') {
           
-          // Proteção de Duplicidade: Só destrava o radar se o status ainda não andou
           if (!['disponivel', 'aceito', 'em_transporte', 'entregue'].includes(freteData.status)) {
             
+            // 🔴 CRÍTICO C1 RESOLVIDO: Gravando o recibo do MP para permitir o estorno automático!
             await freteRef.update({
               status: 'disponivel',
               pagoEm: FieldValue.serverTimestamp(),
+              pagamentoId: paymentId,
+              pagamentoValor: paymentData.transaction_amount
             });
-            console.log(`[WEBHOOK SUCESSO] Frete ${pedidoId} liberado e entrou no Radar!`);
+            console.log(`[WEBHOOK SUCESSO] Frete ${pedidoId} no Radar! Recibo salvo: ${paymentId}`);
           }
         }
       } else {
@@ -80,7 +99,6 @@ export default async function handler(req, res) {
       }
     }
 
-    // Sempre retorna 200 para o Mercado Pago dar a mensagem como entregue
     res.status(200).send('OK');
   } catch (err) {
     console.error(`[WEBHOOK ERRO CRÍTICO]:`, err);
