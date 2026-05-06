@@ -229,23 +229,37 @@ export default function Cliente() {
     } finally { setLoadingPayment(false); }
   };
 
-  // 🔴 NOVO FREIO COM ESTORNO FINANCEIRO INTEGRADO
+  // 🔴 NOVO FREIO COM ESTORNO FINANCEIRO INTEGRADO (CORRIGIDO: Race Condition C5)
   const handleCancelarPedido = async () => {
     if (!currentOrderId || isCancelling) return;
     setIsCancelling(true);
     try {
-      // 1. Muda o status no Firebase para cancelar na tela do motorista imediatamente
+      // 1. PRIMEIRO: Tentar o reembolso financeiro
+      const reembolsoRes = await fetch('/api/reembolso', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idPedido: currentOrderId })
+      });
+      
+      if (!reembolsoRes.ok) {
+        const err = await reembolsoRes.json();
+        // Se não houve pagamento ainda (frete ainda em aguardando_pagamento),
+        // pode cancelar sem reembolso de forma segura.
+        if (err.error?.includes('Nenhum pagamento')) {
+          console.log("Frete não estava pago, cancelando diretamente.");
+        } else {
+          // Erro real no Mercado Pago. Interrompe tudo para proteger o dinheiro.
+          showToast('Erro ao processar devolução. Tente novamente.', 'error');
+          setIsCancelling(false);
+          return;
+        }
+      }
+
+      // 2. DEPOIS: Mudar o status no Firestore (só após reembolso confirmado)
       await updateDoc(doc(db, 'fretes', currentOrderId), {
         status: 'cancelado',
         canceladoEm: serverTimestamp(),
         canceladoPor: 'cliente'
-      });
-
-      // 2. Chama o "Gerente Financeiro" silenciosamente para devolver o dinheiro no Mercado Pago
-      await fetch('/api/reembolso', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idPedido: currentOrderId })
       });
 
       setShowCancelModal(false); // Fecha o modal após sucesso
