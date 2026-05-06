@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
-import { collection, addDoc, serverTimestamp, onSnapshot, doc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { ArrowLeft, Zap, Truck, Package, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Zap, Truck, Package, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import ChatFrete from '../components/ChatFrete';
 
@@ -54,6 +54,10 @@ export default function Cliente() {
   const [step, setStep] = useState<'form' | 'preview' | 'busca'>('form');
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [loadingPayment, setLoadingPayment] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  
+  const [toast, setToast] = useState<{msg: string, type: 'error' | 'success' | 'warning'} | null>(null);
+  const [showCancelModal, setShowCancelModal] = useState(false);
 
   const [coleta, setColeta] = useState<AddressData>({ cep: '', bairro: '', rua: '', num: '' });
   const [entrega, setEntrega] = useState<AddressData>({ cep: '', bairro: '', rua: '', num: '' });
@@ -73,6 +77,11 @@ export default function Cliente() {
   const fatorVeiculo = VEHICLE_CONFIG[vehicle]?.fator || 1.0;
   const valorTotalBruto = (32 + (validDistancia * 3.80)) * fatorVeiculo;
   const valorAncora = valorTotalBruto * 1.42;
+
+  const showToast = (msg: string, type: 'error' | 'success' | 'warning' = 'error') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 5000);
+  };
 
   useEffect(() => {
     const savedOrder = localStorage.getItem('fretogo_current_order');
@@ -106,9 +115,16 @@ export default function Cliente() {
       if (snap.exists()) {
         const data = snap.data() as OrderData;
         setOrderData(data);
-        const falhasCriticas = ['erro_pagamento', 'sem_motorista', 'cancelado', 'expirado', 'timeout_motorista'];
+        
+        const falhasCriticas = ['erro_pagamento', 'sem_motorista', 'expirado', 'timeout_motorista'];
+        
         if (falhasCriticas.includes(data.status)) {
-          alert('Aviso do sistema: Ocorreu um problema com seu pedido ou não há parceiros disponíveis no momento. Retornando ao início.');
+          showToast('Problema com seu pedido ou parceiros indisponíveis. Retornando...', 'error');
+          localStorage.removeItem('fretogo_current_order');
+          setCurrentOrderId(null);
+          setStep('form');
+        } else if (data.status === 'cancelado') {
+          showToast('Seu frete foi cancelado com sucesso.', 'success');
           localStorage.removeItem('fretogo_current_order');
           setCurrentOrderId(null);
           setStep('form');
@@ -124,7 +140,8 @@ export default function Cliente() {
     const cepEntregaLimpo = entrega.cep.replace(/\D/g, '');
 
     if (!coleta.rua || !coleta.num || !entrega.rua || !entrega.num || cepColetaLimpo.length < 8 || cepEntregaLimpo.length < 8) {
-      alert("Preencha todos os campos corretamente. Rua, Número e CEP são obrigatórios."); return;
+      showToast("Preencha todos os campos corretamente. Rua, Número e CEP são obrigatórios."); 
+      return;
     }
 
     setLoadingRoute(true);
@@ -140,7 +157,7 @@ export default function Cliente() {
       setStep('preview');
     } catch {
       const estimativaKm = (cepColetaLimpo.substring(0, 2) === cepEntregaLimpo.substring(0, 2)) ? 15 : 35; 
-      alert("Aviso: Calculando rota por aproximação geográfica devido a instabilidade de rede.");
+      showToast("Calculando rota aproximada devido a instabilidade de rede.", "warning");
       setDistanciaReal(estimativaKm); 
       setStep('preview');
     } finally { setLoadingRoute(false); }
@@ -160,10 +177,10 @@ export default function Cliente() {
   const handleContratar = async () => {
     if (loadingRoute || loadingPayment) return;
     if (Number.isNaN(valorTotalBruto) || valorTotalBruto <= 0) {
-      alert("Erro no cálculo do valor. Tente novamente."); return;
+      showToast("Erro no cálculo do valor. Tente novamente."); return;
     }
     if (tipoFrete === 'agendado' && (!dataAgendada || new Date(dataAgendada) < new Date())) {
-      alert("Data de agendamento inválida."); return;
+      showToast("Data de agendamento inválida."); return;
     }
     
     setLoadingPayment(true);
@@ -190,29 +207,43 @@ export default function Cliente() {
       setCurrentOrderId(docRef.id);
       
       if (tipoFrete === 'imediato') {
-        const payload = { titulo: `FRETOGO - ${VEHICLE_CONFIG[vehicle].nome}`, preco: finalValTotal.toString(), idPedido: docRef.id };
+        // 🔥 GAP 5 CORRIGIDO: Removido o envio do 'preco' morto para o servidor.
+        const payload = { titulo: `FRETOGO - ${VEHICLE_CONFIG[vehicle].nome}`, idPedido: docRef.id };
         const res = await fetch('/api/pagamento', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         
-        // 🔥 TRAVA DE SEGURANÇA: Se a API de pagamento falhar
-        if (!res.ok) throw new Error("A API de pagamento não respondeu corretamente.");
+        if (!res.ok) throw new Error("O provedor de pagamento recusou a conexão.");
         
         const data = await res.json();
         
         if (data?.url && typeof data.url === 'string' && data.url.startsWith('https://')) {
           window.location.href = data.url; 
         } else {
-          // 🔥 SE NÃO VEIO O LINK DO MERCADO PAGO, AVISA O CLIENTE
-          throw new Error("O Mercado Pago não gerou o link de pagamento.");
+          throw new Error("Link seguro de pagamento não gerado.");
         }
       } else {
         setStep('busca');
       }
     } catch (e: any) { 
-      // 🔥 MENSAGEM DE ERRO NA CARA DO CLIENTE PARA A GENTE DEBUGAR
-      alert(`Falha na conexão com o pagamento: ${e.message}. Verifique a API /api/pagamento no servidor.`); 
+      showToast(`Falha de transação: ${e.message}. Tente novamente.`); 
       localStorage.removeItem('fretogo_current_order');
       setCurrentOrderId(null);
     } finally { setLoadingPayment(false); }
+  };
+
+  const handleCancelarPedido = async () => {
+    if (!currentOrderId || isCancelling) return;
+    setIsCancelling(true);
+    try {
+      await updateDoc(doc(db, 'fretes', currentOrderId), {
+        status: 'cancelado',
+        canceladoEm: serverTimestamp(),
+        canceladoPor: 'cliente'
+      });
+      setShowCancelModal(false); 
+    } catch (error) {
+      showToast("Falha na conexão ao cancelar o pedido.", "error");
+      setIsCancelling(false);
+    }
   };
 
   const handleWhatsAppClick = () => {
@@ -227,7 +258,38 @@ export default function Cliente() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 pb-10">
+    <div className="min-h-screen bg-slate-100 pb-10 relative">
+      
+      {toast && (
+        <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[100] px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 w-[90%] max-w-sm ${
+          toast.type === 'error' ? 'bg-red-500 text-white' :
+          toast.type === 'success' ? 'bg-green-500 text-white' :
+          'bg-amber-500 text-amber-950'
+        }`}>
+          {toast.type === 'error' && <AlertTriangle size={24} className="shrink-0" />}
+          {toast.type === 'success' && <CheckCircle size={24} className="shrink-0" />}
+          {toast.type === 'warning' && <AlertTriangle size={24} className="shrink-0" />}
+          <span className="font-bold text-sm leading-tight flex-1">{toast.msg}</span>
+          <button onClick={() => setToast(null)} className="shrink-0 opacity-80 hover:opacity-100 transition-opacity"><XCircle size={20} /></button>
+        </div>
+      )}
+
+      {showCancelModal && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full text-center shadow-2xl border-4 border-slate-100">
+            <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4 drop-shadow-md" />
+            <h3 className="text-2xl font-black text-slate-900 mb-2 uppercase italic">Cancelar Frete?</h3>
+            <p className="text-slate-500 font-medium text-sm mb-8">Esta ação não pode ser desfeita. O parceiro será removido da rota.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowCancelModal(false)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-black py-4 rounded-xl transition-colors uppercase text-xs">Voltar</button>
+              <button onClick={handleCancelarPedido} disabled={isCancelling} className="flex-1 bg-red-500 hover:bg-red-600 text-white font-black py-4 rounded-xl transition-colors uppercase text-xs flex items-center justify-center gap-2">
+                {isCancelling ? <Loader2 className="animate-spin w-4 h-4" /> : 'Sim, Cancelar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <nav className="bg-slate-950 p-4 flex items-center justify-between text-white font-black italic sticky top-0 z-50 shadow-md">
         <div className="flex items-center gap-2 text-xl tracking-tight">
           <button onClick={resetFlow} className="cursor-pointer hover:scale-110 transition-all bg-transparent border-none"><ArrowLeft /></button>
@@ -282,8 +344,6 @@ export default function Cliente() {
           <div className="animate-in fade-in zoom-in duration-300">
             <MapaCliente />
             <div className="bg-white p-8 rounded-[2.5rem] shadow-2xl mt-4 text-center border-t-8 border-slate-950 relative overflow-hidden">
-                
-                {/* 🔥 GATILHO MENTAL 1: Escassez e Urgência */}
                 <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl mb-6 flex items-start gap-3 text-left">
                   <AlertTriangle className="text-amber-500 w-5 h-5 shrink-0 mt-0.5" />
                   <div>
@@ -291,15 +351,12 @@ export default function Cliente() {
                     <p className="text-[11px] font-medium text-amber-800">Motoristas sendo alocados rapidamente. Garanta este valor.</p>
                   </div>
                 </div>
-
                 <p className="text-sm text-slate-400 line-through font-bold">Preço médio: R$ {valorAncora.toFixed(2).replace('.', ',')}</p>
                 <p className="text-6xl font-black text-slate-950 italic mb-2 drop-shadow-sm">R$ {valorTotalBruto.toFixed(2).replace('.', ',')}</p>
                 <p className="text-[11px] font-black uppercase text-green-700 bg-green-100 inline-block px-4 py-2 rounded-xl mb-6">Melhor preço garantido</p>
                 <div className="bg-slate-50 p-4 rounded-2xl mb-8 text-slate-900 font-bold text-xs border border-slate-100 shadow-inner">
                   {coleta.rua}, {coleta.num} ➔ {entrega.bairro} <br/><span className="text-blue-600 font-black">({validDistancia.toFixed(1)} KM)</span>
                 </div>
-
-                {/* 🔥 GATILHO MENTAL 2: Segurança no CTA */}
                 <button onClick={handleContratar} disabled={loadingRoute || loadingPayment} className="w-full bg-blue-600 text-white py-6 rounded-3xl font-black uppercase italic shadow-2xl hover:scale-[1.02] hover:bg-blue-700 transition-all duration-200 flex items-center justify-center gap-2">
                   {loadingPayment ? <><Loader2 className="animate-spin w-5 h-5" /> Conectando ao Banco...</> : <><ShieldCheck size={20} /> IR PARA PAGAMENTO SEGURO</>}
                 </button>
@@ -331,6 +388,16 @@ export default function Cliente() {
                         {orderData?.status === 'agendado' ? 'Aguarde o horário combinado' : (orderData?.status === 'disponivel' ? 'Buscando parceiros próximos' : 'Confirme no app do seu banco')}
                     </p>
                  </div>
+              )}
+
+              {['aguardando_pagamento', 'disponivel', 'agendado', 'aceito'].includes(orderData?.status || '') && (
+                <button
+                  onClick={() => setShowCancelModal(true)}
+                  disabled={isCancelling}
+                  className="w-full mt-6 bg-transparent border border-red-500/20 text-red-500 py-4 rounded-2xl font-black uppercase text-sm hover:bg-red-50 hover:border-red-500/50 transition-all flex items-center justify-center gap-2"
+                >
+                  <XCircle size={18} /> Cancelar Frete
+                </button>
               )}
            </div>
         )}
