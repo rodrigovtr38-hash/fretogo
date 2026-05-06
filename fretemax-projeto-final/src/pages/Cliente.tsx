@@ -207,7 +207,6 @@ export default function Cliente() {
       setCurrentOrderId(docRef.id);
       
       if (tipoFrete === 'imediato') {
-        // 🔥 GAP 5 CORRIGIDO: Removido o envio do 'preco' morto para o servidor.
         const payload = { titulo: `FRETOGO - ${VEHICLE_CONFIG[vehicle].nome}`, idPedido: docRef.id };
         const res = await fetch('/api/pagamento', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         
@@ -230,16 +229,26 @@ export default function Cliente() {
     } finally { setLoadingPayment(false); }
   };
 
+  // 🔴 NOVO FREIO COM ESTORNO FINANCEIRO INTEGRADO
   const handleCancelarPedido = async () => {
     if (!currentOrderId || isCancelling) return;
     setIsCancelling(true);
     try {
+      // 1. Muda o status no Firebase para cancelar na tela do motorista imediatamente
       await updateDoc(doc(db, 'fretes', currentOrderId), {
         status: 'cancelado',
         canceladoEm: serverTimestamp(),
         canceladoPor: 'cliente'
       });
-      setShowCancelModal(false); 
+
+      // 2. Chama o "Gerente Financeiro" silenciosamente para devolver o dinheiro no Mercado Pago
+      await fetch('/api/reembolso', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idPedido: currentOrderId })
+      });
+
+      setShowCancelModal(false); // Fecha o modal após sucesso
     } catch (error) {
       showToast("Falha na conexão ao cancelar o pedido.", "error");
       setIsCancelling(false);
