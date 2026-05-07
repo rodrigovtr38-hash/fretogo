@@ -27,7 +27,10 @@ export default function Motorista() {
   const [backhaulDestino, setBackhaulDestino] = useState(''); 
   const [comprovante, setComprovante] = useState<File | null>(null);
 
-  const [form, setForm] = useState({ nome: '', whatsapp: '', placa: '', categoria: 'carro_pequeno' as VehicleType, cnh: '', renavam: '' });
+  const [form, setForm] = useState({ nome: '', whatsapp: '', placa: '', categoria: 'carro_pequeno' as VehicleType, cnh: '', renavam: '', cpf: '' });
+  const [cnhFile, setCnhFile] = useState<File | null>(null);
+  const [crlvFile, setCrlvFile] = useState<File | null>(null);
+  const [uploadingDocs, setUploadingDocs] = useState(false);
   const [formStep, setFormStep] = useState(false);
 
   const [ofertaFrete, setOfertaFrete] = useState<OrderData | null>(null);
@@ -40,7 +43,6 @@ export default function Motorista() {
   const lastGpsUpdate = useRef(0); 
   const currentOfferId = useRef<string | null>(null); 
   
-  // 🔥 MOTOR DE ÁUDIO INJETADO
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const showToast = (msg: string, type: 'error' | 'warning' = 'error') => {
@@ -56,9 +58,8 @@ export default function Motorista() {
   };
 
   useEffect(() => {
-    // Inicializa o apito do motorista
     audioRef.current = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
-    audioRef.current.loop = true; // Toca em loop até interagir
+    audioRef.current.loop = true; 
     
     const requestPermission = async () => {
       try {
@@ -113,7 +114,6 @@ export default function Motorista() {
           if (currentOfferId.current !== freteId) {
             actionHandled.current = false; currentOfferId.current = freteId;
             setOfertaFrete({ id: freteId, ...data }); setExibindoOferta(true); setTempoRestante(15); 
-            // 🚨 DISPARA O ALARME SONORO
             if (audioRef.current) audioRef.current.play().catch(e => console.log("Áudio bloqueado", e));
           }
           foundOffer = true; break; 
@@ -129,7 +129,6 @@ export default function Motorista() {
     if (exibindoOferta && tempoRestante > 0) {
       timer = setTimeout(() => setTempoRestante(prev => prev - 1), 1000);
     } else if (exibindoOferta && tempoRestante === 0 && !actionHandled.current) {
-      // 🔥 FEEDBACK DE PERDA RESOLVIDO (A7)
       showToast('Tempo esgotado. A carga foi para o próximo motorista.', 'warning');
       handleRecusar(); 
     }
@@ -175,6 +174,38 @@ export default function Motorista() {
     }
   };
 
+  const handleCadastro = async () => {
+    if (!form.nome || !form.cpf || !form.cnh || !form.placa || !form.renavam || !form.whatsapp) {
+      showToast("Preencha todos os campos de texto.", "warning");
+      return;
+    }
+    if (!cnhFile || !crlvFile) {
+      showToast("Envie as fotos da CNH e CRLV obrigatoriamente.", "warning");
+      return;
+    }
+    setUploadingDocs(true);
+    try {
+      const cnhRef = ref(storage, `motoristas/${user!.uid}/cnh`);
+      const crlvRef = ref(storage, `motoristas/${user!.uid}/crlv`);
+      await uploadBytes(cnhRef, cnhFile);
+      await uploadBytes(crlvRef, crlvFile);
+      const cnhUrl = await getDownloadURL(cnhRef);
+      const crlvUrl = await getDownloadURL(crlvRef);
+
+      await setDoc(doc(db, 'motoristas_cadastros', user!.uid), {
+        ...form,
+        email: user!.email,
+        cnhUrl,
+        crlvUrl,
+        status: 'pendente',
+        createdAt: serverTimestamp()
+      });
+    } catch (error) {
+      showToast("Erro ao salvar cadastro. Tente novamente.", "error");
+    }
+    setUploadingDocs(false);
+  };
+
   useEffect(() => {
     return auth.onAuthStateChanged((u) => {
       if (u) {
@@ -199,7 +230,6 @@ export default function Motorista() {
       await deleteDoc(doc(db, 'motoristas_online', user.uid)); 
     } 
     else { 
-      // 🔓 DESTRAVA O ÁUDIO NO NAVEGADOR
       if (audioRef.current) {
         audioRef.current.play().then(() => {
           audioRef.current!.pause();
@@ -232,7 +262,6 @@ export default function Motorista() {
     }
   };
 
-  // 🗺️ LINK DO GPS CORRIGIDO
   const openMaps = (lat: number, lng: number) => {
     window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
   };
@@ -261,6 +290,13 @@ export default function Motorista() {
             <p className="text-blue-400 font-bold mb-6">{tempoRestante}s restantes</p>
 
             <div className="bg-slate-950 p-4 rounded-2xl mb-6 text-left border border-slate-800">
+              <div className="flex flex-col items-center justify-center mb-4">
+                 <div className="bg-green-500/20 border border-green-500 text-green-400 rounded-full px-4 py-2 text-[11px] font-bold inline-flex items-center gap-2">
+                   <ShieldCheck className="w-4 h-4" />
+                   Pedágio já incluso no valor
+                 </div>
+              </div>
+
               <div className="flex items-start gap-3 mb-3">
                 <MapPin className="text-blue-500 w-5 h-5 shrink-0 mt-0.5" />
                 <div>
@@ -275,21 +311,27 @@ export default function Motorista() {
                   <p className="font-bold text-sm text-slate-200 line-clamp-2">{ofertaFrete.enderecoEntregaTexto}</p>
                 </div>
               </div>
+
+              <div className="grid grid-cols-2 gap-4 mt-4 mb-4">
+                <div className="bg-blue-500/10 border border-blue-500 rounded-2xl p-4 text-center">
+                  <p className="text-blue-400 text-xs font-black uppercase">Distância</p>
+                  <h3 className="text-2xl font-black text-white">{ofertaFrete.distancia?.toFixed(1)} KM</h3>
+                </div>
+                <div className="bg-orange-500/10 border border-orange-500 rounded-2xl p-4 text-center">
+                  <p className="text-orange-400 text-xs font-black uppercase">Peso</p>
+                  <h3 className="text-2xl font-black text-white">{ofertaFrete.peso}</h3>
+                </div>
+              </div>
               
-              <div className="bg-slate-900 p-3 rounded-xl mb-4 border border-slate-700/50 flex flex-wrap gap-2 text-xs">
+              <div className="bg-slate-900 p-3 rounded-xl mb-4 border border-slate-700/50 flex flex-wrap gap-2 text-xs justify-center">
                  <span className="bg-slate-800 text-slate-300 px-2 py-1 rounded font-bold flex items-center gap-1"><Truck size={12} className="text-blue-400"/> {VEHICLE_CONFIG[ofertaFrete.veiculo]?.nome || 'Veículo'}</span>
-                 <span className="bg-slate-800 text-slate-300 px-2 py-1 rounded font-bold">{ofertaFrete.peso}</span>
                  <span className="bg-slate-800 text-slate-300 px-2 py-1 rounded font-bold flex items-center gap-1"><Package size={12}/> {ofertaFrete.tipoMaterial}</span>
               </div>
 
-              <div className="pt-3 border-t border-slate-800 flex justify-between items-end">
-                  <div>
-                    <p className="text-[10px] uppercase font-black text-slate-500">Ganhos</p>
-                    <p className="text-3xl font-black text-green-500 italic">R$ {ofertaFrete.valorMotorista?.toFixed(2).replace('.', ',')}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[10px] uppercase font-black text-slate-500">Distância</p>
-                    <p className="font-bold text-slate-300">{ofertaFrete.distancia?.toFixed(1)} km</p>
+              <div className="pt-3 border-t border-slate-800 flex justify-center items-center">
+                  <div className="text-center">
+                    <p className="text-xs uppercase font-black text-slate-500 mb-1">Ganhos Reais</p>
+                    <p className="text-4xl font-black text-green-500 italic drop-shadow-md">R$ {ofertaFrete.valorMotorista?.toFixed(2).replace('.', ',')}</p>
                   </div>
               </div>
             </div>
@@ -331,6 +373,7 @@ export default function Motorista() {
           </div>
           <div className="space-y-4">
             <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="Nome Completo" onChange={e => setForm({...form, nome: e.target.value})} />
+            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="CPF" onChange={e => setForm({...form, cpf: e.target.value})} />
             <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="WhatsApp (DDD)" onChange={e => setForm({...form, whatsapp: e.target.value})} />
             <div className="grid grid-cols-2 gap-3">
               <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all uppercase" placeholder="Placa" onChange={e => setForm({...form, placa: e.target.value})} />
@@ -348,8 +391,21 @@ export default function Motorista() {
               <option value="bi_trem_cegonha">Bi-trem / Cegonha</option>
             </select>
 
-            <button onClick={() => setDoc(doc(db, 'motoristas_cadastros', user.uid), {...form, email: user.email, status: 'pendente', createdAt: serverTimestamp()})} className="w-full bg-blue-600 text-white py-6 rounded-2xl font-black text-xl uppercase italic shadow-xl hover:scale-105 active:scale-95 transition-all duration-200 mt-6 flex justify-center items-center gap-2">
-              <ShieldCheck /> Enviar para Análise
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <label className={`border-2 rounded-2xl p-4 cursor-pointer flex flex-col items-center justify-center gap-2 transition-all ${cnhFile ? 'bg-green-100 border-green-500 text-green-700' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
+                <Camera />
+                <span className="font-bold text-sm uppercase">{cnhFile ? 'CNH Anexada' : 'Foto da CNH'}</span>
+                <input type="file" hidden accept="image/*" onChange={(e) => setCnhFile(e.target.files?.[0] || null)} />
+              </label>
+              <label className={`border-2 rounded-2xl p-4 cursor-pointer flex flex-col items-center justify-center gap-2 transition-all ${crlvFile ? 'bg-green-100 border-green-500 text-green-700' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
+                <Camera />
+                <span className="font-bold text-sm uppercase">{crlvFile ? 'CRLV Anexado' : 'Documento do Carro'}</span>
+                <input type="file" hidden accept="image/*" onChange={(e) => setCrlvFile(e.target.files?.[0] || null)} />
+              </label>
+            </div>
+
+            <button onClick={handleCadastro} disabled={uploadingDocs} className="w-full bg-blue-600 text-white py-6 rounded-2xl font-black text-xl uppercase italic shadow-xl hover:scale-105 active:scale-95 transition-all duration-200 mt-6 flex justify-center items-center gap-2 disabled:bg-slate-400">
+              {uploadingDocs ? <><Loader2 className="animate-spin" /> ENVIANDO...</> : <><ShieldCheck /> Enviar para Análise</>}
             </button>
           </div>
         </div>
@@ -374,7 +430,6 @@ export default function Motorista() {
           </div>
           
           <div className="flex flex-col gap-4">
-             {/* 🗺️ BOTÃO DE GPS PERMANENTE (A3 RESOLVIDO) */}
              <button onClick={() => openMaps(activeFrete.status === 'aceito' ? activeFrete.origemLat : activeFrete.destinoLat, activeFrete.status === 'aceito' ? activeFrete.origemLng : activeFrete.destinoLng)} className="bg-white text-slate-950 py-5 rounded-2xl font-black text-lg uppercase flex items-center justify-center gap-2 hover:scale-[1.02] transition-all shadow-lg"><Navigation className="w-5 h-5"/> Abrir no GPS ({activeFrete.status === 'aceito' ? 'Coleta' : 'Entrega'})</button>
              
              {activeFrete.status === 'aceito' && <button onClick={() => updateStatusFrete('coleta')} className="bg-blue-600 py-6 rounded-2xl font-black text-xl uppercase italic shadow-blue-600/20 shadow-lg hover:scale-[1.02] transition-all">Cheguei na Coleta</button>}
