@@ -2,13 +2,12 @@ import { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { ArrowLeft, Zap, Truck, Package, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle } from 'lucide-react';
+import { ArrowLeft, Zap, Truck, Package, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import ChatFrete from '../components/ChatFrete';
 
 interface AddressData { cep: string; bairro: string; rua: string; num: string; }
 interface Coords { lat: number; lng: number; }
-// 🔥 GAP 1 RESOLVIDO: Adicionado motoristaId para o mapa poder rastrear o carro específico
 interface OrderData { status: string; motoristaNome?: string; motoristaZap?: string; rotaInteligente?: boolean; motoristaId?: string; }
 type VehicleType = 'moto' | 'carro_pequeno' | 'utilitario' | 'toco' | 'truck' | 'carreta_ls' | 'bi_trem_cegonha';
 interface VehicleConfig { nome: string; fator: number; }
@@ -21,6 +20,17 @@ const VEHICLE_CONFIG: Record<VehicleType, VehicleConfig> = {
   'truck': { nome: 'Caminhão Truck', fator: 3.8 },
   'carreta_ls': { nome: 'Carreta LS', fator: 5.5 },
   'bi_trem_cegonha': { nome: 'Bi-trem / Cegonha', fator: 7.2 }
+};
+
+// 🔥 TRAVA DE PESO INTELIGENTE (Custo Zero / Anti-Fraude)
+const LIMITES_PESO: Record<VehicleType, number> = {
+  moto: 30,
+  carro_pequeno: 250,
+  utilitario: 800,
+  toco: 4000,
+  truck: 12000,
+  carreta_ls: 30000,
+  bi_trem_cegonha: 45000
 };
 
 const getFallbackCoordsByCEP = (cep: string): Coords => {
@@ -67,6 +77,7 @@ export default function Cliente() {
   const [vehicle, setVehicle] = useState<VehicleType>('carro_pequeno');
   const [tipoFrete, setTipoFrete] = useState<'imediato' | 'agendado'>('imediato');
   const [dataAgendada, setDataAgendada] = useState('');
+  const [whatsapp, setWhatsapp] = useState(''); // 🔥 TRAVA DE CONTATO
   
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [orderData, setOrderData] = useState<OrderData | null>(null);
@@ -97,6 +108,7 @@ export default function Cliente() {
         if (data.vehicle) setVehicle(data.vehicle);
         if (data.tipoFrete) setTipoFrete(data.tipoFrete);
         if (data.dataAgendada) setDataAgendada(data.dataAgendada);
+        if (data.whatsapp) setWhatsapp(data.whatsapp);
       } catch { localStorage.removeItem('fretogo_form_backup'); }
     }
     if (savedOrder && savedOrder !== 'null') {
@@ -106,9 +118,9 @@ export default function Cliente() {
   }, []);
 
   useEffect(() => {
-    const formData = { coleta, entrega, peso, tipoMaterial, vehicle, tipoFrete, dataAgendada };
+    const formData = { coleta, entrega, peso, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp };
     localStorage.setItem('fretogo_form_backup', JSON.stringify(formData));
-  }, [coleta, entrega, peso, tipoMaterial, vehicle, tipoFrete, dataAgendada]);
+  }, [coleta, entrega, peso, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp]);
 
   useEffect(() => {
     if (!currentOrderId) return;
@@ -141,8 +153,23 @@ export default function Cliente() {
     const cepEntregaLimpo = entrega.cep.replace(/\D/g, '');
 
     if (!coleta.rua || !coleta.num || !entrega.rua || !entrega.num || cepColetaLimpo.length < 8 || cepEntregaLimpo.length < 8) {
-      showToast("Preencha todos os campos corretamente. Rua, Número e CEP são obrigatórios."); 
+      showToast("Preencha todos os campos de endereço corretamente."); 
       return;
+    }
+
+    if (!whatsapp || whatsapp.length < 10) {
+      showToast("Preencha o seu WhatsApp para contato.");
+      return;
+    }
+
+    // 🔥 VALIDAÇÃO DE PESO
+    const pesoNumero = parseInt(peso.replace(/\D/g, ''));
+    if (!isNaN(pesoNumero)) {
+      const limite = LIMITES_PESO[vehicle];
+      if (pesoNumero > limite) {
+        showToast(`Peso excede o limite. O máximo para ${VEHICLE_CONFIG[vehicle].nome} é ${limite}kg. Troque a categoria.`, 'error');
+        return;
+      }
     }
 
     setLoadingRoute(true);
@@ -198,6 +225,7 @@ export default function Cliente() {
         enderecoColetaTexto: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`,
         enderecoEntregaTexto: `${entrega.rua}, ${entrega.num} - ${entrega.bairro}`,
         peso: peso || 'Não informado', tipoMaterial: tipoMaterial || 'Carga geral',
+        clienteZap: whatsapp, // Salvando o WhatsApp para o Admin/Motorista
         coleta, entrega, origemLat: c1.lat, origemLng: c1.lng, destinoLat: c2.lat, destinoLng: c2.lng,
         tipoFrete, dataAgendada: tipoFrete === 'agendado' ? new Date(dataAgendada) : null,
         status: tipoFrete === 'agendado' ? 'agendado' : 'aguardando_pagamento',
@@ -234,7 +262,6 @@ export default function Cliente() {
     if (!currentOrderId || isCancelling) return;
     setIsCancelling(true);
     try {
-      // 1. PRIMEIRO: Tentar o reembolso financeiro
       const reembolsoRes = await fetch('/api/reembolso', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -252,7 +279,6 @@ export default function Cliente() {
         }
       }
 
-      // 2. DEPOIS: Mudar o status no Firestore
       await updateDoc(doc(db, 'fretes', currentOrderId), {
         status: 'cancelado',
         canceladoEm: serverTimestamp(),
@@ -310,6 +336,11 @@ export default function Cliente() {
         </div>
       )}
 
+      {/* 🔥 BOTÃO FLUTUANTE DO SUPORTE */}
+      <a href="https://wa.me/5511946099840" target="_blank" rel="noreferrer" className="fixed bottom-6 right-6 z-50 bg-green-500 hover:bg-green-600 hover:scale-110 transition-all text-white p-4 rounded-full shadow-2xl">
+        <MessageCircle className="w-8 h-8 animate-pulse" />
+      </a>
+
       <nav className="bg-slate-950 p-4 flex items-center justify-between text-white font-black italic sticky top-0 z-50 shadow-md">
         <div className="flex items-center gap-2 text-xl tracking-tight">
           <button onClick={resetFlow} className="cursor-pointer hover:scale-110 transition-all bg-transparent border-none"><ArrowLeft /></button>
@@ -320,6 +351,10 @@ export default function Cliente() {
       <div className="max-w-md mx-auto px-4 mt-6">
         {step === 'form' && (
           <div className="space-y-3 bg-white p-6 rounded-3xl shadow-2xl animate-in fade-in slide-in-from-bottom-4">
+            
+            <h2 className="text-slate-950 font-black uppercase text-xs mb-4 flex items-center gap-2"><MessageCircle className="text-green-500 w-4 h-4"/> Seu Contato</h2>
+            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 text-sm focus:border-green-500 outline-none transition-all mb-4" placeholder="WhatsApp (DDD)" value={whatsapp} onChange={e => setWhatsapp(e.target.value)} />
+
             <h2 className="text-slate-950 font-black uppercase text-xs mb-4 flex items-center gap-2"><MapPin className="text-blue-600 w-4 h-4"/> Onde coletamos?</h2>
             <div className="grid grid-cols-3 gap-2">
               <input className="col-span-2 p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 text-sm focus:border-blue-500 outline-none transition-all" placeholder="Rua Coleta" value={coleta.rua} onChange={e => setColeta({...coleta, rua: e.target.value})} />
@@ -354,7 +389,13 @@ export default function Cliente() {
               <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="Peso (ex: 20kg)" value={peso} onChange={e => setPeso(e.target.value)} />
               <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="Material" value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)} />
             </div>
-            <button onClick={calcularDistanciaReal} disabled={loadingRoute || loadingPayment} className="w-full bg-blue-600 text-white font-black py-5 rounded-2xl shadow-xl uppercase italic mt-4 hover:scale-[1.02] hover:bg-blue-700 transition-all duration-200 flex items-center justify-center gap-2">
+            
+            {/* 🔥 BOTÃO BLINDADO (Só funciona se preencher o zap e os endereços) */}
+            <button 
+              onClick={calcularDistanciaReal} 
+              disabled={loadingRoute || loadingPayment || !whatsapp || !coleta.rua || !entrega.rua} 
+              className={`w-full font-black py-5 rounded-2xl shadow-xl uppercase italic mt-4 flex items-center justify-center gap-2 transition-all duration-200 ${(!whatsapp || !coleta.rua || !entrega.rua) ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:scale-[1.02] hover:bg-blue-700 text-white'}`}
+            >
               {loadingRoute ? <><Loader2 className="animate-spin w-5 h-5"/> Calculando rota...</> : 'CALCULAR FRETE'}
             </button>
           </div>
@@ -389,7 +430,6 @@ export default function Cliente() {
               {['aceito', 'coleta', 'em_transporte', 'entregue'].includes(orderData?.status || '') ? (
                  <div className="animate-in zoom-in fade-in duration-500 text-left">
                     
-                    {/* 🔥 O MAPA AO VIVO DA FASE 3 INJETADO AQUI */}
                     <div className="mb-6 -mt-2">
                       <MapaCliente motoristaId={orderData?.motoristaId} />
                     </div>
@@ -401,7 +441,6 @@ export default function Cliente() {
                       <p className="font-black text-blue-600 text-xl uppercase bg-blue-50 py-2 rounded-xl inline-block px-6 w-full">{orderData?.motoristaNome || 'Motorista'}</p>
                     </div>
 
-                    {/* 🔥 A LINHA DO TEMPO ESTILO UBER (RESOLVIDO ITEM 1 CLAUDE) */}
                     <div className="mt-6 bg-slate-50 p-6 rounded-3xl border-2 border-slate-100 shadow-inner">
                         <h3 className="text-[10px] font-black uppercase text-slate-400 mb-6 tracking-widest text-center">Status em Tempo Real</h3>
                         <ul className="relative border-l-2 border-slate-200 ml-4 space-y-8 pb-2">
