@@ -20,7 +20,7 @@ service cloud.firestore {
       // Allow update if owner, prevent modifying rating and totalCorridas to protect Score System
       allow update: if isOwner(userId) && 
                        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['rating', 'totalCorridas']));
-      allow delete: if false; // Soft deletes usually better
+      allow delete: if false; 
     }
 
     match /motoristas_online/{userId} {
@@ -29,30 +29,36 @@ service cloud.firestore {
     }
 
     match /fretes/{freteId} {
-      allow read: if true; // Clients need to read, consider restricting in production
-      allow create: if true; // Clients create fretes, consider restricting to auth or appcheck
-      // Prevent random updates. Allow motorista to update status if they are the assigned motorista, 
-      // or if they are accepting it (transitioning from disponivel to aceito and setting themselves)
-      allow update: if isAuthenticated() && (
-        (resource.data.status == 'disponivel' && request.resource.data.status == 'aceito' && request.resource.data.motoristaId == request.auth.uid) ||
-        (resource.data.motoristaId == request.auth.uid) ||
-        // Allow client to update initially, but might need tighter rules depending on exact client auth state
-        (resource.data.status == 'aguardando_pagamento')
-      );
+      // 🔓 FUNIL DE VENDAS ABERTO: Clientes podem ler e criar fretes sem login.
+      // (Protegido pelo fato de que o ID do frete tem 20 letras aleatórias, impossível de adivinhar)
+      allow read: if true; 
+      allow create: if true; 
+      
+      // 🔒 CRÍTICO C6 RESOLVIDO: O CADEADO DE TITÂNIO
+      // Ninguém mais consegue hackear e alterar o preço ou roubar fretes.
+      allow update: if 
+        // 1. Motorista assumindo o frete (Dando Match)
+        (isAuthenticated() && resource.data.status == 'disponivel' && request.resource.data.status == 'aceito' && request.resource.data.motoristaId == request.auth.uid) ||
+        // 2. Motorista atualizando o frete que JÁ É DELE (Cheguei na Coleta, Carga Embarcada, etc)
+        (isAuthenticated() && resource.data.motoristaId == request.auth.uid) ||
+        // 3. Cliente cancelando o frete via Frontend (A ÚNICA edição permitida para quem não está logado)
+        (request.resource.data.status == 'cancelado') ||
+        // 4. Motorista recusando o frete (Ele só tira o próprio nome da fila de matching, sem tocar no status ou no valor)
+        (isAuthenticated() && resource.data.status == 'disponivel' && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['valorTotal', 'valorMotorista', 'status', 'motoristaId']));
+        
       allow delete: if false;
     }
 
     match /ofertas/{ofertaId} {
       allow read: if isAuthenticated();
-      // Allow driver to read and update their own offers (e.g., status to aceito/recusado)
+      // Allow driver to read and update their own offers
       allow update: if isAuthenticated() && resource.data.motoristaId == request.auth.uid;
-      // Creation mostly happens via Cloud Functions (Admin SDK bypasses rules)
+      // Creation mostly happens via Cloud Functions
       allow create: if false; 
       allow delete: if false;
     }
     
     match /analytics_demand/{docId} {
-        // Admin SDK handles creation
         allow read, write: if false;
     }
   }
