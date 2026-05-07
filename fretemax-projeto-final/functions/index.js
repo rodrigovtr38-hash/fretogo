@@ -3,10 +3,17 @@ const admin = require('firebase-admin');
 const axios = require('axios');
 admin.initializeApp();
 
+// 🛡️ TRAVAS DE NUVEM (A3 e A7): Previne que um ataque zere o limite gratuito
+const runtimeOpts = {
+  timeoutSeconds: 15, // Mata a função rápido se der erro (economiza $)
+  memory: '256MB',    // App leve não precisa de memória extra
+  maxInstances: 50    // Escudo financeiro: máximo de 50 instâncias simultâneas
+};
+
 // ========================================================
 // 1. GEOCODE SEGURO (Buscador de Coordenadas)
 // ========================================================
-exports.getCoords = functions.https.onCall(async (data, context) => {
+exports.getCoords = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
   const { address } = data;
   if (!address || typeof address !== 'string') {
     throw new functions.https.HttpsError('invalid-argument', 'Endereço inválido.');
@@ -14,7 +21,8 @@ exports.getCoords = functions.https.onCall(async (data, context) => {
   const key = functions.config().google?.maps_key || process.env.GOOGLE_MAPS_KEY;
   const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${key}`;
 
-  const res = await axios.get(url);
+  // 🛡️ ALERTA A1 RESOLVIDO: Timeout de 5s para APIs externas. Falha rápido sem travar a nuvem.
+  const res = await axios.get(url, { timeout: 5000 });
   if (res.data.status !== 'OK' || !res.data.results?.[0]) {
     throw new functions.https.HttpsError('not-found', 'Endereço não encontrado.');
   }
@@ -25,13 +33,14 @@ exports.getCoords = functions.https.onCall(async (data, context) => {
 // ========================================================
 // 2. DISTÂNCIA SEGURA (Cálculo de Rota do Cliente)
 // ========================================================
-exports.getDistance = functions.https.onCall(async (data, context) => {
+exports.getDistance = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
   const { origin, destination } = data;
   const key = functions.config().google?.maps_key || process.env.GOOGLE_MAPS_KEY;
   const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&key=${key}`;
 
   try {
-    const res = await axios.get(url);
+    // 🛡️ ALERTA A1 RESOLVIDO: Timeout de 5s no Axios
+    const res = await axios.get(url, { timeout: 5000 });
     if (res.data.rows[0].elements[0].status === "OK") {
       return res.data.rows[0].elements[0].distance.value / 1000;
     }
@@ -44,7 +53,8 @@ exports.getDistance = functions.https.onCall(async (data, context) => {
 // ========================================================
 // 3. MOTOR DE MATCHING & TIMEOUT AUTOMÁTICO (NÍVEL UBER)
 // ========================================================
-exports.motorDeMatching = functions.firestore.document('fretes/{freteId}').onWrite(async (change, context) => {
+// 🛡️ ALERTA A5 RESOLVIDO: Limite exato de 30s de vida. Protege contra "Sleep" infinito.
+exports.motorDeMatching = functions.runWith({ timeoutSeconds: 30, memory: '256MB', maxInstances: 50 }).firestore.document('fretes/{freteId}').onWrite(async (change, context) => {
     const after = change.after.data();
     const before = change.before ? change.before.data() : null;
 
@@ -61,10 +71,8 @@ exports.motorDeMatching = functions.firestore.document('fretes/{freteId}').onWri
         
         motoristasSnap.forEach(doc => {
             const m = doc.data();
-            // Ignora se não tiver coordenadas ou se for de outra categoria
             if (m.lat == null || m.lng == null || m.categoria !== after.veiculo) return;
             
-            // Cálculo Rápido de Distância Direto no Servidor (Fórmula de Haversine)
             const R = 6371;
             const dLat = (m.lat - after.origemLat) * Math.PI / 180;
             const dLon = (m.lng - after.origemLng) * Math.PI / 180;
@@ -76,12 +84,10 @@ exports.motorDeMatching = functions.firestore.document('fretes/{freteId}').onWri
             }
         });
 
-        // Failsafe: Ninguém no raio
         if (candidatos.length === 0) {
             return change.after.ref.update({ status: 'sem_motorista' });
         }
 
-        // Ordena a fila (Prioriza Score Alto e Distância Curta)
         candidatos.sort((a, b) => {
             const scoreA = (Number(a.score) || 5) - (a.distancia * 0.25);
             const scoreB = (Number(b.score) || 5) - (b.distancia * 0.25);
@@ -102,22 +108,17 @@ exports.motorDeMatching = functions.firestore.document('fretes/{freteId}').onWri
         const previousDriver = before && before.filaMatching ? before.filaMatching[0] : null;
 
         if (currentDriver !== previousDriver) {
-            // Trava o servidor por 16 segundos aguardando o motorista agir
             await new Promise(resolve => setTimeout(resolve, 16000));
 
-            // Acabou o tempo. Busca o frete de novo pra ver se ele aceitou.
             const freshSnap = await change.after.ref.get();
             const freshData = freshSnap.data();
 
-            // Se ainda tá disponível e o motorista não saiu da fila, nós o tiramos!
             if (freshData && freshData.status === 'disponivel' && freshData.filaMatching && freshData.filaMatching[0] === currentDriver) {
                 const novaFila = freshData.filaMatching.slice(1); 
                 
                 if (novaFila.length === 0) {
-                    // Acabou a fila inteira. Devolve a bola pro cliente.
                     await change.after.ref.update({ status: 'sem_motorista', filaMatching: [] });
                 } else {
-                    // Tem mais gente na fila? Roda a roleta.
                     await change.after.ref.update({ filaMatching: novaFila });
                 }
             }
