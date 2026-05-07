@@ -8,7 +8,8 @@ import ChatFrete from '../components/ChatFrete';
 
 interface AddressData { cep: string; bairro: string; rua: string; num: string; }
 interface Coords { lat: number; lng: number; }
-interface OrderData { status: string; motoristaNome?: string; motoristaZap?: string; rotaInteligente?: boolean; }
+// 🔥 GAP 1 RESOLVIDO: Adicionado motoristaId para o mapa poder rastrear o carro específico
+interface OrderData { status: string; motoristaNome?: string; motoristaZap?: string; rotaInteligente?: boolean; motoristaId?: string; }
 type VehicleType = 'moto' | 'carro_pequeno' | 'utilitario' | 'toco' | 'truck' | 'carreta_ls' | 'bi_trem_cegonha';
 interface VehicleConfig { nome: string; fator: number; }
 
@@ -229,7 +230,6 @@ export default function Cliente() {
     } finally { setLoadingPayment(false); }
   };
 
-  // 🔴 NOVO FREIO COM ESTORNO FINANCEIRO INTEGRADO (CORRIGIDO: Race Condition C5)
   const handleCancelarPedido = async () => {
     if (!currentOrderId || isCancelling) return;
     setIsCancelling(true);
@@ -243,26 +243,23 @@ export default function Cliente() {
       
       if (!reembolsoRes.ok) {
         const err = await reembolsoRes.json();
-        // Se não houve pagamento ainda (frete ainda em aguardando_pagamento),
-        // pode cancelar sem reembolso de forma segura.
         if (err.error?.includes('Nenhum pagamento')) {
           console.log("Frete não estava pago, cancelando diretamente.");
         } else {
-          // Erro real no Mercado Pago. Interrompe tudo para proteger o dinheiro.
           showToast('Erro ao processar devolução. Tente novamente.', 'error');
           setIsCancelling(false);
           return;
         }
       }
 
-      // 2. DEPOIS: Mudar o status no Firestore (só após reembolso confirmado)
+      // 2. DEPOIS: Mudar o status no Firestore
       await updateDoc(doc(db, 'fretes', currentOrderId), {
         status: 'cancelado',
         canceladoEm: serverTimestamp(),
         canceladoPor: 'cliente'
       });
 
-      setShowCancelModal(false); // Fecha o modal após sucesso
+      setShowCancelModal(false); 
     } catch (error) {
       showToast("Falha na conexão ao cancelar o pedido.", "error");
       setIsCancelling(false);
@@ -390,11 +387,43 @@ export default function Cliente() {
         {step === 'busca' && (
            <div className="bg-white rounded-[3rem] p-8 text-center shadow-2xl border-4 border-slate-100 mt-10 animate-in slide-in-from-bottom-6">
               {['aceito', 'coleta', 'em_transporte', 'entregue'].includes(orderData?.status || '') ? (
-                 <div className="animate-in zoom-in fade-in duration-500">
-                    <CheckCircle className="text-green-500 w-20 h-20 mx-auto mb-4 drop-shadow-md" />
-                    <h2 className="text-2xl font-black italic uppercase text-slate-950">Motorista Confirmado</h2>
-                    {orderData?.rotaInteligente && (<p className="text-[11px] font-black uppercase text-green-700 bg-green-100 px-4 py-2 rounded-xl mt-2 mb-2 inline-block">🚚 Motorista na sua rota</p>)}
-                    <p className="font-black text-blue-600 mt-2 text-xl uppercase bg-blue-50 py-2 rounded-xl inline-block px-6">{orderData?.motoristaNome || 'Motorista'}</p>
+                 <div className="animate-in zoom-in fade-in duration-500 text-left">
+                    
+                    {/* 🔥 O MAPA AO VIVO DA FASE 3 INJETADO AQUI */}
+                    <div className="mb-6 -mt-2">
+                      <MapaCliente motoristaId={orderData?.motoristaId} />
+                    </div>
+
+                    <h2 className="text-2xl font-black italic uppercase text-slate-950 text-center">Motorista Confirmado</h2>
+                    
+                    <div className="text-center mt-2 mb-6">
+                      {orderData?.rotaInteligente && (<p className="text-[11px] font-black uppercase text-green-700 bg-green-100 px-4 py-2 rounded-xl mt-2 mb-2 inline-block">🚚 Motorista na sua rota</p>)}
+                      <p className="font-black text-blue-600 text-xl uppercase bg-blue-50 py-2 rounded-xl inline-block px-6 w-full">{orderData?.motoristaNome || 'Motorista'}</p>
+                    </div>
+
+                    {/* 🔥 A LINHA DO TEMPO ESTILO UBER (RESOLVIDO ITEM 1 CLAUDE) */}
+                    <div className="mt-6 bg-slate-50 p-6 rounded-3xl border-2 border-slate-100 shadow-inner">
+                        <h3 className="text-[10px] font-black uppercase text-slate-400 mb-6 tracking-widest text-center">Status em Tempo Real</h3>
+                        <ul className="relative border-l-2 border-slate-200 ml-4 space-y-8 pb-2">
+                            <li className="relative pl-6">
+                                <div className={`absolute -left-[11px] top-0 w-5 h-5 rounded-full border-4 border-white ${['aceito', 'coleta', 'em_transporte', 'entregue'].includes(orderData!.status) ? 'bg-blue-600 shadow-[0_0_15px_rgba(37,99,235,0.5)]' : 'bg-slate-300'}`}></div>
+                                <p className={`font-black text-sm uppercase leading-tight ${['aceito', 'coleta', 'em_transporte', 'entregue'].includes(orderData!.status) ? 'text-blue-600' : 'text-slate-400'}`}>Indo para a coleta</p>
+                            </li>
+                            <li className="relative pl-6">
+                                <div className={`absolute -left-[11px] top-0 w-5 h-5 rounded-full border-4 border-white ${['coleta', 'em_transporte', 'entregue'].includes(orderData!.status) ? 'bg-blue-600 shadow-[0_0_15px_rgba(37,99,235,0.5)]' : 'bg-slate-300'}`}></div>
+                                <p className={`font-black text-sm uppercase leading-tight ${['coleta', 'em_transporte', 'entregue'].includes(orderData!.status) ? 'text-blue-600' : 'text-slate-400'}`}>No Local / Embarcando</p>
+                            </li>
+                            <li className="relative pl-6">
+                                <div className={`absolute -left-[11px] top-0 w-5 h-5 rounded-full border-4 border-white ${['em_transporte', 'entregue'].includes(orderData!.status) ? 'bg-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.6)]' : 'bg-slate-300'}`}></div>
+                                <p className={`font-black text-sm uppercase leading-tight ${['em_transporte', 'entregue'].includes(orderData!.status) ? 'text-amber-500' : 'text-slate-400'}`}>Em Transporte</p>
+                            </li>
+                            <li className="relative pl-6">
+                                <div className={`absolute -left-[11px] top-0 w-5 h-5 rounded-full border-4 border-white ${['entregue'].includes(orderData!.status) ? 'bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.6)]' : 'bg-slate-300'}`}></div>
+                                <p className={`font-black text-sm uppercase leading-tight ${['entregue'].includes(orderData!.status) ? 'text-green-500' : 'text-slate-400'}`}>Carga Entregue</p>
+                            </li>
+                        </ul>
+                    </div>
+
                     <div className="mt-6">{currentOrderId && <ChatFrete freteId={currentOrderId} tipoUsuario="cliente" nome="Você (Cliente)" />}</div>
                     <button onClick={handleWhatsAppClick} className="w-full bg-green-500 py-5 rounded-2xl font-black mt-8 text-white uppercase shadow-xl hover:scale-[1.02] transition-all text-lg italic flex items-center justify-center gap-2">WhatsApp Direto</button>
                  </div>
