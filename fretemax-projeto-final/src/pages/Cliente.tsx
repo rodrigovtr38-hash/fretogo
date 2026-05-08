@@ -370,4 +370,145 @@ export default function Cliente() {
             <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 text-sm focus:border-blue-500 outline-none transition-all" placeholder="Nº" value={coleta.num} onChange={e => setColeta({...coleta, num: e.target.value})} />
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 text-sm focus:border-blue-500 outline-none transition-all" placeholder="Bairro
+            <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 text-sm focus:border-blue-500 outline-none transition-all" placeholder="Bairro" value={coleta.bairro} onChange={e => setColeta({...coleta, bairro: e.target.value})} />
+            <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 text-sm focus:border-blue-500 outline-none transition-all" placeholder="CEP" value={coleta.cep} onChange={e => setColeta({...coleta, cep: e.target.value})} />
+          </div>
+          <hr className="my-4 border-slate-100" />
+          <h2 className="text-slate-950 font-black uppercase text-xs mb-4 flex items-center gap-2"><Truck className="text-blue-600 w-4 h-4"/> Destino da Carga</h2>
+          <div className="grid grid-cols-3 gap-2">
+            <input className="col-span-2 p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 text-sm focus:border-blue-500 outline-none transition-all" placeholder="Rua Entrega" value={entrega.rua} onChange={e => setEntrega({...entrega, rua: e.target.value})} />
+            <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 text-sm focus:border-blue-500 outline-none transition-all" placeholder="Nº" value={entrega.num} onChange={e => setEntrega({...entrega, num: e.target.value})} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 text-sm focus:border-blue-500 outline-none transition-all" placeholder="Bairro" value={entrega.bairro} onChange={e => setEntrega({...entrega, bairro: e.target.value})} />
+            <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 text-sm focus:border-blue-500 outline-none transition-all" placeholder="CEP" value={entrega.cep} onChange={e => setEntrega({...entrega, cep: e.target.value})} />
+          </div>
+          <select className="w-full p-4 bg-slate-950 text-white rounded-xl font-black outline-none cursor-pointer hover:bg-slate-900 transition-all" value={vehicle} onChange={e => setVehicle(e.target.value as VehicleType)}>
+            {Object.entries(VEHICLE_CONFIG).map(([key, conf]) => (<option key={key} value={key}>{conf.nome}</option>))}
+          </select>
+          <div className="bg-slate-100 p-4 rounded-2xl border-2 border-slate-200">
+             <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Previsão</p>
+             <div className="flex gap-2">
+               <button onClick={() => setTipoFrete('imediato')} className={`flex-1 p-3 rounded-xl font-black text-xs uppercase transition-all ${tipoFrete === 'imediato' ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}>Agora</button>
+               <button onClick={() => setTipoFrete('agendado')} className={`flex-1 p-3 rounded-xl font-black text-xs uppercase transition-all ${tipoFrete === 'agendado' ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}>Agendar</button>
+             </div>
+             {tipoFrete === 'agendado' && <input type="datetime-local" className="w-full mt-3 p-3 rounded-xl border-2 text-slate-950 font-black outline-none focus:border-blue-500 transition-all" value={dataAgendada} onChange={(e) => setDataAgendada(e.target.value)} />}
+          </div>
+          
+          <div className="grid grid-cols-2 gap-2">
+            <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="Peso (ex: 20kg)" value={peso} onChange={e => setPeso(e.target.value)} />
+            <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="Volumes (ex: 2 caixas)" value={qtdVolumes} onChange={e => setQtdVolumes(e.target.value)} />
+          </div>
+          <input className="w-full p-4 mt-1 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="Material (ex: Móveis, Documentos)" value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)} />
+          
+          {/* 🔥 TRAVA DO BOTÃO E AVISO DE AUTORIDADE */}
+          {!isFormValid && (
+            <p className="text-red-500 text-[11px] font-black uppercase text-center mt-4">⚠️ Preencha todas as informações obrigatórias para liberar o cálculo</p>
+          )}
+          <button 
+            onClick={calcularDistanciaReal} 
+            disabled={loadingRoute || loadingPayment || !isFormValid} 
+            className={`w-full font-black py-5 rounded-2xl shadow-xl uppercase italic mt-2 flex items-center justify-center gap-2 transition-all duration-200 ${!isFormValid ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:scale-[1.02] hover:bg-blue-700 text-white'}`}
+          >
+            {loadingRoute ? <><Loader2 className="animate-spin w-5 h-5"/> Calculando rota...</> : 'CALCULAR FRETE'}
+          </button>
+        </div>
+      )}
+
+      {step === 'preview' && (
+        <div className="animate-in fade-in zoom-in duration-300">
+          <MapaCliente />
+          <div className="bg-white p-8 rounded-[2.5rem] shadow-2xl mt-4 text-center border-t-8 border-slate-950 relative overflow-hidden">
+              <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl mb-6 flex items-start gap-3 text-left">
+                <AlertTriangle className="text-amber-500 w-5 h-5 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-[11px] font-black text-amber-900 uppercase">Alta Demanda Ativa</p>
+                  <p className="text-[11px] font-medium text-amber-800">Motoristas sendo alocados rapidamente. Garanta este valor.</p>
+                </div>
+              </div>
+              <p className="text-sm text-slate-400 line-through font-bold">Preço médio: R$ {valorAncora.toFixed(2).replace('.', ',')}</p>
+              <p className="text-6xl font-black text-slate-950 italic mb-2 drop-shadow-sm">R$ {valorTotalBruto.toFixed(2).replace('.', ',')}</p>
+              <p className="text-[11px] font-black uppercase text-green-700 bg-green-100 inline-block px-4 py-2 rounded-xl mb-6">Melhor preço garantido</p>
+              <div className="bg-slate-50 p-4 rounded-2xl mb-8 text-slate-900 font-bold text-xs border border-slate-100 shadow-inner">
+                {coleta.rua}, {coleta.num} ➔ {entrega.bairro} <br/><span className="text-blue-600 font-black">({validDistancia.toFixed(1)} KM)</span>
+              </div>
+              <button onClick={handleContratar} disabled={loadingRoute || loadingPayment} className="w-full bg-blue-600 text-white py-6 rounded-3xl font-black uppercase italic shadow-2xl hover:scale-[1.02] hover:bg-blue-700 transition-all duration-200 flex items-center justify-center gap-2">
+                {loadingPayment ? <><Loader2 className="animate-spin w-5 h-5" /> Conectando ao Banco...</> : <><ShieldCheck size={20} /> IR PARA PAGAMENTO SEGURO</>}
+              </button>
+          </div>
+        </div>
+      )}
+
+      {step === 'busca' && (
+         <div className="bg-white rounded-[3rem] p-8 text-center shadow-2xl border-4 border-slate-100 mt-10 animate-in slide-in-from-bottom-6">
+            {['aceito', 'coleta', 'em_transporte', 'entregue'].includes(orderData?.status || '') ? (
+               <div className="animate-in zoom-in fade-in duration-500 text-left">
+                  
+                  <div className="mb-6 -mt-2">
+                    <MapaCliente motoristaId={orderData?.motoristaId} />
+                  </div>
+
+                  <h2 className="text-2xl font-black italic uppercase text-slate-950 text-center">Motorista Confirmado</h2>
+                  
+                  <div className="text-center mt-2 mb-6">
+                    {orderData?.rotaInteligente && (<p className="text-[11px] font-black uppercase text-green-700 bg-green-100 px-4 py-2 rounded-xl mt-2 mb-2 inline-block">🚚 Motorista na sua rota</p>)}
+                    <p className="font-black text-blue-600 text-xl uppercase bg-blue-50 py-2 rounded-xl inline-block px-6 w-full">{orderData?.motoristaNome || 'Motorista'}</p>
+                  </div>
+
+                  <div className="mt-6 bg-slate-50 p-6 rounded-3xl border-2 border-slate-100 shadow-inner">
+                      <h3 className="text-[10px] font-black uppercase text-slate-400 mb-6 tracking-widest text-center">Status em Tempo Real</h3>
+                      <ul className="relative border-l-2 border-slate-200 ml-4 space-y-8 pb-2">
+                          <li className="relative pl-6">
+                              <div className={`absolute -left-[11px] top-0 w-5 h-5 rounded-full border-4 border-white ${['aceito', 'coleta', 'em_transporte', 'entregue'].includes(orderData!.status) ? 'bg-blue-600 shadow-[0_0_15px_rgba(37,99,235,0.5)]' : 'bg-slate-300'}`}></div>
+                              <p className={`font-black text-sm uppercase leading-tight ${['aceito', 'coleta', 'em_transporte', 'entregue'].includes(orderData!.status) ? 'text-blue-600' : 'text-slate-400'}`}>Indo para a coleta</p>
+                          </li>
+                          <li className="relative pl-6">
+                              <div className={`absolute -left-[11px] top-0 w-5 h-5 rounded-full border-4 border-white ${['coleta', 'em_transporte', 'entregue'].includes(orderData!.status) ? 'bg-blue-600 shadow-[0_0_15px_rgba(37,99,235,0.5)]' : 'bg-slate-300'}`}></div>
+                              <p className={`font-black text-sm uppercase leading-tight ${['coleta', 'em_transporte', 'entregue'].includes(orderData!.status) ? 'text-blue-600' : 'text-slate-400'}`}>No Local / Embarcando</p>
+                          </li>
+                          <li className="relative pl-6">
+                              <div className={`absolute -left-[11px] top-0 w-5 h-5 rounded-full border-4 border-white ${['em_transporte', 'entregue'].includes(orderData!.status) ? 'bg-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.6)]' : 'bg-slate-300'}`}></div>
+                              <p className={`font-black text-sm uppercase leading-tight ${['em_transporte', 'entregue'].includes(orderData!.status) ? 'text-amber-500' : 'text-slate-400'}`}>Em Transporte</p>
+                          </li>
+                          <li className="relative pl-6">
+                              <div className={`absolute -left-[11px] top-0 w-5 h-5 rounded-full border-4 border-white ${['entregue'].includes(orderData!.status) ? 'bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.6)]' : 'bg-slate-300'}`}></div>
+                              <p className={`font-black text-sm uppercase leading-tight ${['entregue'].includes(orderData!.status) ? 'text-green-500' : 'text-slate-400'}`}>Carga Entregue</p>
+                          </li>
+                      </ul>
+                  </div>
+
+                  <div className="mt-6">{currentOrderId && <ChatFrete freteId={currentOrderId} tipoUsuario="cliente" nome="Você (Cliente)" />}</div>
+                  <button onClick={handleWhatsAppClick} className="w-full bg-green-500 py-5 rounded-2xl font-black mt-8 text-white uppercase shadow-xl hover:scale-[1.02] transition-all text-lg italic flex items-center justify-center gap-2">WhatsApp Direto</button>
+               </div>
+            ) : (
+               <div className="py-10 text-center flex flex-col items-center">
+                  <div className="relative">
+                    <div className="absolute inset-0 bg-blue-100 rounded-full animate-ping opacity-75"></div>
+                    <Package className="text-blue-600 w-24 h-24 relative z-10 animate-bounce" />
+                  </div>
+                  <h2 className="text-3xl font-black italic uppercase text-slate-950 mt-8 mb-2">
+                      {orderData?.status === 'agendado' ? 'Agendamento Confirmado' : (orderData?.status === 'disponivel' ? 'Acionando Motoristas...' : 'Aguardando Pagamento...')}
+                  </h2>
+                  
+                  {/* 🔥 GATILHO ANTI-ANSIEDADE NA ESPERA */}
+                  <p className="text-slate-500 font-bold text-sm uppercase tracking-wide px-4 mb-4">
+                      {orderData?.status === 'agendado' ? 'Aguarde o horário combinado' : (orderData?.status === 'disponivel' ? 'Aguarde um instante. Buscando parceiros na sua região. Mantenha a tela aberta, isso pode levar alguns minutos em horários de pico...' : 'Confirme no app do seu banco')}
+                  </p>
+               </div>
+            )}
+
+            {['aguardando_pagamento', 'disponivel', 'agendado', 'aceito'].includes(orderData?.status || '') && (
+              <button
+                onClick={() => setShowCancelModal(true)}
+                disabled={isCancelling}
+                className="w-full mt-6 bg-transparent border border-red-500/20 text-red-500 py-4 rounded-2xl font-black uppercase text-sm hover:bg-red-50 hover:border-red-500/50 transition-all flex items-center justify-center gap-2"
+              >
+                <XCircle size={18} /> Cancelar Frete
+              </button>
+            )}
+         </div>
+      )}
+    </div>
+  </div>
+);
+}
