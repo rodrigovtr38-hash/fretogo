@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 import { collection, onSnapshot, doc, query, orderBy, runTransaction, where, updateDoc } from 'firebase/firestore';
-import { Loader2, CheckCircle, XCircle, Search, ShieldAlert, Truck, Users } from 'lucide-react';
+import { Loader2, CheckCircle, XCircle, Search, ShieldAlert, Truck, Users, Calendar } from 'lucide-react';
 
 // 🔥 SEGURANÇA: Painel trancado! Apenas a conta principal tem acesso.
 const ADMIN_UIDS = ['uV1yeZoGfhZTRWDVL1CnMW6b6NY2']; 
@@ -65,6 +65,7 @@ export default function Admin() {
     const matchSearch =
       f.id.includes(searchTerm) ||
       f.motoristaNome?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      f.clienteNome?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       f.cidadeOrigem?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchFilter = filter === 'todos' || f.status === filter;
     return matchSearch && matchFilter;
@@ -104,6 +105,13 @@ export default function Admin() {
       await updateDoc(doc(db, 'motoristas_cadastros', id), { status });
       alert(`Motorista ${status} com sucesso!`);
     } catch (e: any) { alert("Erro ao processar: " + e.message); }
+  };
+
+  // 🔥 FUNÇÃO DE CONVERSÃO DE DATA E HORA
+  const formatarData = (timestamp: any) => {
+    if (!timestamp) return 'Data indisponível';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleDateString('pt-BR') + ' às ' + date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   };
 
   return (
@@ -218,7 +226,7 @@ export default function Admin() {
           <div className="bg-slate-900 p-4 rounded-3xl border border-slate-800 flex flex-col md:flex-row gap-4 mb-8">
             <div className="flex-1 relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />
-              <input placeholder="Buscar por ID, Motorista ou Cidade..." onChange={e => setSearchTerm(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl py-4 pl-12 pr-4 text-white focus:border-blue-500 outline-none" />
+              <input placeholder="Buscar por ID, Motorista, Cliente ou Cidade..." onChange={e => setSearchTerm(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl py-4 pl-12 pr-4 text-white focus:border-blue-500 outline-none" />
             </div>
             <select onChange={e => setFilter(e.target.value)} className="bg-slate-950 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold outline-none cursor-pointer">
               <option value="todos">Todos os Status</option>
@@ -234,7 +242,7 @@ export default function Admin() {
           <div className="space-y-4">
             {fretesFiltrados.map(f => (
               <div key={f.id} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 hover:border-slate-600 transition-colors">
-                <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
+                <div className="flex flex-col md:flex-row justify-between md:items-start mb-6 gap-4">
                   <div>
                     <span className={`inline-flex px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider mb-2 ${
                       ['disponivel'].includes(f.status) ? 'bg-blue-900/50 text-blue-400 border border-blue-800' :
@@ -245,7 +253,9 @@ export default function Admin() {
                     }`}>
                       STATUS: {f.status.replace('_', ' ')}
                     </span>
-                    <p className="text-xs text-slate-500 font-mono">ID: {f.id}</p>
+                    <p className="text-xs text-slate-500 font-mono mb-1">ID: {f.id}</p>
+                    {/* 🔥 DATA E HORA INJETADAS AQUI */}
+                    <p className="text-xs text-slate-400 font-bold flex items-center gap-1"><Calendar size={12}/> {formatarData(f.createdAt)}</p>
                   </div>
                   <div className="text-left md:text-right">
                     <p className="text-[10px] text-slate-500 font-bold uppercase">Valor Total (Pago)</p>
@@ -256,9 +266,10 @@ export default function Admin() {
                 <div className="grid md:grid-cols-2 gap-6 bg-slate-950 p-4 rounded-2xl border border-slate-800 mb-6">
                   <div>
                     <p className="text-[10px] font-black text-slate-500 uppercase mb-1">Cliente</p>
-                    <h2 className="text-white font-bold">{f.clienteZap ? 'Cliente Registrado' : 'Anônimo'}</h2>
+                    {/* 🔥 NOME REAL DO CLIENTE E WHATSAPP DESTACADO */}
+                    <h2 className="text-white font-bold">{f.clienteNome || (f.clienteZap ? 'Cliente Registrado' : 'Anônimo')}</h2>
                     {f.clienteZap && (
-                      <a href={`https://wa.me/55${f.clienteZap.replace(/\D/g,'')}`} target="_blank" rel="noreferrer" className="text-blue-400 text-sm font-bold hover:underline">
+                      <a href={`https://wa.me/55${f.clienteZap.replace(/\D/g,'')}`} target="_blank" rel="noreferrer" className="inline-flex bg-green-900/30 border border-green-800 text-green-400 text-xs px-3 py-1 rounded-lg font-bold hover:bg-green-900/50 transition-colors mt-2">
                         WhatsApp: {f.clienteZap}
                       </a>
                     )}
@@ -267,7 +278,7 @@ export default function Admin() {
                     <p className="text-[10px] font-black text-slate-500 uppercase mb-1">Motorista Atribuído</p>
                     <h2 className="text-white font-bold">{f.motoristaNome || 'Aguardando Parceiro...'}</h2>
                     {f.motoristaZap && (
-                      <a href={`https://wa.me/55${f.motoristaZap.replace(/\D/g,'')}`} target="_blank" rel="noreferrer" className="text-blue-400 text-sm font-bold hover:underline">
+                      <a href={`https://wa.me/55${f.motoristaZap.replace(/\D/g,'')}`} target="_blank" rel="noreferrer" className="inline-flex bg-blue-900/30 border border-blue-800 text-blue-400 text-xs px-3 py-1 rounded-lg font-bold hover:bg-blue-900/50 transition-colors mt-2">
                         WhatsApp: {f.motoristaZap}
                       </a>
                     )}
