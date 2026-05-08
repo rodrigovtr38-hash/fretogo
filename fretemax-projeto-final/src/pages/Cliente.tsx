@@ -22,7 +22,6 @@ const VEHICLE_CONFIG: Record<VehicleType, VehicleConfig> = {
   'bi_trem_cegonha': { nome: 'Bi-trem / Cegonha', fator: 7.2 }
 };
 
-// 🔥 TRAVA DE PESO INTELIGENTE (Custo Zero / Anti-Fraude)
 const LIMITES_PESO: Record<VehicleType, number> = {
   moto: 30,
   carro_pequeno: 250,
@@ -73,11 +72,12 @@ export default function Cliente() {
   const [coleta, setColeta] = useState<AddressData>({ cep: '', bairro: '', rua: '', num: '' });
   const [entrega, setEntrega] = useState<AddressData>({ cep: '', bairro: '', rua: '', num: '' });
   const [peso, setPeso] = useState('');
+  const [qtdVolumes, setQtdVolumes] = useState(''); // 🔥 NOVO CAMPO: Quantidade de Volumes
   const [tipoMaterial, setTipoMaterial] = useState('');
   const [vehicle, setVehicle] = useState<VehicleType>('carro_pequeno');
   const [tipoFrete, setTipoFrete] = useState<'imediato' | 'agendado'>('imediato');
   const [dataAgendada, setDataAgendada] = useState('');
-  const [whatsapp, setWhatsapp] = useState(''); // 🔥 TRAVA DE CONTATO
+  const [whatsapp, setWhatsapp] = useState(''); 
   
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [orderData, setOrderData] = useState<OrderData | null>(null);
@@ -104,6 +104,7 @@ export default function Cliente() {
         if (data.coleta) setColeta(data.coleta);
         if (data.entrega) setEntrega(data.entrega);
         if (data.peso) setPeso(data.peso);
+        if (data.qtdVolumes) setQtdVolumes(data.qtdVolumes);
         if (data.tipoMaterial) setTipoMaterial(data.tipoMaterial);
         if (data.vehicle) setVehicle(data.vehicle);
         if (data.tipoFrete) setTipoFrete(data.tipoFrete);
@@ -118,9 +119,9 @@ export default function Cliente() {
   }, []);
 
   useEffect(() => {
-    const formData = { coleta, entrega, peso, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp };
+    const formData = { coleta, entrega, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp };
     localStorage.setItem('fretogo_form_backup', JSON.stringify(formData));
-  }, [coleta, entrega, peso, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp]);
+  }, [coleta, entrega, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp]);
 
   useEffect(() => {
     if (!currentOrderId) return;
@@ -162,7 +163,6 @@ export default function Cliente() {
       return;
     }
 
-    // 🔥 VALIDAÇÃO DE PESO
     const pesoNumero = parseInt(peso.replace(/\D/g, ''));
     if (!isNaN(pesoNumero)) {
       const limite = LIMITES_PESO[vehicle];
@@ -224,8 +224,10 @@ export default function Cliente() {
         cidadeOrigem: coleta.bairro, cidadeDestino: entrega.bairro,
         enderecoColetaTexto: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`,
         enderecoEntregaTexto: `${entrega.rua}, ${entrega.num} - ${entrega.bairro}`,
-        peso: peso || 'Não informado', tipoMaterial: tipoMaterial || 'Carga geral',
-        clienteZap: whatsapp, // Salvando o WhatsApp para o Admin/Motorista
+        peso: peso || 'Não informado', 
+        qtdVolumes: qtdVolumes || 'Não informado', // 🔥 ENVIANDO PARA O BANCO DE DADOS
+        tipoMaterial: tipoMaterial || 'Carga geral',
+        clienteZap: whatsapp, 
         coleta, entrega, origemLat: c1.lat, origemLng: c1.lng, destinoLat: c2.lat, destinoLng: c2.lng,
         tipoFrete, dataAgendada: tipoFrete === 'agendado' ? new Date(dataAgendada) : null,
         status: tipoFrete === 'agendado' ? 'agendado' : 'aguardando_pagamento',
@@ -336,7 +338,6 @@ export default function Cliente() {
         </div>
       )}
 
-      {/* 🔥 BOTÃO FLUTUANTE DO SUPORTE */}
       <a href="https://wa.me/5511946099840" target="_blank" rel="noreferrer" className="fixed bottom-6 right-6 z-50 bg-green-500 hover:bg-green-600 hover:scale-110 transition-all text-white p-4 rounded-full shadow-2xl">
         <MessageCircle className="w-8 h-8 animate-pulse" />
       </a>
@@ -385,12 +386,14 @@ export default function Cliente() {
                </div>
                {tipoFrete === 'agendado' && <input type="datetime-local" className="w-full mt-3 p-3 rounded-xl border-2 text-slate-950 font-black outline-none focus:border-blue-500 transition-all" value={dataAgendada} onChange={(e) => setDataAgendada(e.target.value)} />}
             </div>
+            
+            {/* 🔥 ORGANIZADO PARA CABER VOLUMES SEM QUEBRAR NO MOBILE */}
             <div className="grid grid-cols-2 gap-2">
               <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="Peso (ex: 20kg)" value={peso} onChange={e => setPeso(e.target.value)} />
-              <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="Material" value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)} />
+              <input className="p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="Volumes (ex: 2 caixas)" value={qtdVolumes} onChange={e => setQtdVolumes(e.target.value)} />
             </div>
+            <input className="w-full p-4 mt-1 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="Material (ex: Móveis, Documentos)" value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)} />
             
-            {/* 🔥 BOTÃO BLINDADO (Só funciona se preencher o zap e os endereços) */}
             <button 
               onClick={calcularDistanciaReal} 
               disabled={loadingRoute || loadingPayment || !whatsapp || !coleta.rua || !entrega.rua} 
