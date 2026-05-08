@@ -188,4 +188,114 @@ export default function Admin() {
                     {m.cnhUrl ? (
                        <a href={m.cnhUrl} target="_blank" rel="noreferrer" className="block relative group">
                           <div className="absolute inset-0 bg-blue-600/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl"><Search className="text-white w-8 h-8"/></div>
-                          <img src={m.cnhUrl} className="rounded-
+                          <img src={m.cnhUrl} className="rounded-2xl h-32 w-full object-cover border border-slate-700" alt="CNH" />
+                       </a>
+                    ) : <div className="h-32 bg-slate-950 rounded-2xl border border-slate-800 flex items-center justify-center text-slate-600 text-xs font-bold">Sem CNH</div>}
+                    
+                    {m.crlvUrl ? (
+                       <a href={m.crlvUrl} target="_blank" rel="noreferrer" className="block relative group">
+                          <div className="absolute inset-0 bg-blue-600/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl"><Search className="text-white w-8 h-8"/></div>
+                          <img src={m.crlvUrl} className="rounded-2xl h-32 w-full object-cover border border-slate-700" alt="CRLV" />
+                       </a>
+                    ) : <div className="h-32 bg-slate-950 rounded-2xl border border-slate-800 flex items-center justify-center text-slate-600 text-xs font-bold">Sem CRLV</div>}
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button onClick={() => handleAprovacaoMotorista(m.id, 'rejeitado')} className="flex-1 bg-slate-800 hover:bg-red-900/50 text-red-400 py-4 rounded-xl font-black uppercase text-sm border border-slate-700 transition-colors">Rejeitar</button>
+                    <button onClick={() => handleAprovacaoMotorista(m.id, 'aprovado')} className="flex-1 bg-green-600 hover:bg-green-500 text-white py-4 rounded-xl font-black uppercase text-sm shadow-lg shadow-green-600/20 transition-all flex items-center justify-center gap-2"><CheckCircle size={18}/> Aprovar Perfil</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ABA: RADAR DE CORRIDAS */}
+      {tab === 'corridas' && (
+        <div className="animate-in fade-in slide-in-from-bottom-4">
+          
+          <div className="bg-slate-900 p-4 rounded-3xl border border-slate-800 flex flex-col md:flex-row gap-4 mb-8">
+            <div className="flex-1 relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />
+              <input placeholder="Buscar por ID, Motorista ou Cidade..." onChange={e => setSearchTerm(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-2xl py-4 pl-12 pr-4 text-white focus:border-blue-500 outline-none" />
+            </div>
+            <select onChange={e => setFilter(e.target.value)} className="bg-slate-950 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold outline-none cursor-pointer">
+              <option value="todos">Todos os Status</option>
+              <option value="disponivel">Radar (Buscando)</option>
+              <option value="aceito">Motorista a Caminho</option>
+              <option value="em_transporte">Em Rota de Entrega</option>
+              <option value="entregue">Aguardando Repasse</option>
+              <option value="finalizado">Repasse Concluído</option>
+              <option value="cancelado">Cancelados</option>
+            </select>
+          </div>
+
+          <div className="space-y-4">
+            {fretesFiltrados.map(f => (
+              <div key={f.id} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 hover:border-slate-600 transition-colors">
+                <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
+                  <div>
+                    <span className={`inline-flex px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider mb-2 ${
+                      ['disponivel'].includes(f.status) ? 'bg-blue-900/50 text-blue-400 border border-blue-800' :
+                      ['aceito', 'coleta'].includes(f.status) ? 'bg-purple-900/50 text-purple-400 border border-purple-800' :
+                      ['em_transporte'].includes(f.status) ? 'bg-amber-900/50 text-amber-400 border border-amber-800' :
+                      ['entregue', 'finalizado'].includes(f.status) ? 'bg-green-900/50 text-green-400 border border-green-800' :
+                      'bg-red-900/50 text-red-400 border border-red-800'
+                    }`}>
+                      STATUS: {f.status.replace('_', ' ')}
+                    </span>
+                    <p className="text-xs text-slate-500 font-mono">ID: {f.id}</p>
+                  </div>
+                  <div className="text-left md:text-right">
+                    <p className="text-[10px] text-slate-500 font-bold uppercase">Valor Total (Pago)</p>
+                    <p className="text-xl font-black text-green-400">R$ {Number(f.valorTotal || 0).toFixed(2)}</p>
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-6 bg-slate-950 p-4 rounded-2xl border border-slate-800 mb-6">
+                  <div>
+                    <p className="text-[10px] font-black text-slate-500 uppercase mb-1">Cliente</p>
+                    <h2 className="text-white font-bold">{f.clienteZap ? 'Cliente Registrado' : 'Anônimo'}</h2>
+                    {f.clienteZap && (
+                      <a href={`https://wa.me/55${f.clienteZap.replace(/\D/g,'')}`} target="_blank" rel="noreferrer" className="text-blue-400 text-sm font-bold hover:underline">
+                        WhatsApp: {f.clienteZap}
+                      </a>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black text-slate-500 uppercase mb-1">Motorista Atribuído</p>
+                    <h2 className="text-white font-bold">{f.motoristaNome || 'Aguardando Parceiro...'}</h2>
+                    {f.motoristaZap && (
+                      <a href={`https://wa.me/55${f.motoristaZap.replace(/\D/g,'')}`} target="_blank" rel="noreferrer" className="text-blue-400 text-sm font-bold hover:underline">
+                        WhatsApp: {f.motoristaZap}
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {f.status === 'entregue' && (
+                    <button onClick={() => forceStatus(f.id, 'finalizado')} className="bg-green-600 hover:bg-green-500 text-white px-6 py-3 rounded-xl font-black text-xs uppercase transition-all">
+                      Confirmar Repasse (Encerrar)
+                    </button>
+                  )}
+                  {['aguardando_pagamento','erro_pagamento', 'disponivel'].includes(f.status) && (
+                    <button onClick={() => forceStatus(f.id, 'cancelado')} className="bg-slate-800 hover:bg-red-900/50 text-red-400 border border-slate-700 px-6 py-3 rounded-xl font-black text-xs uppercase transition-all">
+                      Forçar Cancelamento
+                    </button>
+                  )}
+                  {f.comprovanteUrl && (
+                    <a href={f.comprovanteUrl} target="_blank" rel="noreferrer" className="bg-slate-800 text-slate-300 hover:text-white border border-slate-700 px-6 py-3 rounded-xl font-black text-xs uppercase transition-all flex items-center gap-2">
+                      <Search size={14}/> Ver Comprovante
+                    </a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
