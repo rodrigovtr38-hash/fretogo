@@ -4,7 +4,7 @@ import { signInWithPopup, signOut } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'; 
 import { collection, query, where, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp, updateDoc, runTransaction, arrayRemove } from 'firebase/firestore';
 import { getMessaging, getToken } from 'firebase/messaging'; 
-import { Loader2, Truck, CheckCircle, Navigation, MapPin, AlertCircle, ShieldCheck, UserPlus, Camera, Zap, Power, AlertTriangle, XCircle, Package } from 'lucide-react';
+import { Loader2, Truck, CheckCircle, Navigation, MapPin, AlertCircle, ShieldCheck, UserPlus, Camera, Zap, Power, AlertTriangle, XCircle, Package, Download } from 'lucide-react';
 import ChatFrete from '../components/ChatFrete';
 import { UserProfile, DriverData, OrderData, VehicleType } from '../types';
 
@@ -27,7 +27,6 @@ export default function Motorista() {
   const [backhaulDestino, setBackhaulDestino] = useState(''); 
   const [comprovante, setComprovante] = useState<File | null>(null);
 
-  // 🔥 ADICIONADO: cidadeEstado no state do formulário
   const [form, setForm] = useState({ nome: '', whatsapp: '', placa: '', categoria: 'carro_pequeno' as VehicleType, cnh: '', renavam: '', cpf: '', cidadeEstado: '' });
   const [cnhFile, setCnhFile] = useState<File | null>(null);
   const [crlvFile, setCrlvFile] = useState<File | null>(null);
@@ -39,6 +38,7 @@ export default function Motorista() {
   const [exibindoOferta, setExibindoOferta] = useState(false);
 
   const [toast, setToast] = useState<{msg: string, type: 'error' | 'warning'} | null>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null); // 🔥 ESTADO PARA O PWA
 
   const actionHandled = useRef(false);
   const lastGpsUpdate = useRef(0); 
@@ -55,6 +55,26 @@ export default function Motorista() {
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
+    }
+  };
+
+  // 🔥 CAPTURADOR DE INSTALAÇÃO DO PWA
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setDeferredPrompt(null);
+      }
     }
   };
 
@@ -176,7 +196,6 @@ export default function Motorista() {
   };
 
   const handleCadastro = async () => {
-    // 🔥 ADICIONADO: Validação do campo cidadeEstado
     if (!form.nome || !form.cpf || !form.cnh || !form.placa || !form.renavam || !form.whatsapp || !form.cidadeEstado) {
       showToast("Preencha todos os campos de texto.", "warning");
       return;
@@ -327,7 +346,6 @@ export default function Motorista() {
               
               <div className="bg-slate-900 p-3 rounded-xl mb-4 border border-slate-700/50 flex flex-wrap gap-2 text-xs justify-center">
                  <span className="bg-slate-800 text-slate-300 px-2 py-1 rounded font-bold flex items-center gap-1"><Truck size={12} className="text-blue-400"/> {VEHICLE_CONFIG[ofertaFrete.veiculo]?.nome || 'Veículo'}</span>
-                 {/* 🔥 ADICIONADO: Display do Qtd Volumes */}
                  <span className="bg-slate-800 text-slate-300 px-2 py-1 rounded font-bold flex items-center gap-1"><Package size={12}/> {ofertaFrete.qtdVolumes || 'Não informado'}</span>
                  <span className="bg-slate-800 text-slate-300 px-2 py-1 rounded font-bold">{ofertaFrete.tipoMaterial}</span>
               </div>
@@ -358,14 +376,14 @@ export default function Motorista() {
       </nav>
 
       {!user ? (
-        <div className="text-center py-24 bg-slate-900 rounded-[3rem] border border-slate-800 shadow-2xl animate-in zoom-in-95">
+        <div className="text-center py-24 bg-slate-900 rounded-[3rem] border border-slate-800 shadow-2xl animate-in zoom-in-95 max-w-sm mx-auto">
           <div className="w-28 h-28 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner">
             <Zap className="w-14 h-14 text-yellow-400 fill-yellow-400" />
           </div>
           <h1 className="text-5xl font-black italic mb-10 uppercase tracking-tight drop-shadow-lg leading-none">
             Login<br/><span className="text-blue-500">Motorista</span>
           </h1>
-          <button onClick={() => signInWithPopup(auth, provider)} className="w-4/5 mx-auto bg-blue-600 p-6 rounded-2xl font-black uppercase italic shadow-blue-600/50 shadow-2xl text-xl hover:scale-105 active:scale-95 transition-all duration-200 flex justify-center items-center gap-3">
+          <button onClick={() => signInWithPopup(auth, provider)} className="w-full bg-blue-600 p-6 rounded-2xl font-black uppercase italic shadow-blue-600/50 shadow-2xl text-xl hover:scale-105 active:scale-95 transition-all duration-200 flex justify-center items-center gap-3">
             <Truck size={24} /> ENTRAR NO APP
           </button>
         </div>
@@ -379,7 +397,6 @@ export default function Motorista() {
             <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="Nome Completo" onChange={e => setForm({...form, nome: e.target.value})} />
             <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="CPF" onChange={e => setForm({...form, cpf: e.target.value})} />
             
-            {/* 🔥 ADICIONADO: Campo Cidade / Estado */}
             <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="Cidade / Estado (Ex: Guarulhos - SP)" onChange={e => setForm({...form, cidadeEstado: e.target.value})} />
             
             <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="WhatsApp (DDD)" onChange={e => setForm({...form, whatsapp: e.target.value})} />
@@ -426,11 +443,17 @@ export default function Motorista() {
             <h2 className="text-2xl font-black italic uppercase mb-2 text-yellow-500 tracking-tight">Em Análise</h2>
             <p className="text-slate-300 font-bold text-sm leading-relaxed">Sua documentação está sendo validada pelo nosso time de segurança. Aguarde a liberação.</p>
             
-            {/* 🔥 ADICIONADO: Botão do Grupo VIP */}
             <a href="https://chat.whatsapp.com/IGylgsZPYhsDfMZDKzVjHT" target="_blank" rel="noreferrer" className="mt-8 bg-green-500 hover:bg-green-600 hover:scale-105 transition-all text-white p-6 rounded-3xl font-black flex flex-col items-center gap-2 shadow-2xl shadow-green-500/20 text-center w-full">
               <span className="text-xl uppercase italic tracking-tight">🚀 Acelere sua Aprovação!</span>
               <span className="text-xs font-bold text-green-50">Entre no Grupo VIP e pegue as melhores cargas primeiro. Clique e Entre.</span>
             </a>
+
+            {/* 🔥 BOTÃO DE BAIXAR PWA (Aparece se o Chrome permitir) */}
+            {deferredPrompt && (
+              <button onClick={handleInstallClick} className="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-3xl shadow-xl flex items-center justify-center gap-2 uppercase transition-all">
+                <Download size={20} /> Baixar Aplicativo Fretogo
+              </button>
+            )}
           </div>
         </div>
       ) : activeFrete ? (
@@ -482,9 +505,16 @@ export default function Motorista() {
                 </div>
               </div>
             ) : (
-              <div className="animate-in fade-in duration-500">
+              <div className="animate-in fade-in duration-500 w-full max-w-sm mx-auto">
                  <h2 className="text-2xl font-black uppercase text-slate-600 mb-2">Você está offline</h2>
                  <p className="text-slate-500 font-bold text-sm">Toque no botão para entrar no radar.</p>
+
+                 {/* 🔥 BOTÃO DE BAIXAR PWA NO RADAR OFFLINE */}
+                 {deferredPrompt && (
+                   <button onClick={handleInstallClick} className="w-full mt-10 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-black py-4 rounded-3xl shadow-xl flex items-center justify-center gap-2 uppercase transition-all">
+                     <Download size={20} /> Instalar Aplicativo Fretogo
+                   </button>
+                 )}
               </div>
             )}
         </div>
