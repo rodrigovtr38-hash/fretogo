@@ -27,7 +27,8 @@ export default function Motorista() {
   const [backhaulDestino, setBackhaulDestino] = useState(''); 
   const [comprovante, setComprovante] = useState<File | null>(null);
 
-  const [form, setForm] = useState({ nome: '', whatsapp: '', placa: '', categoria: 'carro_pequeno' as VehicleType, cnh: '', renavam: '', cpf: '' });
+  // 🔥 ADICIONADO: cidadeEstado no state do formulário
+  const [form, setForm] = useState({ nome: '', whatsapp: '', placa: '', categoria: 'carro_pequeno' as VehicleType, cnh: '', renavam: '', cpf: '', cidadeEstado: '' });
   const [cnhFile, setCnhFile] = useState<File | null>(null);
   const [crlvFile, setCrlvFile] = useState<File | null>(null);
   const [uploadingDocs, setUploadingDocs] = useState(false);
@@ -175,7 +176,8 @@ export default function Motorista() {
   };
 
   const handleCadastro = async () => {
-    if (!form.nome || !form.cpf || !form.cnh || !form.placa || !form.renavam || !form.whatsapp) {
+    // 🔥 ADICIONADO: Validação do campo cidadeEstado
+    if (!form.nome || !form.cpf || !form.cnh || !form.placa || !form.renavam || !form.whatsapp || !form.cidadeEstado) {
       showToast("Preencha todos os campos de texto.", "warning");
       return;
     }
@@ -325,7 +327,9 @@ export default function Motorista() {
               
               <div className="bg-slate-900 p-3 rounded-xl mb-4 border border-slate-700/50 flex flex-wrap gap-2 text-xs justify-center">
                  <span className="bg-slate-800 text-slate-300 px-2 py-1 rounded font-bold flex items-center gap-1"><Truck size={12} className="text-blue-400"/> {VEHICLE_CONFIG[ofertaFrete.veiculo]?.nome || 'Veículo'}</span>
-                 <span className="bg-slate-800 text-slate-300 px-2 py-1 rounded font-bold flex items-center gap-1"><Package size={12}/> {ofertaFrete.tipoMaterial}</span>
+                 {/* 🔥 ADICIONADO: Display do Qtd Volumes */}
+                 <span className="bg-slate-800 text-slate-300 px-2 py-1 rounded font-bold flex items-center gap-1"><Package size={12}/> {ofertaFrete.qtdVolumes || 'Não informado'}</span>
+                 <span className="bg-slate-800 text-slate-300 px-2 py-1 rounded font-bold">{ofertaFrete.tipoMaterial}</span>
               </div>
 
               <div className="pt-3 border-t border-slate-800 flex justify-center items-center">
@@ -374,6 +378,10 @@ export default function Motorista() {
           <div className="space-y-4">
             <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="Nome Completo" onChange={e => setForm({...form, nome: e.target.value})} />
             <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="CPF" onChange={e => setForm({...form, cpf: e.target.value})} />
+            
+            {/* 🔥 ADICIONADO: Campo Cidade / Estado */}
+            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="Cidade / Estado (Ex: Guarulhos - SP)" onChange={e => setForm({...form, cidadeEstado: e.target.value})} />
+            
             <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="WhatsApp (DDD)" onChange={e => setForm({...form, whatsapp: e.target.value})} />
             <div className="grid grid-cols-2 gap-3">
               <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all uppercase" placeholder="Placa" onChange={e => setForm({...form, placa: e.target.value})} />
@@ -410,12 +418,20 @@ export default function Motorista() {
           </div>
         </div>
       ) : driverData?.status !== 'aprovado' ? (
-        <div className="text-center py-20 bg-slate-900 rounded-[3rem] border border-yellow-600/50 shadow-2xl px-8 animate-in zoom-in-95">
-          <div className="w-24 h-24 bg-yellow-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
-            <AlertCircle className="w-12 h-12 text-yellow-500" />
+        <div className="text-center py-12 flex flex-col items-center justify-center min-h-[75vh]">
+          <div className="bg-slate-900 rounded-[3rem] border border-yellow-600/50 shadow-2xl p-8 max-w-sm w-full animate-in zoom-in-95">
+            <div className="w-20 h-20 bg-yellow-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertCircle className="w-10 h-10 text-yellow-500" />
+            </div>
+            <h2 className="text-2xl font-black italic uppercase mb-2 text-yellow-500 tracking-tight">Em Análise</h2>
+            <p className="text-slate-300 font-bold text-sm leading-relaxed">Sua documentação está sendo validada pelo nosso time de segurança. Aguarde a liberação.</p>
+            
+            {/* 🔥 ADICIONADO: Botão do Grupo VIP */}
+            <a href="https://chat.whatsapp.com/IGylgsZPYhsDfMZDKzVjHT" target="_blank" rel="noreferrer" className="mt-8 bg-green-500 hover:bg-green-600 hover:scale-105 transition-all text-white p-6 rounded-3xl font-black flex flex-col items-center gap-2 shadow-2xl shadow-green-500/20 text-center w-full">
+              <span className="text-xl uppercase italic tracking-tight">🚀 Acelere sua Aprovação!</span>
+              <span className="text-xs font-bold text-green-50">Entre no Grupo VIP e pegue as melhores cargas primeiro. Clique e Entre.</span>
+            </a>
           </div>
-          <h2 className="text-3xl font-black italic uppercase mb-4 text-yellow-500 tracking-tight">Em Análise</h2>
-          <p className="text-slate-300 font-bold text-lg leading-relaxed">Sua documentação está sendo validada pelo nosso time de segurança. <br/><br/>Aguarde a liberação.</p>
         </div>
       ) : activeFrete ? (
         <div className="bg-slate-900 p-8 rounded-[3rem] border border-blue-500/30 shadow-2xl animate-in slide-in-from-bottom">
