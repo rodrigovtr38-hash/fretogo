@@ -23,6 +23,7 @@ export default function Motorista() {
   const [driverData, setDriverData] = useState<DriverData | null>(null);
   const [activeFrete, setActiveFrete] = useState<OrderData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [checkingDriver, setCheckingDriver] = useState(true); // 🔥 O CÃO DE GUARDA CONTRA A TELA BRANCA
   const [isOnline, setIsOnline] = useState(false); 
   const [backhaulDestino, setBackhaulDestino] = useState(''); 
   const [comprovante, setComprovante] = useState<File | null>(null);
@@ -38,7 +39,7 @@ export default function Motorista() {
   const [exibindoOferta, setExibindoOferta] = useState(false);
 
   const [toast, setToast] = useState<{msg: string, type: 'error' | 'warning'} | null>(null);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null); // 🔥 ESTADO PARA O PWA
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   const actionHandled = useRef(false);
   const lastGpsUpdate = useRef(0); 
@@ -58,7 +59,6 @@ export default function Motorista() {
     }
   };
 
-  // 🔥 CAPTURADOR DE INSTALAÇÃO DO PWA
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: any) => {
       e.preventDefault();
@@ -221,26 +221,59 @@ export default function Motorista() {
         status: 'pendente',
         createdAt: serverTimestamp()
       });
+      // Deixamos a mudança de formStep para o onSnapshot tratar com segurança
     } catch (error) {
       showToast("Erro ao salvar cadastro. Tente novamente.", "error");
     }
     setUploadingDocs(false);
   };
 
+  // 🔥 ARQUITETURA BLINDADA PARA EVITAR VAZAMENTO DE MEMÓRIA E TELA BRANCA
   useEffect(() => {
-    return auth.onAuthStateChanged((u) => {
+    let unsubCad: any;
+    let unsubFretes: any;
+
+    const unsubscribeAuth = auth.onAuthStateChanged((u) => {
       if (u) {
         setUser({ uid: u.uid, email: u.email });
-        onSnapshot(query(collection(db, 'motoristas_cadastros'), where('email', '==', u.email)), (s) => {
-          if (!s.empty) { setDriverData(s.docs[0].data() as DriverData); setFormStep(false); } 
-          else { setFormStep(true); }
+        
+        unsubCad = onSnapshot(query(collection(db, 'motoristas_cadastros'), where('email', '==', u.email)), (s) => {
+          if (!s.empty) { 
+            // Injetamos o ID para blindar o objeto DriverData
+            setDriverData({ id: s.docs[0].id, ...s.docs[0].data() } as DriverData); 
+            setFormStep(false); 
+          } else { 
+            setFormStep(true); 
+          }
+          setCheckingDriver(false); // Libera a tela de Loading com segurança
+        }, (err) => {
+          console.error("Erro Snapshot Cadastro", err);
+          setCheckingDriver(false);
         });
-        onSnapshot(query(collection(db, 'fretes'), where('motoristaId', '==', u.uid)), (s) => {
+
+        unsubFretes = onSnapshot(query(collection(db, 'fretes'), where('motoristaId', '==', u.uid)), (s) => {
           const ativo = s.docs.map(d => ({id: d.id, ...d.data()}) as OrderData).find(f => ['aceito', 'coleta', 'em_transporte'].includes(f.status));
-          setActiveFrete(ativo || null); setLoading(false);
+          setActiveFrete(ativo || null); 
+          setLoading(false);
+        }, (err) => {
+          console.error("Erro Snapshot Fretes", err);
+          setLoading(false);
         });
-      } else { setUser(null); setLoading(false); }
+
+      } else { 
+        setUser(null); 
+        setLoading(false); 
+        setCheckingDriver(false);
+        if (unsubCad) unsubCad();
+        if (unsubFretes) unsubFretes();
+      }
     });
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubCad) unsubCad();
+      if (unsubFretes) unsubFretes();
+    };
   }, []);
 
   const toggleStatus = async () => {
@@ -287,7 +320,8 @@ export default function Motorista() {
     window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
   };
 
-  if (loading) return <div className="h-screen bg-slate-950 flex flex-col items-center justify-center gap-4"><div className="w-24 h-24 bg-blue-600 rounded-3xl flex items-center justify-center animate-pulse shadow-blue-500/50 shadow-2xl"><Truck className="text-white w-14 h-14" /></div><Loader2 className="animate-spin text-blue-500 w-8 h-8 mt-4" /></div>;
+  // 🔥 O LOADING AGORA SEGURA A ONDA ATÉ O CÃO DE GUARDA LIBERAR A TELA
+  if (loading || checkingDriver) return <div className="h-screen bg-slate-950 flex flex-col items-center justify-center gap-4"><div className="w-24 h-24 bg-blue-600 rounded-3xl flex items-center justify-center animate-pulse shadow-blue-500/50 shadow-2xl"><Truck className="text-white w-14 h-14" /></div><Loader2 className="animate-spin text-blue-500 w-8 h-8 mt-4" /></div>;
 
   return (
     <div className="min-h-screen bg-slate-950 text-white font-sans p-4 relative">
@@ -448,7 +482,7 @@ export default function Motorista() {
               <span className="text-xs font-bold text-green-50">Entre no Grupo VIP e pegue as melhores cargas primeiro. Clique e Entre.</span>
             </a>
 
-            {/* 🔥 BOTÃO DE BAIXAR PWA (Aparece se o Chrome permitir) */}
+            {/* 🔥 BOTÃO DE BAIXAR PWA */}
             {deferredPrompt && (
               <button onClick={handleInstallClick} className="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-3xl shadow-xl flex items-center justify-center gap-2 uppercase transition-all">
                 <Download size={20} /> Baixar Aplicativo Fretogo
