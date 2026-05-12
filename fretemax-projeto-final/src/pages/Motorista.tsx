@@ -195,7 +195,7 @@ export default function Motorista() {
     }
   };
 
-  // 🔥 O BARRIL DE PÓKVORA CONSERTADO (Fim do loop infinito do envio)
+  // 🔥 O BARRIL DE PÓLVORA CONSERTADO COM TIMEOUT
   const handleCadastro = async () => {
     if (!form.nome || !form.cpf || !form.cnh || !form.placa || !form.renavam || !form.whatsapp || !form.cidadeEstado) {
       showToast("Preencha todos os campos de texto.", "warning");
@@ -205,38 +205,50 @@ export default function Motorista() {
       showToast("Envie as fotos da CNH e CRLV obrigatoriamente.", "warning");
       return;
     }
+    
     setUploadingDocs(true);
+    
     try {
-      const cnhRef = ref(storage, `motoristas/${user!.uid}/cnh`);
-      const crlvRef = ref(storage, `motoristas/${user!.uid}/crlv`);
-      await uploadBytes(cnhRef, cnhFile);
-      await uploadBytes(crlvRef, crlvFile);
-      const cnhUrl = await getDownloadURL(cnhRef);
-      const crlvUrl = await getDownloadURL(crlvRef);
+      // Função que faz o upload pesado
+      const uploadTask = async () => {
+        const cnhRef = ref(storage, `motoristas/${user!.uid}/cnh`);
+        const crlvRef = ref(storage, `motoristas/${user!.uid}/crlv`);
+        await uploadBytes(cnhRef, cnhFile);
+        await uploadBytes(crlvRef, crlvFile);
+        const cnhUrl = await getDownloadURL(cnhRef);
+        const crlvUrl = await getDownloadURL(crlvRef);
 
-      await setDoc(doc(db, 'motoristas_cadastros', user!.uid), {
-        ...form,
-        email: user!.email,
-        cnhUrl,
-        crlvUrl,
-        status: 'pendente',
-        createdAt: serverTimestamp()
-      });
-      
-      // Força a UI a destravar na mesma hora, sem depender do delay da internet
-      setDriverData(prev => ({ ...prev, status: 'pendente' } as any));
-      setFormStep(false);
-      
+        await setDoc(doc(db, 'motoristas_cadastros', user!.uid), {
+          ...form,
+          email: user!.email,
+          cnhUrl,
+          crlvUrl,
+          status: 'pendente',
+          createdAt: serverTimestamp()
+        });
+      };
+
+      // 🔥 A TRAVA: Se passar de 25 segundos, o sistema aborta e destrava a tela!
+      await Promise.race([
+        uploadTask(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("TIMEOUT")), 25000))
+      ]);
+
+      // Obs: Não mexemos no formStep aqui. O onSnapshot vai ouvir que o Firebase salvou
+      // e vai mudar a tela automaticamente e com segurança.
+
     } catch (error: any) {
       console.error(error);
-      showToast("Erro ao salvar cadastro. Tente novamente.", "error");
-    } finally {
-      // A Trava Absoluta: Aconteça o que acontecer, pare de carregar.
+      if (error.message === "TIMEOUT") {
+        showToast("A internet está lenta ou as fotos são muito pesadas. Tente novamente.", "error");
+      } else {
+        showToast("Erro ao salvar cadastro. Verifique sua conexão.", "error");
+      }
+      // Só destrava o botão se der erro. Se der certo, a tela vai mudar e o botão some.
       setUploadingDocs(false);
     }
   };
 
-  // 🔥 A PESQUISA "A LASER" OTIMIZADA PARA NUNCA FALHAR
   useEffect(() => {
     let unsubCad: any;
     let unsubFretes: any;
@@ -245,7 +257,6 @@ export default function Motorista() {
       if (u) {
         setUser({ uid: u.uid, email: u.email });
         
-        // Aqui está a Mágica: Trocamos o where('email') por doc(db, ..., u.uid). 100% à prova de falhas.
         unsubCad = onSnapshot(doc(db, 'motoristas_cadastros', u.uid), (docSnap) => {
           if (docSnap.exists()) { 
             setDriverData({ id: docSnap.id, ...docSnap.data() } as DriverData); 
