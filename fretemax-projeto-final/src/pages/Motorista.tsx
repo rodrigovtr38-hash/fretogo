@@ -23,7 +23,7 @@ export default function Motorista() {
   const [driverData, setDriverData] = useState<DriverData | null>(null);
   const [activeFrete, setActiveFrete] = useState<OrderData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [checkingDriver, setCheckingDriver] = useState(true); // 🔥 O CÃO DE GUARDA CONTRA A TELA BRANCA
+  const [checkingDriver, setCheckingDriver] = useState(true);
   const [isOnline, setIsOnline] = useState(false); 
   const [backhaulDestino, setBackhaulDestino] = useState(''); 
   const [comprovante, setComprovante] = useState<File | null>(null);
@@ -195,6 +195,7 @@ export default function Motorista() {
     }
   };
 
+  // 🔥 O BARRIL DE PÓKVORA CONSERTADO (Fim do loop infinito do envio)
   const handleCadastro = async () => {
     if (!form.nome || !form.cpf || !form.cnh || !form.placa || !form.renavam || !form.whatsapp || !form.cidadeEstado) {
       showToast("Preencha todos os campos de texto.", "warning");
@@ -221,14 +222,21 @@ export default function Motorista() {
         status: 'pendente',
         createdAt: serverTimestamp()
       });
-      // Deixamos a mudança de formStep para o onSnapshot tratar com segurança
-    } catch (error) {
+      
+      // Força a UI a destravar na mesma hora, sem depender do delay da internet
+      setDriverData(prev => ({ ...prev, status: 'pendente' } as any));
+      setFormStep(false);
+      
+    } catch (error: any) {
+      console.error(error);
       showToast("Erro ao salvar cadastro. Tente novamente.", "error");
+    } finally {
+      // A Trava Absoluta: Aconteça o que acontecer, pare de carregar.
+      setUploadingDocs(false);
     }
-    setUploadingDocs(false);
   };
 
-  // 🔥 ARQUITETURA BLINDADA PARA EVITAR VAZAMENTO DE MEMÓRIA E TELA BRANCA
+  // 🔥 A PESQUISA "A LASER" OTIMIZADA PARA NUNCA FALHAR
   useEffect(() => {
     let unsubCad: any;
     let unsubFretes: any;
@@ -237,15 +245,15 @@ export default function Motorista() {
       if (u) {
         setUser({ uid: u.uid, email: u.email });
         
-        unsubCad = onSnapshot(query(collection(db, 'motoristas_cadastros'), where('email', '==', u.email)), (s) => {
-          if (!s.empty) { 
-            // Injetamos o ID para blindar o objeto DriverData
-            setDriverData({ id: s.docs[0].id, ...s.docs[0].data() } as DriverData); 
+        // Aqui está a Mágica: Trocamos o where('email') por doc(db, ..., u.uid). 100% à prova de falhas.
+        unsubCad = onSnapshot(doc(db, 'motoristas_cadastros', u.uid), (docSnap) => {
+          if (docSnap.exists()) { 
+            setDriverData({ id: docSnap.id, ...docSnap.data() } as DriverData); 
             setFormStep(false); 
           } else { 
             setFormStep(true); 
           }
-          setCheckingDriver(false); // Libera a tela de Loading com segurança
+          setCheckingDriver(false);
         }, (err) => {
           console.error("Erro Snapshot Cadastro", err);
           setCheckingDriver(false);
@@ -320,7 +328,6 @@ export default function Motorista() {
     window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
   };
 
-  // 🔥 O LOADING AGORA SEGURA A ONDA ATÉ O CÃO DE GUARDA LIBERAR A TELA
   if (loading || checkingDriver) return <div className="h-screen bg-slate-950 flex flex-col items-center justify-center gap-4"><div className="w-24 h-24 bg-blue-600 rounded-3xl flex items-center justify-center animate-pulse shadow-blue-500/50 shadow-2xl"><Truck className="text-white w-14 h-14" /></div><Loader2 className="animate-spin text-blue-500 w-8 h-8 mt-4" /></div>;
 
   return (
@@ -477,10 +484,14 @@ export default function Motorista() {
             <h2 className="text-2xl font-black italic uppercase mb-2 text-yellow-500 tracking-tight">Em Análise</h2>
             <p className="text-slate-300 font-bold text-sm leading-relaxed">Sua documentação está sendo validada pelo nosso time de segurança. Aguarde a liberação.</p>
             
-            <a href="https://chat.whatsapp.com/IGylgsZPYhsDfMZDKzVjHT" target="_blank" rel="noreferrer" className="mt-8 bg-green-500 hover:bg-green-600 hover:scale-105 transition-all text-white p-6 rounded-3xl font-black flex flex-col items-center gap-2 shadow-2xl shadow-green-500/20 text-center w-full">
+            {/* 🔥 BOTÃO WHATSAPP CORRIGIDO (Bypass em PWA) */}
+            <button 
+              onClick={() => window.location.href = 'https://chat.whatsapp.com/IGylgsZPYhsDfMZDKzVjHT'} 
+              className="mt-8 w-full bg-green-500 hover:bg-green-600 hover:scale-105 transition-all text-white p-6 rounded-3xl font-black flex flex-col items-center gap-2 shadow-2xl shadow-green-500/20 text-center"
+            >
               <span className="text-xl uppercase italic tracking-tight">🚀 Acelere sua Aprovação!</span>
               <span className="text-xs font-bold text-green-50">Entre no Grupo VIP e pegue as melhores cargas primeiro. Clique e Entre.</span>
-            </a>
+            </button>
 
             {/* 🔥 BOTÃO DE BAIXAR PWA */}
             {deferredPrompt && (
