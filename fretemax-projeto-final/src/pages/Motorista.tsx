@@ -29,8 +29,10 @@ export default function Motorista() {
   const [comprovante, setComprovante] = useState<File | null>(null);
 
   const [form, setForm] = useState({ nome: '', whatsapp: '', placa: '', categoria: 'carro_pequeno' as VehicleType, cnh: '', renavam: '', cpf: '', cidadeEstado: '' });
-  const [cnhFile, setCnhFile] = useState<File | null>(null);
-  const [crlvFile, setCrlvFile] = useState<File | null>(null);
+  
+  // 🔥 NOVO ESTADO UNIFICADO: Apenas UMA foto (Selfie + Documento)
+  const [docFile, setDocFile] = useState<File | null>(null);
+  
   const [uploadingDocs, setUploadingDocs] = useState(false);
   const [formStep, setFormStep] = useState(false);
 
@@ -195,56 +197,54 @@ export default function Motorista() {
     }
   };
 
-  // 🔥 O BARRIL DE PÓLVORA CONSERTADO COM TIMEOUT
+  // 🔥 UPLOAD DA SELFIE OTIMIZADO E COM TIMEOUT
   const handleCadastro = async () => {
     if (!form.nome || !form.cpf || !form.cnh || !form.placa || !form.renavam || !form.whatsapp || !form.cidadeEstado) {
       showToast("Preencha todos os campos de texto.", "warning");
       return;
     }
-    if (!cnhFile || !crlvFile) {
-      showToast("Envie as fotos da CNH e CRLV obrigatoriamente.", "warning");
+    if (!docFile) {
+      showToast("Obrigatório: Envie a selfie segurando seu documento.", "warning");
       return;
     }
     
     setUploadingDocs(true);
     
     try {
-      // Função que faz o upload pesado
+      // Função que sobe 1 única foto
       const uploadTask = async () => {
-        const cnhRef = ref(storage, `motoristas/${user!.uid}/cnh`);
-        const crlvRef = ref(storage, `motoristas/${user!.uid}/crlv`);
-        await uploadBytes(cnhRef, cnhFile);
-        await uploadBytes(crlvRef, crlvFile);
-        const cnhUrl = await getDownloadURL(cnhRef);
-        const crlvUrl = await getDownloadURL(crlvRef);
+        const docRef = ref(storage, `motoristas/${user!.uid}/documento_selfie`);
+        await uploadBytes(docRef, docFile);
+        const documentoUrl = await getDownloadURL(docRef);
 
         await setDoc(doc(db, 'motoristas_cadastros', user!.uid), {
           ...form,
           email: user!.email,
-          cnhUrl,
-          crlvUrl,
+          documentoUrl, // Salvando a nova foto unificada
           status: 'pendente',
           createdAt: serverTimestamp()
         });
       };
 
-      // 🔥 A TRAVA: Se passar de 25 segundos, o sistema aborta e destrava a tela!
+      // Trava de Segurança: 20 segundos de limite.
       await Promise.race([
         uploadTask(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("TIMEOUT")), 25000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error("TIMEOUT")), 20000))
       ]);
 
-      // Obs: Não mexemos no formStep aqui. O onSnapshot vai ouvir que o Firebase salvou
-      // e vai mudar a tela automaticamente e com segurança.
-
+      // Se passou da Promise sem dar erro, destrava a tela instantaneamente
+      setDriverData(prev => ({ ...prev, status: 'pendente' } as any));
+      setFormStep(false);
+      
     } catch (error: any) {
       console.error(error);
       if (error.message === "TIMEOUT") {
-        showToast("A internet está lenta ou as fotos são muito pesadas. Tente novamente.", "error");
+        showToast("A internet está lenta ou a foto é pesada demais. Tente novamente.", "error");
       } else {
         showToast("Erro ao salvar cadastro. Verifique sua conexão.", "error");
       }
-      // Só destrava o botão se der erro. Se der certo, a tela vai mudar e o botão some.
+    } finally {
+      // Pare de girar aconteça o que acontecer
       setUploadingDocs(false);
     }
   };
@@ -468,16 +468,16 @@ export default function Motorista() {
               <option value="bi_trem_cegonha">Bi-trem / Cegonha</option>
             </select>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-              <label className={`border-2 rounded-2xl p-4 cursor-pointer flex flex-col items-center justify-center gap-2 transition-all ${cnhFile ? 'bg-green-100 border-green-500 text-green-700' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
-                <Camera />
-                <span className="font-bold text-sm uppercase">{cnhFile ? 'CNH Anexada' : 'Foto da CNH'}</span>
-                <input type="file" hidden accept="image/*" onChange={(e) => setCnhFile(e.target.files?.[0] || null)} />
-              </label>
-              <label className={`border-2 rounded-2xl p-4 cursor-pointer flex flex-col items-center justify-center gap-2 transition-all ${crlvFile ? 'bg-green-100 border-green-500 text-green-700' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
-                <Camera />
-                <span className="font-bold text-sm uppercase">{crlvFile ? 'CRLV Anexado' : 'Documento do Carro'}</span>
-                <input type="file" hidden accept="image/*" onChange={(e) => setCrlvFile(e.target.files?.[0] || null)} />
+            {/* 🔥 NOVO UPLOAD UNIFICADO (SELFIE + DOC) */}
+            <div className="mt-4">
+              <label className={`border-2 rounded-2xl p-6 cursor-pointer flex flex-col items-center justify-center gap-3 transition-all ${docFile ? 'bg-green-100 border-green-500 text-green-700' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
+                <Camera size={32} />
+                <div className="text-center">
+                    <span className="font-black text-sm uppercase block mb-1">{docFile ? 'FOTO ANEXADA COM SUCESSO' : 'Tire uma Selfie segurando a CNH'}</span>
+                    <span className="text-xs font-bold opacity-70">O documento deve estar legível ao lado do seu rosto</span>
+                </div>
+                {/* O "capture=user" já abre a câmera frontal do celular direto! */}
+                <input type="file" hidden accept="image/*" capture="user" onChange={(e) => setDocFile(e.target.files?.[0] || null)} />
               </label>
             </div>
 
@@ -495,7 +495,6 @@ export default function Motorista() {
             <h2 className="text-2xl font-black italic uppercase mb-2 text-yellow-500 tracking-tight">Em Análise</h2>
             <p className="text-slate-300 font-bold text-sm leading-relaxed">Sua documentação está sendo validada pelo nosso time de segurança. Aguarde a liberação.</p>
             
-            {/* 🔥 BOTÃO WHATSAPP CORRIGIDO (Bypass em PWA) */}
             <button 
               onClick={() => window.location.href = 'https://chat.whatsapp.com/IGylgsZPYhsDfMZDKzVjHT'} 
               className="mt-8 w-full bg-green-500 hover:bg-green-600 hover:scale-105 transition-all text-white p-6 rounded-3xl font-black flex flex-col items-center gap-2 shadow-2xl shadow-green-500/20 text-center"
@@ -504,7 +503,6 @@ export default function Motorista() {
               <span className="text-xs font-bold text-green-50">Entre no Grupo VIP e pegue as melhores cargas primeiro. Clique e Entre.</span>
             </button>
 
-            {/* 🔥 BOTÃO DE BAIXAR PWA */}
             {deferredPrompt && (
               <button onClick={handleInstallClick} className="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-3xl shadow-xl flex items-center justify-center gap-2 uppercase transition-all">
                 <Download size={20} /> Baixar Aplicativo Fretogo
@@ -565,7 +563,6 @@ export default function Motorista() {
                  <h2 className="text-2xl font-black uppercase text-slate-600 mb-2">Você está offline</h2>
                  <p className="text-slate-500 font-bold text-sm">Toque no botão para entrar no radar.</p>
 
-                 {/* 🔥 BOTÃO DE BAIXAR PWA NO RADAR OFFLINE */}
                  {deferredPrompt && (
                    <button onClick={handleInstallClick} className="w-full mt-10 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-black py-4 rounded-3xl shadow-xl flex items-center justify-center gap-2 uppercase transition-all">
                      <Download size={20} /> Instalar Aplicativo Fretogo
