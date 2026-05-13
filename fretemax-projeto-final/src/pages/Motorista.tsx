@@ -197,7 +197,7 @@ export default function Motorista() {
     }
   };
 
-  // 🔥 CADASTRO CORRIGIDO (ANTI-LOOP INFINITO)
+  // 🔥 CADASTRO CORRIGIDO (BLINDADO COM FINALLY)
   const handleCadastro = async () => {
     if (!form.nome || !form.cpf || !form.cnh || !form.placa || !form.renavam || !form.whatsapp || !form.cidadeEstado) {
       showToast("Preencha todos os campos de texto.", "warning");
@@ -225,13 +225,16 @@ export default function Motorista() {
         createdAt: serverTimestamp()
       });
 
-      // 3. Atualiza o estado local (O onSnapshot cuidará do resto na próxima renderização)
+      // 3. Força a atualização local e muda a tela na hora
+      setDriverData(prev => ({ ...prev, status: 'pendente' } as any));
       setFormStep(false);
       
     } catch (error: any) {
       console.error(error);
       showToast("Erro ao processar envio. Verifique sua conexão.", "error");
-      setUploadingDocs(false); // Só libera o botão se der ERRO. Se der certo, a tela vai mudar sozinha.
+    } finally {
+      // 🔥 A PROTEÇÃO: Aconteça o que acontecer, desliga o botão de "Enviando..."
+      setUploadingDocs(false); 
     }
   };
 
@@ -454,7 +457,6 @@ export default function Motorista() {
               <option value="bi_trem_cegonha">Bi-trem / Cegonha</option>
             </select>
 
-            {/* 🔥 NOVO UPLOAD UNIFICADO (SELFIE + DOC) */}
             <div className="mt-4">
               <label className={`border-2 rounded-2xl p-6 cursor-pointer flex flex-col items-center justify-center gap-3 transition-all ${docFile ? 'bg-green-100 border-green-500 text-green-700' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
                 <Camera size={32} />
@@ -462,7 +464,6 @@ export default function Motorista() {
                     <span className="font-black text-sm uppercase block mb-1">{docFile ? 'FOTO ANEXADA COM SUCESSO' : 'Tire uma Selfie segurando a CNH'}</span>
                     <span className="text-xs font-bold opacity-70">O documento deve estar legível ao lado do seu rosto</span>
                 </div>
-                {/* O "capture=user" já abre a câmera frontal do celular direto! */}
                 <input type="file" hidden accept="image/*" capture="user" onChange={(e) => setDocFile(e.target.files?.[0] || null)} />
               </label>
             </div>
