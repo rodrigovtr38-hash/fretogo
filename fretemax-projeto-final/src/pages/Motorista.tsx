@@ -30,7 +30,6 @@ export default function Motorista() {
 
   const [form, setForm] = useState({ nome: '', whatsapp: '', placa: '', categoria: 'carro_pequeno' as VehicleType, cnh: '', renavam: '', cpf: '', cidadeEstado: '' });
   
-  // Apenas UMA foto
   const [docFile, setDocFile] = useState<File | null>(null);
   
   const [uploadingDocs, setUploadingDocs] = useState(false);
@@ -197,7 +196,7 @@ export default function Motorista() {
     }
   };
 
-  // 🔥 CADASTRO CORRIGIDO (BLINDADO COM FINALLY)
+  // 🔥 CADASTRO BLINDADO: FORÇA BRUTA COM TIMEOUT
   const handleCadastro = async () => {
     if (!form.nome || !form.cpf || !form.cnh || !form.placa || !form.renavam || !form.whatsapp || !form.cidadeEstado) {
       showToast("Preencha todos os campos de texto.", "warning");
@@ -208,32 +207,40 @@ export default function Motorista() {
       return;
     }
     
-    setUploadingDocs(true); // Trava a interface
+    setUploadingDocs(true); 
     
     try {
-      // 1. Faz o upload da imagem primeiro
-      const docRef = ref(storage, `motoristas/${user!.uid}/documento_selfie`);
-      await uploadBytes(docRef, docFile);
-      const documentoUrl = await getDownloadURL(docRef);
+      // Cria uma corrida contra o tempo (15 segundos)
+      await Promise.race([
+        (async () => {
+          const docRef = ref(storage, `motoristas/${user!.uid}/documento_selfie`);
+          await uploadBytes(docRef, docFile);
+          const documentoUrl = await getDownloadURL(docRef);
 
-      // 2. Salva no banco de dados
-      await setDoc(doc(db, 'motoristas_cadastros', user!.uid), {
-        ...form,
-        email: user!.email,
-        documentoUrl,
-        status: 'pendente',
-        createdAt: serverTimestamp()
-      });
+          await setDoc(doc(db, 'motoristas_cadastros', user!.uid), {
+            ...form,
+            email: user!.email,
+            documentoUrl,
+            status: 'pendente',
+            createdAt: serverTimestamp()
+          });
+        })(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT_FIREBASE')), 15000))
+      ]);
 
-      // 3. Força a atualização local e muda a tela na hora
-      setDriverData(prev => ({ ...prev, status: 'pendente' } as any));
+      // Força a tela a mudar IMEDIATAMENTE localmente se passar pela Promise acima
+      setDriverData({ id: user!.uid, ...form, status: 'pendente' } as any);
       setFormStep(false);
       
     } catch (error: any) {
       console.error(error);
-      showToast("Erro ao processar envio. Verifique sua conexão.", "error");
+      if (error.message === 'TIMEOUT_FIREBASE') {
+        showToast("O envio demorou muito. Verifique sua internet ou tente uma foto menos pesada.", "error");
+      } else {
+        showToast("Erro ao processar envio. Verifique sua conexão.", "error");
+      }
     } finally {
-      // 🔥 A PROTEÇÃO: Aconteça o que acontecer, desliga o botão de "Enviando..."
+      // 🔥 A TRAVA ABSOLUTA: Aconteça o que acontecer, desliga o botão de "Enviando..."
       setUploadingDocs(false); 
     }
   };
