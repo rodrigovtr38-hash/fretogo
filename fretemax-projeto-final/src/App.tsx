@@ -5,12 +5,11 @@ import Cliente from './pages/Cliente';
 import Motorista from './pages/Motorista';
 import Admin from './pages/Admin';
 import LandingCliente from './pages/LandingCliente';
-import LandingMotorista from './pages/LandingMotorista';
 
 // Componente de Proteção de Rota para Clientes Logados
 const HomeGuard = ({ children }: { children: JSX.Element }) => {
   const hasActiveOrder = localStorage.getItem('fretogo_current_order');
-  // Se tem pedido ativo, pula a Home e vai direto pro Radar do Cliente (agora na rota /simular)
+  // Se tem pedido ativo, pula a Home e vai direto pro Radar do Cliente
   if (hasActiveOrder) return <Navigate to="/simular" />;
   return children;
 };
@@ -22,18 +21,17 @@ export default function App() {
         
         <main className="flex-1 w-full relative">
           <Routes>
-            {/* 1. A Entrada do App */}
+            {/* A Entrada do App */}
             <Route path="/" element={<HomeGuard><Home /></HomeGuard>} />
             
-            {/* 2. As Vitrines (Marketing / Landing Pages do Google Ads) */}
+            {/* A Vitrine do Cliente */}
             <Route path="/cliente" element={<LandingCliente />} />
-            <Route path="/motorista" element={<LandingMotorista />} />
 
-            {/* 3. O "Caixa" / Aplicativo Real (Ação pesada com Firebase e GPS) */}
+            {/* O "Caixa" / Aplicativos Reais (Ação pesada) */}
             <Route path="/simular" element={<Cliente />} />
-            <Route path="/app-motorista" element={<Motorista />} />
+            <Route path="/motorista" element={<Motorista />} />
 
-            {/* 4. Painel de Administração */}
+            {/* Painel de Administração */}
             <Route path="/admin" element={<Admin />} />
 
             {/* Redirecionamento de segurança para links quebrados */}
