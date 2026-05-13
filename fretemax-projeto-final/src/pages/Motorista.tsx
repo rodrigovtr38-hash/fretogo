@@ -30,7 +30,7 @@ export default function Motorista() {
 
   const [form, setForm] = useState({ nome: '', whatsapp: '', placa: '', categoria: 'carro_pequeno' as VehicleType, cnh: '', renavam: '', cpf: '', cidadeEstado: '' });
   
-  // 🔥 NOVO ESTADO UNIFICADO: Apenas UMA foto (Selfie + Documento)
+  // Apenas UMA foto
   const [docFile, setDocFile] = useState<File | null>(null);
   
   const [uploadingDocs, setUploadingDocs] = useState(false);
@@ -197,7 +197,7 @@ export default function Motorista() {
     }
   };
 
-  // 🔥 UPLOAD DA SELFIE OTIMIZADO E COM TIMEOUT
+  // 🔥 CADASTRO CORRIGIDO (ANTI-LOOP INFINITO)
   const handleCadastro = async () => {
     if (!form.nome || !form.cpf || !form.cnh || !form.placa || !form.renavam || !form.whatsapp || !form.cidadeEstado) {
       showToast("Preencha todos os campos de texto.", "warning");
@@ -208,44 +208,30 @@ export default function Motorista() {
       return;
     }
     
-    setUploadingDocs(true);
+    setUploadingDocs(true); // Trava a interface
     
     try {
-      // Função que sobe 1 única foto
-      const uploadTask = async () => {
-        const docRef = ref(storage, `motoristas/${user!.uid}/documento_selfie`);
-        await uploadBytes(docRef, docFile);
-        const documentoUrl = await getDownloadURL(docRef);
+      // 1. Faz o upload da imagem primeiro
+      const docRef = ref(storage, `motoristas/${user!.uid}/documento_selfie`);
+      await uploadBytes(docRef, docFile);
+      const documentoUrl = await getDownloadURL(docRef);
 
-        await setDoc(doc(db, 'motoristas_cadastros', user!.uid), {
-          ...form,
-          email: user!.email,
-          documentoUrl, // Salvando a nova foto unificada
-          status: 'pendente',
-          createdAt: serverTimestamp()
-        });
-      };
+      // 2. Salva no banco de dados
+      await setDoc(doc(db, 'motoristas_cadastros', user!.uid), {
+        ...form,
+        email: user!.email,
+        documentoUrl,
+        status: 'pendente',
+        createdAt: serverTimestamp()
+      });
 
-      // Trava de Segurança: 20 segundos de limite.
-      await Promise.race([
-        uploadTask(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("TIMEOUT")), 20000))
-      ]);
-
-      // Se passou da Promise sem dar erro, destrava a tela instantaneamente
-      setDriverData(prev => ({ ...prev, status: 'pendente' } as any));
+      // 3. Atualiza o estado local (O onSnapshot cuidará do resto na próxima renderização)
       setFormStep(false);
       
     } catch (error: any) {
       console.error(error);
-      if (error.message === "TIMEOUT") {
-        showToast("A internet está lenta ou a foto é pesada demais. Tente novamente.", "error");
-      } else {
-        showToast("Erro ao salvar cadastro. Verifique sua conexão.", "error");
-      }
-    } finally {
-      // Pare de girar aconteça o que acontecer
-      setUploadingDocs(false);
+      showToast("Erro ao processar envio. Verifique sua conexão.", "error");
+      setUploadingDocs(false); // Só libera o botão se der ERRO. Se der certo, a tela vai mudar sozinha.
     }
   };
 
