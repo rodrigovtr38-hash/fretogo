@@ -4,9 +4,9 @@ import { AlertCircle, Clock, TrendingUp, MapPin, Truck, CreditCard, Navigation, 
 import { useScrollAnimation } from '@/hooks/useScrollAnimation.js';
 import RadarPulse from '@/components/RadarPulse.jsx';
 
-const HomePage = () => {
-  // Links Oficiais Forçados
-  const CLIENTE_URL = "https://fretogo.com.br/cliente";
+const LandingCliente = () => {
+  // 🔥 LINK AJUSTADO PELO CTO: Aponta para o Formulário Real (O "Caixa")
+  const CLIENTE_URL = "/simular";
   const WHATSAPP_LINK = "https://wa.me/5511946099840";
   
   const painPoint1 = useScrollAnimation();
@@ -240,4 +240,4 @@ const HomePage = () => {
   );
 };
 
-export default HomePage;
+export default LandingCliente;
