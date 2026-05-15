@@ -1,25 +1,50 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import type { ReactNode } from 'react';
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+} from 'react-router-dom';
+
+import {
+  lazy,
+  Suspense,
+  type ReactNode,
+} from 'react';
 
 import { Zap } from 'lucide-react';
 
-import Home from './pages/Home';
+// ======================================================
+// LAZY LOAD PAGES
+// ======================================================
 
-import Cliente from './pages/Cliente';
-import Motorista from './pages/Motorista';
-import Admin from './pages/Admin';
+const Home = lazy(() => import('./pages/Home'));
 
-import LandingCliente from './pages/LandingCliente';
-import LandingMotorista from './pages/LandingMotorista';
+const Cliente = lazy(() => import('./pages/Cliente'));
 
-/* =========================================================
-   HOME GUARD
-========================================================= */
+const Motorista = lazy(() => import('./pages/Motorista'));
 
-const HomeGuard = ({ children }: { children: ReactNode }) => {
-  const hasActiveOrder = localStorage.getItem('fretogo_current_order');
+const Admin = lazy(() => import('./pages/Admin'));
 
-  // Cliente já possui pedido ativo
+const LandingCliente = lazy(() => import('./pages/LandingCliente'));
+
+const LandingMotorista = lazy(() => import('./pages/LandingMotorista'));
+
+// ======================================================
+// HOME GUARD
+// ======================================================
+
+const HomeGuard = ({
+  children,
+}: {
+  children: ReactNode;
+}) => {
+  const hasActiveOrder = localStorage.getItem(
+    'fretogo_current_order',
+  );
+
+  // TEMPORÁRIO:
+  // posteriormente isso deve vir do Firestore/Auth realtime
+
   if (hasActiveOrder) {
     return <Navigate to="/simular" replace />;
   }
@@ -27,103 +52,164 @@ const HomeGuard = ({ children }: { children: ReactNode }) => {
   return <>{children}</>;
 };
 
-/* =========================================================
-   APP
-========================================================= */
+// ======================================================
+// GLOBAL LOADER
+// ======================================================
+
+const GlobalLoader = () => {
+  return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center relative overflow-hidden">
+
+      {/* Glow */}
+      <div className="absolute w-[420px] h-[420px] rounded-full bg-cyan-500/10 blur-3xl" />
+
+      {/* Radar Pulse */}
+      <div className="absolute w-64 h-64 border border-cyan-400/20 rounded-full animate-ping" />
+
+      <div className="relative z-10 flex flex-col items-center gap-5">
+
+        <div className="flex items-center gap-3">
+
+          <div className="relative">
+            <Zap className="w-7 h-7 text-yellow-400 fill-yellow-400" />
+          </div>
+
+          <span className="text-2xl font-black tracking-tight text-white italic">
+            FRETOGO
+          </span>
+
+        </div>
+
+        <div className="flex items-center gap-2">
+
+          <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+
+          <p className="text-xs uppercase tracking-[0.35em] text-slate-400 font-bold">
+            Inicializando ecossistema logístico
+          </p>
+
+        </div>
+
+      </div>
+
+    </div>
+  );
+};
+
+// ======================================================
+// APP
+// ======================================================
 
 export default function App() {
   return (
     <Router>
+
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans overflow-x-hidden">
 
         <main className="flex-1 w-full relative">
 
-          <Routes>
+          <Suspense fallback={<GlobalLoader />}>
 
-            {/* =====================================================
-                HOME PRINCIPAL
-            ===================================================== */}
-            <Route
-              path="/"
-              element={
-                <HomeGuard>
-                  <Home />
-                </HomeGuard>
-              }
-            />
+            <Routes>
 
-            {/* =====================================================
-                LANDING CLIENTE
-            ===================================================== */}
-            <Route
-              path="/contratar"
-              element={<LandingCliente />}
-            />
+              {/* =====================================================
+                  HOME PRINCIPAL
+              ===================================================== */}
 
-            {/* Compatibilidade antiga */}
-            <Route
-              path="/cliente"
-              element={<Navigate to="/contratar" replace />}
-            />
+              <Route
+                path="/"
+                element={
+                  <HomeGuard>
+                    <Home />
+                  </HomeGuard>
+                }
+              />
 
-            {/* =====================================================
-                LANDING MOTORISTA
-            ===================================================== */}
-            <Route
-              path="/parceiros"
-              element={<LandingMotorista />}
-            />
+              {/* =====================================================
+                  LANDING CLIENTE
+              ===================================================== */}
 
-            {/* Compatibilidade antiga */}
-            <Route
-              path="/motorista-landing"
-              element={<Navigate to="/parceiros" replace />}
-            />
+              <Route
+                path="/contratar"
+                element={<LandingCliente />}
+              />
 
-            {/* =====================================================
-                APP CLIENTE
-            ===================================================== */}
-            <Route
-              path="/simular"
-              element={<Cliente />}
-            />
+              {/* Compatibilidade antiga */}
 
-            {/* =====================================================
-                APP MOTORISTA / RADAR
-            ===================================================== */}
-            <Route
-              path="/radar"
-              element={<Motorista />}
-            />
+              <Route
+                path="/cliente"
+                element={<Navigate to="/contratar" replace />}
+              />
 
-            {/* Compatibilidade antiga */}
-            <Route
-              path="/motorista"
-              element={<Navigate to="/radar" replace />}
-            />
+              {/* =====================================================
+                  LANDING MOTORISTA
+              ===================================================== */}
 
-            {/* =====================================================
-                ADMIN
-            ===================================================== */}
-            <Route
-              path="/admin"
-              element={<Admin />}
-            />
+              <Route
+                path="/parceiros"
+                element={<LandingMotorista />}
+              />
 
-            {/* =====================================================
-                FALLBACK
-            ===================================================== */}
-            <Route
-              path="*"
-              element={<Navigate to="/" replace />}
-            />
+              {/* Compatibilidade antiga */}
 
-          </Routes>
+              <Route
+                path="/motorista-landing"
+                element={<Navigate to="/parceiros" replace />}
+              />
+
+              {/* =====================================================
+                  APP CLIENTE
+              ===================================================== */}
+
+              <Route
+                path="/simular"
+                element={<Cliente />}
+              />
+
+              {/* =====================================================
+                  APP MOTORISTA / RADAR
+              ===================================================== */}
+
+              <Route
+                path="/radar"
+                element={<Motorista />}
+              />
+
+              {/* Compatibilidade antiga */}
+
+              <Route
+                path="/motorista"
+                element={<Navigate to="/radar" replace />}
+              />
+
+              {/* =====================================================
+                  ADMIN
+              ===================================================== */}
+
+              <Route
+                path="/admin"
+                element={<Admin />}
+              />
+
+              {/* =====================================================
+                  FALLBACK
+              ===================================================== */}
+
+              <Route
+                path="*"
+                element={<Navigate to="/" replace />}
+              />
+
+            </Routes>
+
+          </Suspense>
+
         </main>
 
         {/* =====================================================
             FOOTER GLOBAL
         ===================================================== */}
+
         <footer className="bg-slate-950 border-t border-slate-900 py-8 text-center">
 
           <div className="flex justify-center items-center gap-2 mb-4">
@@ -143,6 +229,7 @@ export default function App() {
         </footer>
 
       </div>
+
     </Router>
   );
 }
