@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { auth, provider, db, storage } from '../firebase'; 
 import { signInWithPopup, signOut } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'; 
@@ -6,7 +6,7 @@ import { collection, query, where, onSnapshot, doc, setDoc, deleteDoc, serverTim
 import { getMessaging, getToken } from 'firebase/messaging'; 
 import { Loader2, Truck, CheckCircle, Navigation, MapPin, AlertCircle, ShieldCheck, UserPlus, Camera, Zap, Power, AlertTriangle, XCircle, Package, Download, Radar, DollarSign, Clock } from 'lucide-react';
 import ChatFrete from '../components/ChatFrete';
-import { UserProfile, DriverData, OrderData, VehicleType } from '../types';
+import { UserProfile, DriverData, OrderData, VehicleType, Coords } from '../types';
 
 const VEHICLE_CONFIG: Record<string, { nome: string; fator: number }> = {
   'moto': { nome: 'Moto', fator: 0.6 },
@@ -17,6 +17,12 @@ const VEHICLE_CONFIG: Record<string, { nome: string; fator: number }> = {
   'carreta_ls': { nome: 'Carreta LS', fator: 5.5 },
   'bi_trem_cegonha': { nome: 'Bi-trem / Cegonha', fator: 7.2 }
 };
+
+// Constantes de Proteção
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const GPS_MIN_DISTANCE_METERS = 50;
+const GPS_HEARTBEAT_MS = 15000;
 
 export default function Motorista() {
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -31,29 +37,47 @@ export default function Motorista() {
   const [form, setForm] = useState({ nome: '', whatsapp: '', placa: '', categoria: 'carro_pequeno' as VehicleType, cnh: '', renavam: '', cpf: '', cidadeEstado: '' });
   
   const [docFile, setDocFile] = useState<File | null>(null);
-  
   const [uploadingDocs, setUploadingDocs] = useState(false);
   const [formStep, setFormStep] = useState(false);
 
   const [ofertaFrete, setOfertaFrete] = useState<OrderData | null>(null);
   const [tempoRestante, setTempoRestante] = useState(15);
   const [exibindoOferta, setExibindoOferta] = useState(false);
-
-  // 🔥 NOVO: Estado de UX para a busca de cargas (Online)
   const [loadingMessage, setLoadingMessage] = useState('Analisando cargas próximas...');
 
   const [toast, setToast] = useState<{msg: string, type: 'error' | 'warning'} | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
+  // 🛡️ REFS DE BLINDAGEM OPERACIONAL
   const actionHandled = useRef(false);
   const lastGpsUpdate = useRef(0); 
+  const lastGpsCoords = useRef<Coords | null>(null);
   const currentOfferId = useRef<string | null>(null); 
-  
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const watchIdRef = useRef<number | null>(null);
 
-  const showToast = (msg: string, type: 'error' | 'warning' = 'error') => {
+  const showToast = useCallback((msg: string, type: 'error' | 'warning' = 'error') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 5000);
+  }, []);
+
+  // 🛡️ BLINDAGEM DE ÁUDIO (iOS / Safari Safe)
+  const initAudio = () => {
+    if (!audioRef.current) {
+      audioRef.current = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
+      audioRef.current.loop = true;
+    }
+    // Força o desbloqueio do áudio num contexto de interação do usuário
+    audioRef.current.play().then(() => {
+      audioRef.current?.pause();
+      if (audioRef.current) audioRef.current.currentTime = 0;
+    }).catch(e => console.warn("Áudio requer interação explícita do usuário no iOS", e));
+  };
+
+  const playAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.play().catch(e => console.warn("Falha ao tocar áudio da oferta", e));
+    }
   };
 
   const stopAudio = () => {
@@ -65,6 +89,7 @@ export default function Motorista() {
 
   // Efeito Mensagens Rotativas do Radar
   useEffect(() => {
+    let interval: NodeJS.Timeout;
     if (isOnline && !exibindoOferta && !activeFrete) {
       const messages = [
         'Analisando cargas próximas...',
@@ -73,14 +98,15 @@ export default function Motorista() {
         'Mapeando oportunidades...'
       ];
       let i = 0;
-      const interval = setInterval(() => {
+      interval = setInterval(() => {
         i = (i + 1) % messages.length;
         setLoadingMessage(messages[i]);
       }, 4000);
-      return () => clearInterval(interval);
     }
+    return () => clearInterval(interval);
   }, [isOnline, exibindoOferta, activeFrete]);
 
+  // PWA Prompt
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: any) => {
       e.preventDefault();
@@ -100,10 +126,8 @@ export default function Motorista() {
     }
   };
 
+  // Push Notifications Setup
   useEffect(() => {
-    audioRef.current = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
-    audioRef.current.loop = true; 
-    
     const requestPermission = async () => {
       try {
         const messaging = getMessaging();
@@ -114,91 +138,194 @@ export default function Motorista() {
     if (user) requestPermission();
   }, [user]);
 
+  // 🛡️ ANTI MOTORISTA-FANTASMA (Limpeza ao fechar o app)
   useEffect(() => {
-    let watchId: number;
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && user && isOnline && !activeFrete) {
+        // Se colocar em background sem estar em corrida, fica offline por segurança
+        deleteDoc(doc(db, 'motoristas_online', user.uid)).catch(console.error);
+        setIsOnline(false);
+      }
+    };
+
+    const handleBeforeUnload = () => {
+      if (user && isOnline) {
+        deleteDoc(doc(db, 'motoristas_online', user.uid)).catch(console.error);
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [user, isOnline, activeFrete]);
+
+  // 🛡️ HELPER: Cálculo de Distância Haversine
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371e3; // Metros
+    const φ1 = lat1 * Math.PI/180;
+    const φ2 = lat2 * Math.PI/180;
+    const Δφ = (lat2-lat1) * Math.PI/180;
+    const Δλ = (lon2-lon1) * Math.PI/180;
+    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c; 
+  };
+
+  // 🛡️ BLINDAGEM GPS REALTIME (Throttling & Distance Check)
+  useEffect(() => {
     if (user && driverData?.status === 'aprovado' && isOnline) {
-      watchId = navigator.geolocation.watchPosition(async (pos) => {
+      
+      const updatePosition = async (pos: GeolocationPosition) => {
         const now = Date.now();
-        if (now - lastGpsUpdate.current < 5000) return;
-        lastGpsUpdate.current = now;
         const { latitude, longitude } = pos.coords;
-        
-        await setDoc(doc(db, 'motoristas_online', user.uid), {
-          nome: driverData.nome, whatsapp: driverData.whatsapp, lat: latitude, lng: longitude,
-          categoria: driverData.categoria, score: driverData.score || 5, taxaAceite: driverData.taxaAceite || 1,
-          totalCorridas: driverData.totalCorridas || 1, destinoPreferencial: backhaulDestino, 
-          status: activeFrete ? 'ocupado' : 'disponivel', emRota: !!activeFrete,
-          origemAtualLat: latitude, origemAtualLng: longitude, destinoAtualLat: activeFrete?.destinoLat || null,
-          destinoAtualLng: activeFrete?.destinoLng || null, tokenFCM: localStorage.getItem('fcm_token') || null,
-          lastSeen: serverTimestamp() 
-        }, { merge: true });
-      }, 
-      (err) => console.error("Erro GPS:", err), 
-      { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 });
+        const currentCoords = { lat: latitude, lng: longitude };
+
+        let shouldUpdate = false;
+
+        // Atualiza se passou do Heartbeat Máximo (15s) ou se andou mais que a distância mínima (50m)
+        if (now - lastGpsUpdate.current >= GPS_HEARTBEAT_MS) {
+          shouldUpdate = true;
+        } else if (lastGpsCoords.current) {
+          const distanceMoved = calculateDistance(
+            lastGpsCoords.current.lat, lastGpsCoords.current.lng,
+            currentCoords.lat, currentCoords.lng
+          );
+          if (distanceMoved >= GPS_MIN_DISTANCE_METERS) {
+            shouldUpdate = true;
+          }
+        } else {
+           shouldUpdate = true; // Primeira atualização
+        }
+
+        if (shouldUpdate) {
+          lastGpsUpdate.current = now;
+          lastGpsCoords.current = currentCoords;
+
+          try {
+            await setDoc(doc(db, 'motoristas_online', user.uid), {
+              nome: driverData.nome, whatsapp: driverData.whatsapp, lat: latitude, lng: longitude,
+              categoria: driverData.categoria, score: driverData.score || 5, taxaAceite: driverData.taxaAceite || 1,
+              totalCorridas: driverData.totalCorridas || 1, destinoPreferencial: backhaulDestino, 
+              status: activeFrete ? 'ocupado' : 'disponivel', emRota: !!activeFrete,
+              origemAtualLat: latitude, origemAtualLng: longitude, destinoAtualLat: activeFrete?.destinoLat || null,
+              destinoAtualLng: activeFrete?.destinoLng || null, tokenFCM: localStorage.getItem('fcm_token') || null,
+              lastSeen: serverTimestamp() 
+            }, { merge: true });
+          } catch (err) {
+            console.error("Erro GPS Write:", err);
+          }
+        }
+      };
+
+      watchIdRef.current = navigator.geolocation.watchPosition(
+        updatePosition, 
+        (err) => console.error("Erro GPS Stream:", err), 
+        { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 } // Ajustado para evitar timeout frequente
+      );
     }
-    return () => { if (watchId) navigator.geolocation.clearWatch(watchId); };
+
+    return () => { 
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+    };
   }, [user, driverData, isOnline, activeFrete, backhaulDestino]);
 
+  // 🛡️ BLINDAGEM DE RADAR E OFERTAS
   useEffect(() => {
     if (!user || !isOnline || activeFrete) {
-      setExibindoOferta(false); setOfertaFrete(null); currentOfferId.current = null; stopAudio(); return;
+      if (exibindoOferta) {
+        setExibindoOferta(false); setOfertaFrete(null); currentOfferId.current = null; stopAudio();
+      }
+      return;
     }
+
     const q = query(collection(db, 'fretes'), where('status', '==', 'disponivel'), where('filaMatching', 'array-contains', user.uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       if (!isOnline) return;
+      
       if (snapshot.empty) {
-        setExibindoOferta(false); setOfertaFrete(null); currentOfferId.current = null; stopAudio(); return;
+        setExibindoOferta(false); setOfertaFrete(null); currentOfferId.current = null; stopAudio(); 
+        return;
       }
+
       let foundOffer = false;
       for (const docSnap of snapshot.docs) {
         const data = docSnap.data() as OrderData;
         const freteId = docSnap.id;
+        
+        // Verifica se eu sou o primeiro da fila para garantir o matching perfeito
         if (!data.motoristaId && data.filaMatching && data.filaMatching[0] === user.uid) {
           if (currentOfferId.current !== freteId) {
-            actionHandled.current = false; currentOfferId.current = freteId;
-            setOfertaFrete({ id: freteId, ...data }); setExibindoOferta(true); setTempoRestante(15); 
-            if (audioRef.current) audioRef.current.play().catch(e => console.log("Áudio bloqueado", e));
+            actionHandled.current = false; 
+            currentOfferId.current = freteId;
+            setOfertaFrete({ id: freteId, ...data }); 
+            setExibindoOferta(true); 
+            setTempoRestante(15); 
+            playAudio();
           }
           foundOffer = true; break; 
         }
       }
-      if (!foundOffer) { setExibindoOferta(false); setOfertaFrete(null); currentOfferId.current = null; stopAudio(); }
+      
+      if (!foundOffer) { 
+        setExibindoOferta(false); setOfertaFrete(null); currentOfferId.current = null; stopAudio(); 
+      }
     });
+
     return () => unsubscribe();
   }, [user, isOnline, activeFrete]);
 
+  // Timer da Oferta
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (exibindoOferta && tempoRestante > 0) {
       timer = setTimeout(() => setTempoRestante(prev => prev - 1), 1000);
     } else if (exibindoOferta && tempoRestante === 0 && !actionHandled.current) {
-      showToast('Tempo esgotado. A carga foi para o próximo motorista.', 'warning');
+      showToast('Tempo esgotado. A carga foi direcionada para o próximo veículo.', 'warning');
       handleRecusar(); 
     }
     return () => clearTimeout(timer);
   }, [exibindoOferta, tempoRestante]);
 
+  // 🛡️ TRANSAÇÃO SEGURA PARA ACEITE
   const handleAceitar = async () => {
     if (!ofertaFrete || !ofertaFrete.id || actionHandled.current) return;
     actionHandled.current = true; 
     stopAudio();
+    
     try {
       const freteRef = doc(db, 'fretes', ofertaFrete.id);
+      
       await runTransaction(db, async (transaction) => {
         const snap = await transaction.get(freteRef);
         if (!snap.exists()) throw new Error("CANCELADO");
         const data = snap.data() as OrderData;
+        
+        if (data.status !== 'disponivel') throw new Error("JA_ACEITO");
         if (data.motoristaId) throw new Error("JA_ACEITO");
         if (data.filaMatching && data.filaMatching[0] !== user?.uid) throw new Error("FILA_ANDOU"); 
+        
         transaction.update(freteRef, {
-          status: 'aceito', motoristaId: user?.uid, motoristaNome: driverData?.nome || 'Motorista', motoristaZap: driverData?.whatsapp || ''
+          status: 'aceito', 
+          motoristaId: user?.uid, 
+          motoristaNome: driverData?.nome || 'Motorista', 
+          motoristaZap: driverData?.whatsapp || '',
+          aceitoEm: serverTimestamp() // Prepara infraestrutura de analytics
         });
       });
+
       await updateDoc(doc(db, 'motoristas_online', user!.uid), { status: 'ocupado', emRota: true });
       setExibindoOferta(false); setOfertaFrete(null); currentOfferId.current = null;
+      
     } catch (e: any) {
       if (e.message === "JA_ACEITO" || e.message === "FILA_ANDOU") {
-        showToast("Ops! Esta corrida já foi atribuída a outro parceiro.", "warning");
+        showToast("Ops! Esta corrida foi atribuída a outro parceiro mais rápido.", "warning");
       }
       setExibindoOferta(false); setOfertaFrete(null); currentOfferId.current = null;
     }
@@ -217,21 +344,40 @@ export default function Motorista() {
     }
   };
 
+  // 🛡️ BLINDAGEM DE UPLOADS (Tamanho e Tipo)
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, setter: React.Dispatch<React.SetStateAction<File | null>>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > MAX_FILE_SIZE) {
+      showToast("A imagem é muito pesada. Limite máximo: 10MB.", "warning");
+      e.target.value = ''; // Reseta o input
+      return;
+    }
+
+    if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+      showToast("Formato inválido. Use JPG ou PNG.", "error");
+      e.target.value = '';
+      return;
+    }
+
+    setter(file);
+  };
+
   // 🔥 CADASTRO BLINDADO: FORÇA BRUTA COM TIMEOUT
   const handleCadastro = async () => {
     if (!form.nome || !form.cpf || !form.cnh || !form.placa || !form.renavam || !form.whatsapp || !form.cidadeEstado) {
-      showToast("Preencha todos os campos de texto.", "warning");
+      showToast("Preencha todos os campos de texto obrigatórios.", "warning");
       return;
     }
     if (!docFile) {
-      showToast("Obrigatório: Envie a selfie segurando seu documento.", "warning");
+      showToast("Obrigatório: Envie a selfie segurando sua CNH.", "warning");
       return;
     }
     
     setUploadingDocs(true); 
     
     try {
-      // Cria uma corrida contra o tempo (15 segundos)
       await Promise.race([
         (async () => {
           const docRef = ref(storage, `motoristas/${user!.uid}/documento_selfie`);
@@ -243,29 +389,29 @@ export default function Motorista() {
             email: user!.email,
             documentoUrl,
             status: 'pendente',
-            createdAt: serverTimestamp()
+            createdAt: serverTimestamp(),
+            riscoFraude: 'pendente_analise' // Preparo para antifraude futuro
           });
         })(),
         new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT_FIREBASE')), 15000))
       ]);
 
-      // Força a tela a mudar IMEDIATAMENTE localmente se passar pela Promise acima
       setDriverData({ id: user!.uid, ...form, status: 'pendente' } as any);
       setFormStep(false);
       
     } catch (error: any) {
       console.error(error);
       if (error.message === 'TIMEOUT_FIREBASE') {
-        showToast("O envio demorou muito. Verifique sua internet ou tente uma foto menos pesada.", "error");
+        showToast("O envio demorou muito. Verifique sua conexão e tente novamente.", "error");
       } else {
-        showToast("Erro ao processar envio. Verifique sua conexão.", "error");
+        showToast("Erro ao processar os dados.", "error");
       }
     } finally {
-      // 🔥 A TRAVA ABSOLUTA: Aconteça o que acontecer, desliga o botão de "Enviando..."
       setUploadingDocs(false); 
     }
   };
 
+  // Auth e Inicialização de Dados
   useEffect(() => {
     let unsubCad: any;
     let unsubFretes: any;
@@ -314,41 +460,64 @@ export default function Motorista() {
 
   const toggleStatus = async () => {
     if (!user) return;
+    initAudio(); // 🛡️ Ativa áudio no primeiro clique do usuário
+    
     if (isOnline) { 
       setIsOnline(false); 
       stopAudio();
-      await deleteDoc(doc(db, 'motoristas_online', user.uid)); 
+      try {
+        await deleteDoc(doc(db, 'motoristas_online', user.uid)); 
+      } catch(e) { console.error("Falha ao ficar offline", e); }
     } 
     else { 
-      if (audioRef.current) {
-        audioRef.current.play().then(() => {
-          audioRef.current!.pause();
-          audioRef.current!.currentTime = 0;
-        }).catch(e => console.log("Destrava de áudio falhou"));
-      }
       setIsOnline(true); 
+      // O useEffect do GPS cuidará de setar o doc online assim que a coordenada chegar
     }
   };
 
   const updateStatusFrete = async (status: string) => {
     if (!activeFrete || !activeFrete.id || !user) return;
+    
     if (status === 'entregue') {
       if (!comprovante) {
-        showToast("⚠️ Foto da carga ou canhoto da NF é obrigatória para finalizar!", "warning");
+        showToast("⚠️ Foto da carga ou canhoto da NF é obrigatória para finalizar a entrega!", "warning");
         return;
       }
+      
       setLoading(true);
       try {
-        const fileRef = ref(storage, `comprovantes/${activeFrete.id}`);
-        await uploadBytes(fileRef, comprovante);
-        const url = await getDownloadURL(fileRef);
-        await updateDoc(doc(db, 'fretes', activeFrete.id), { status, comprovanteUrl: url });
-        await updateDoc(doc(db, 'motoristas_online', user.uid), { status: 'disponivel', emRota: false });
+        await Promise.race([
+          (async () => {
+            const fileRef = ref(storage, `comprovantes/${activeFrete.id}`);
+            await uploadBytes(fileRef, comprovante);
+            const url = await getDownloadURL(fileRef);
+            await updateDoc(doc(db, 'fretes', activeFrete.id), { 
+              status, 
+              comprovanteUrl: url,
+              entregueEm: serverTimestamp() 
+            });
+            await updateDoc(doc(db, 'motoristas_online', user.uid), { status: 'disponivel', emRota: false });
+          })(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT_UPLOAD')), 20000))
+        ]);
+        
         setComprovante(null);
-      } catch(e) { showToast("Erro ao enviar comprovante.", "error"); }
-      setLoading(false);
+      } catch(e: any) { 
+        if (e.message === 'TIMEOUT_UPLOAD') showToast("O envio demorou muito. Tente uma foto de menor resolução.", "error");
+        else showToast("Erro crítico ao finalizar corrida. Acione o suporte.", "error");
+      } finally {
+        setLoading(false);
+      }
     } else {
-      await updateDoc(doc(db, 'fretes', activeFrete.id), { status });
+      try {
+        const updateData: any = { status };
+        if (status === 'coleta') updateData.coletaEm = serverTimestamp();
+        if (status === 'em_transporte') updateData.transporteEm = serverTimestamp();
+        
+        await updateDoc(doc(db, 'fretes', activeFrete.id), updateData);
+      } catch (e) {
+        showToast("Falha de conexão. Status não atualizado.", "error");
+      }
     }
   };
 
@@ -413,12 +582,12 @@ export default function Motorista() {
 
               <div className="grid grid-cols-2 gap-4 mt-4 mb-4">
                 <div className="bg-slate-900 border border-slate-700/50 rounded-2xl p-4 text-center">
-                  <p className="text-blue-400 text-[10px] font-black uppercase">Distância Estimada</p>
+                  <p className="text-blue-400 text-[10px] font-black uppercase">Distância</p>
                   <h3 className="text-xl font-black text-white">{ofertaFrete.distancia?.toFixed(1)} km</h3>
                 </div>
                 <div className="bg-slate-900 border border-slate-700/50 rounded-2xl p-4 text-center">
                   <p className="text-orange-400 text-[10px] font-black uppercase">Peso / Volume</p>
-                  <h3 className="text-xl font-black text-white">{ofertaFrete.peso}</h3>
+                  <h3 className="text-xl font-black text-white line-clamp-1">{ofertaFrete.peso}</h3>
                 </div>
               </div>
               
@@ -429,7 +598,7 @@ export default function Motorista() {
               </div>
 
               <div className="pt-4 border-t border-slate-800 flex flex-col justify-center items-center">
-                  <p className="text-[10px] uppercase font-black text-slate-500 mb-1 tracking-widest">Oportunidade de Ganho (Líquido)</p>
+                  <p className="text-[10px] uppercase font-black text-slate-500 mb-1 tracking-widest">Oportunidade de Ganho</p>
                   <div className="flex items-center gap-1">
                     <DollarSign className="text-green-500 w-8 h-8" />
                     <p className="text-5xl font-black text-white italic drop-shadow-[0_0_15px_rgba(34,197,94,0.4)] tracking-tighter">
@@ -512,9 +681,9 @@ export default function Motorista() {
                 <Camera size={32} className={docFile ? "text-cyan-400" : "text-slate-500"} />
                 <div className="text-center">
                     <span className="font-black text-xs uppercase block mb-1 tracking-wider">{docFile ? 'FOTO ANEXADA COM SUCESSO' : 'Selfie com a CNH'}</span>
-                    <span className="text-[10px] font-medium opacity-70 block max-w-[200px] mx-auto">O documento deve estar perfeitamente legível ao lado do seu rosto.</span>
+                    <span className="text-[10px] font-medium opacity-70 block max-w-[200px] mx-auto">O documento deve estar perfeitamente legível. (Máx: 10MB)</span>
                 </div>
-                <input type="file" hidden accept="image/*" capture="user" onChange={(e) => setDocFile(e.target.files?.[0] || null)} />
+                <input type="file" hidden accept="image/jpeg,image/png,image/webp" capture="user" onChange={(e) => handleFileChange(e, setDocFile)} />
               </label>
             </div>
 
@@ -530,7 +699,7 @@ export default function Motorista() {
               <ShieldCheck className="w-10 h-10 text-cyan-400" />
             </div>
             <h2 className="text-2xl font-black italic uppercase mb-2 text-white tracking-tight">Status: <span className="text-cyan-400">Em Análise</span></h2>
-            <p className="text-slate-400 font-medium text-sm leading-relaxed mb-8">Nossa equipe de segurança está validando sua CNH e documento do veículo. Esse processo garante cargas seguras para todos.</p>
+            <p className="text-slate-400 font-medium text-sm leading-relaxed mb-8">Nossa equipe de segurança está validando sua CNH e veículo. Esse processo garante cargas seguras para todos.</p>
             
             <button 
               onClick={() => window.location.href = 'https://chat.whatsapp.com/IGylgsZPYhsDfMZDKzVjHT'} 
@@ -591,7 +760,7 @@ export default function Motorista() {
              {activeFrete.status === 'em_transporte' && (
                <div className="bg-slate-950 p-5 rounded-3xl border border-white/5 mt-2">
                  <p className="text-center text-xs text-slate-400 font-bold mb-4 uppercase tracking-widest">Comprovante de Entrega</p>
-                 <input type="file" id="foto" className="hidden" capture="environment" onChange={(e) => setComprovante(e.target.files?.[0] || null)} />
+                 <input type="file" id="foto" className="hidden" capture="environment" onChange={(e) => handleFileChange(e, setComprovante)} />
                  <label htmlFor="foto" className={`py-4 rounded-2xl font-black text-xs uppercase tracking-widest text-center flex items-center justify-center gap-2 cursor-pointer transition-all mb-4 border-2 border-dashed ${comprovante ? 'bg-cyan-500/10 border-cyan-500 text-cyan-400' : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500'}`}>
                    <Camera size={18}/> {comprovante ? "FOTO ANEXADA" : "TIRAR FOTO DA NF/CARGA"}
                  </label>
