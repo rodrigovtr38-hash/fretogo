@@ -15,7 +15,10 @@ import {
   Bike,
   Package,
   Bus,
-  CheckCircle2
+  CheckCircle2,
+  ChevronRight,
+  Zap,
+  ShieldCheck
 } from 'lucide-react';
 
 const LandingMotorista = () => {
@@ -44,183 +47,233 @@ const LandingMotorista = () => {
     return () => clearInterval(timer);
   }, []);
 
-  const problems = [
-    {
-      icon: Truck,
-      title: 'Caminhão parado sem carga',
-      description:
-        'Dias de espera sem frete significam prejuízo e despesas acumuladas.',
-    },
-    {
-      icon: ArrowLeftRight,
-      title: 'Volta vazia sem frete',
-      description:
-        'Retornar sem carga representa combustível e tempo perdidos.',
-    },
-    {
-      icon: MapPin,
-      title: 'Frete de retorno perdido',
-      description:
-        'Oportunidades passam despercebidas sem informação em tempo real.',
-    },
-    {
-      icon: MessageSquare,
-      title: 'WhatsApp desorganizado',
-      description:
-        'Informações de frete se perdem em grupos confusos.',
-    },
-    {
-      icon: Clock,
-      title: 'Frete perdido por demora',
-      description:
-        'Resposta lenta faz você perder oportunidades.',
-    },
-  ];
-
-  const solutions = [
-    {
-      icon: Smartphone,
-      title: 'Frete em tempo real',
-      description:
-        'Receba notificações instantâneas direto no celular.',
-    },
-    {
-      icon: Radar,
-      title: 'Radar inteligente',
-      description:
-        'O sistema encontra cargas próximas automaticamente.',
-    },
-    {
-      icon: Route,
-      title: 'Retorno inteligente',
-      description:
-        'Evite voltar vazio com sugestões de carga retorno.',
-    },
-    {
-      icon: MapPinned,
-      title: 'Oportunidades regionais',
-      description:
-        'Expanda seu raio de atuação com segurança.',
-    },
-    {
-      icon: Car,
-      title: 'Corridas direto no app',
-      description:
-        'Aceite fretes com apenas um toque.',
-    },
-    {
-      icon: Users,
-      title: 'Sem intermediários',
-      description:
-        'Mais lucro e menos taxas desnecessárias.',
-    },
-  ];
-
-  const vehicles = [
-    { icon: Bike, name: 'Moto' },
-    { icon: Car, name: 'Fiorino' },
-    { icon: Package, name: 'Utilitário' },
-    { icon: Car, name: 'Van' },
-    { icon: Truck, name: 'HR' },
-    { icon: Truck, name: 'Toco' },
-    { icon: Truck, name: 'Truck' },
-    { icon: Bus, name: 'Carreta' },
-  ];
-
-  const faqs = [
-    {
-      question: 'Como conseguir frete online?',
-      answer:
-        'Receba notificações em tempo real diretamente pelo celular.',
-    },
-    {
-      question: 'Como funciona o retorno inteligente?',
-      answer:
-        'O sistema sugere cargas compatíveis com sua rota.',
-    },
-    {
-      question: 'Quanto custa usar o FRETOGO?',
-      answer:
-        'O cadastro inicial é gratuito para motoristas.',
-    },
-  ];
-
   return (
-    <div className="min-h-screen bg-slate-950 text-white overflow-hidden">
+    <div className="min-h-screen bg-[#050816] text-white overflow-hidden relative">
 
-      {/* HERO */}
-      <section className="relative min-h-screen flex items-center overflow-hidden">
+      {/* =====================================================
+          FUNDO GLOBAL
+      ===================================================== */}
 
-        <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-900 to-cyan-950/20"></div>
+      <div className="absolute inset-0 bg-gradient-to-br from-[#050816] via-[#07101f] to-cyan-950/20"></div>
 
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px]">
-          <div className="absolute inset-0 rounded-full border border-cyan-400/10"></div>
-          <div className="absolute inset-10 rounded-full border border-cyan-400/10"></div>
-          <div className="absolute inset-20 rounded-full border border-cyan-400/10"></div>
+      {/* Glow */}
+      <div className="absolute top-[-200px] left-[-100px] w-[500px] h-[500px] bg-cyan-500/10 rounded-full blur-[120px]"></div>
+
+      <div className="absolute bottom-[-200px] right-[-100px] w-[500px] h-[500px] bg-blue-500/10 rounded-full blur-[120px]"></div>
+
+      {/* RADAR */}
+      <div className="absolute inset-0 flex items-center justify-center opacity-40 pointer-events-none">
+
+        <div className="relative w-[900px] h-[900px]">
+
+          <div className="absolute inset-0 border border-cyan-400/10 rounded-full animate-ping"></div>
+
+          <div
+            className="absolute inset-[10%] border border-cyan-400/10 rounded-full animate-ping"
+            style={{ animationDelay: '1s' }}
+          ></div>
+
+          <div
+            className="absolute inset-[20%] border border-cyan-400/10 rounded-full animate-ping"
+            style={{ animationDelay: '2s' }}
+          ></div>
+
         </div>
 
-        <div className="max-w-7xl mx-auto px-4 relative z-10 py-20">
+      </div>
 
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
+      {/* =====================================================
+          HERO
+      ===================================================== */}
+
+      <section className="relative min-h-screen flex items-center overflow-hidden z-10">
+
+        <div className="max-w-7xl mx-auto px-4 py-20 w-full">
+
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+
+            {/* =====================================================
+                TEXTO
+            ===================================================== */}
 
             <div>
 
-              <div className="mb-6">
+              {/* LOGO */}
+              <div className="mb-8 flex flex-col items-start gap-5">
+
                 <a
                   href="/"
-                  className="text-cyan-400 text-2xl font-black uppercase tracking-wider hover:text-cyan-300 transition-all"
+                  className="hover:opacity-90 transition-all"
                 >
-                  FRETOGO
+
+                  <img
+                    src="https://horizons-cdn.hostinger.com/9b5419fa-dd23-4135-8799-4e32004a3782/7c019b5a3cef7d446f89d375b4df5fc1.png"
+                    alt="Logo FRETOGO"
+                    className="h-20 md:h-24 w-auto drop-shadow-[0_0_20px_rgba(6,182,212,0.3)]"
+                  />
+
                 </a>
+
+                <div className="inline-flex items-center gap-2 bg-cyan-500/10 border border-cyan-400/20 px-4 py-2 rounded-full backdrop-blur-sm">
+
+                  <span className="relative flex h-2 w-2">
+
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-400"></span>
+
+                  </span>
+
+                  <span className="text-[10px] font-black uppercase tracking-[0.25em] text-cyan-300">
+                    {onlineDrivers}+ motoristas no radar agora
+                  </span>
+
+                </div>
+
               </div>
 
-              <h1 className="text-5xl md:text-7xl font-black leading-tight mb-6">
-                Aplicativo de Frete para Motoristas Autônomos
+              {/* HEADLINE */}
+              <h1 className="text-5xl md:text-7xl leading-[0.95] font-black mb-8">
+
+                Aplicativo de Frete para{' '}
+
+                <span className="text-cyan-400 italic drop-shadow-[0_0_20px_rgba(6,182,212,0.5)]">
+                  Motoristas
+                </span>
+
+                <br />
+
+                Autônomos
+
               </h1>
 
-              <p className="text-xl text-slate-300 mb-8 max-w-xl">
+              {/* TEXTO */}
+              <p className="text-xl text-slate-300 mb-10 max-w-xl leading-relaxed">
+
                 Receba fretes próximos, cargas de retorno e oportunidades em tempo real direto no celular.
+
+                <span className="block mt-4 text-white font-bold">
+                  Menos tempo parado. Mais corridas. Mais lucro.
+                </span>
+
               </p>
 
-              <div className="flex flex-col sm:flex-row gap-4">
+              {/* BOTÕES */}
+              <div className="flex flex-col sm:flex-row gap-4 mb-10">
 
                 <a
                   href="/motorista"
-                  className="bg-cyan-400 text-black font-black px-8 py-4 rounded-xl hover:scale-105 transition-all text-center"
+                  className="group bg-cyan-400 hover:bg-cyan-300 text-black font-black px-8 py-5 rounded-2xl hover:scale-[1.02] transition-all text-center inline-flex justify-center items-center gap-2 shadow-[0_0_30px_rgba(34,211,238,0.4)]"
                 >
                   Cadastrar Meu Veículo
+
+                  <ChevronRight className="group-hover:translate-x-1 transition-transform" />
                 </a>
 
                 <a
                   href="https://chat.whatsapp.com/IGylgsZPYhsDfMZDKzVjHT"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="border border-cyan-400 text-cyan-400 font-black px-8 py-4 rounded-xl hover:bg-cyan-400/10 transition-all text-center"
+                  className="border border-cyan-400/30 bg-white/5 backdrop-blur-sm text-cyan-300 font-black px-8 py-5 rounded-2xl hover:bg-cyan-400/10 transition-all text-center"
                 >
                   Entrar no Grupo VIP
                 </a>
+
               </div>
+
+              {/* BENEFÍCIOS */}
+              <div className="grid grid-cols-2 gap-5">
+
+                <div className="flex items-center gap-3">
+
+                  <div className="bg-cyan-500/10 border border-cyan-400/20 p-3 rounded-2xl">
+                    <Zap className="w-5 h-5 text-cyan-400" />
+                  </div>
+
+                  <div>
+                    <p className="font-black text-sm uppercase">
+                      Fretes instantâneos
+                    </p>
+
+                    <p className="text-xs text-slate-400">
+                      Corridas em tempo real
+                    </p>
+                  </div>
+
+                </div>
+
+                <div className="flex items-center gap-3">
+
+                  <div className="bg-green-500/10 border border-green-400/20 p-3 rounded-2xl">
+                    <ShieldCheck className="w-5 h-5 text-green-400" />
+                  </div>
+
+                  <div>
+                    <p className="font-black text-sm uppercase">
+                      Plataforma segura
+                    </p>
+
+                    <p className="text-xs text-slate-400">
+                      Aprovação verificada
+                    </p>
+                  </div>
+
+                </div>
+
+              </div>
+
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            {/* =====================================================
+                IMAGENS
+            ===================================================== */}
+
+            <div className="grid grid-cols-2 gap-5 relative">
+
+              {/* Glow */}
+              <div className="absolute inset-0 bg-cyan-400/10 blur-[100px] rounded-full"></div>
+
+              {/* CARD FLUTUANTE */}
+              <div className="absolute -top-5 left-10 z-20 bg-[#111827] border border-white/10 backdrop-blur-md px-5 py-4 rounded-2xl shadow-2xl flex items-center gap-4 animate-pulse">
+
+                <div className="bg-green-500 p-3 rounded-xl">
+                  <CheckCircle2 className="w-5 h-5 text-black" />
+                </div>
+
+                <div>
+
+                  <p className="text-[10px] uppercase font-black text-slate-400">
+                    Novo frete encontrado
+                  </p>
+
+                  <p className="font-black italic">
+                    Guarulhos • R$ 248
+                  </p>
+
+                </div>
+
+              </div>
 
               <img
                 src="https://horizons-cdn.hostinger.com/93e14fe7-39ec-4c78-ac41-90974e98d3e3/gemini_generated_image_qnpbzrqnpbzrqnpb-ER5OB.png"
                 alt="Motorista"
-                className="rounded-3xl"
+                className="rounded-[2rem] border border-white/10 shadow-[0_20px_80px_rgba(0,0,0,0.6)] relative z-10"
               />
 
               <img
                 src="https://horizons-cdn.hostinger.com/93e14fe7-39ec-4c78-ac41-90974e98d3e3/gemini_generated_image_xj98yixj98yixj98-n2hyA.png"
                 alt="Mapa"
-                className="rounded-3xl mt-8"
+                className="rounded-[2rem] border border-white/10 shadow-[0_20px_80px_rgba(0,0,0,0.6)] mt-10 relative z-10"
               />
+
             </div>
+
           </div>
+
         </div>
+
       </section>
 
-      {/* restante permanece igual */}
     </div>
   );
 };
