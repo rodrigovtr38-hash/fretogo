@@ -20,26 +20,29 @@ export default function Home() {
           FUNDO PREMIUM & GLOW CINEMATOGRÁFICO
       ===================================================== */}
 
-      {/* Base Gradient - Mais vida e profundidade */}
+      {/* Base Gradient */}
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#0f172a] via-[#020617] to-[#020617] pointer-events-none"></div>
 
-      {/* Ambient Glow Superior - Stripe Style */}
+      {/* Ambient Glow Superior */}
       <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-cyan-600/10 blur-[120px] rounded-full pointer-events-none mix-blend-screen"></div>
 
-      {/* Ambient Glow Lateral - Profundidade */}
+      {/* Ambient Glow Lateral */}
       <div className="absolute top-[20%] right-[-10%] w-[40%] h-[60%] bg-blue-600/10 blur-[150px] rounded-full pointer-events-none mix-blend-screen"></div>
 
-      {/* Radar Background Animado */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-40">
-        <div className="relative w-[1000px] h-[1000px]">
-          <div className="absolute inset-0 rounded-full border border-cyan-500/10 animate-[ping_4s_cubic-bezier(0,0,0.2,1)_infinite]"></div>
+      {/* Micro Highlights Inferiores */}
+      <div className="absolute bottom-0 left-[20%] w-[60%] h-[10%] bg-cyan-500/5 blur-[100px] pointer-events-none mix-blend-screen"></div>
+
+      {/* Radar Background Animado (AJUSTADO: Mais elegante, opacity controlada) */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.25]">
+        <div className="relative w-[800px] h-[800px]">
+          <div className="absolute inset-0 rounded-full border border-cyan-500/20 animate-[ping_5s_cubic-bezier(0,0,0.2,1)_infinite] shadow-[inset_0_0_20px_rgba(6,182,212,0.1)]"></div>
           <div
-            className="absolute inset-[15%] rounded-full border border-cyan-400/10 animate-[ping_4s_cubic-bezier(0,0,0.2,1)_infinite]"
-            style={{ animationDelay: '1.2s' }}
+            className="absolute inset-[15%] rounded-full border border-cyan-400/20 animate-[ping_5s_cubic-bezier(0,0,0.2,1)_infinite] shadow-[inset_0_0_20px_rgba(6,182,212,0.1)]"
+            style={{ animationDelay: '1.5s' }}
           ></div>
           <div
-            className="absolute inset-[30%] rounded-full border border-cyan-300/10 animate-[ping_4s_cubic-bezier(0,0,0.2,1)_infinite]"
-            style={{ animationDelay: '2.4s' }}
+            className="absolute inset-[30%] rounded-full border border-cyan-300/20 animate-[ping_5s_cubic-bezier(0,0,0.2,1)_infinite] shadow-[inset_0_0_20px_rgba(6,182,212,0.1)]"
+            style={{ animationDelay: '3s' }}
           ></div>
         </div>
       </div>
@@ -86,24 +89,22 @@ export default function Home() {
       </a>
 
       {/* =====================================================
-          WRAPPER PRINCIPAL (ALINHAMENTO CORRIGIDO)
+          WRAPPER PRINCIPAL
       ===================================================== */}
       <div className="relative z-10 w-full flex flex-col min-h-screen">
       
         {/* =====================================================
-            NAVBAR (CENTRALIZADO MAX-W)
+            NAVBAR
         ===================================================== */}
         <header className="w-full">
           <nav className="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between">
-            {/* LOGO */}
             <div className="flex items-center gap-3">
-              <Zap className="w-8 h-8 text-cyan-400 fill-cyan-400 drop-shadow-[0_0_12px_rgba(6,182,212,0.6)]" />
+              <Zap className="w-8 h-8 text-cyan-400 fill-cyan-400 drop-shadow-[0_0_15px_rgba(6,182,212,0.8)]" />
               <span className="font-black text-2xl italic tracking-tighter text-white">
                 FRETOGO
               </span>
             </div>
 
-            {/* LINKS */}
             <div className="hidden md:flex items-center gap-8">
               <Link
                 to="/contratar"
@@ -122,7 +123,7 @@ export default function Home() {
         </header>
 
         {/* =====================================================
-            HERO GRID (ALINHAMENTO E DISTRIBUIÇÃO CORRIGIDOS)
+            HERO GRID 
         ===================================================== */}
         <main className="flex-1 w-full flex items-center justify-center">
           <section className="max-w-7xl w-full mx-auto px-6 py-12 lg:py-20 grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-8 items-center justify-items-center">
@@ -130,77 +131,70 @@ export default function Home() {
             {/* COLUNA ESQUERDA: TEXTO */}
             <div className="w-full max-w-[600px] flex flex-col items-start justify-center lg:justify-self-start z-10">
 
-              {/* Badge */}
-              <div className="inline-flex items-center gap-3 bg-cyan-950/40 border border-cyan-500/20 px-4 py-2 rounded-full mb-8 backdrop-blur-md shadow-[0_4px_20px_rgba(6,182,212,0.1)]">
+              <div className="inline-flex items-center gap-3 bg-cyan-950/40 border border-cyan-500/20 px-5 py-2.5 rounded-full mb-8 backdrop-blur-md shadow-[0_4px_20px_rgba(6,182,212,0.15)]">
                 <span className="relative flex h-2 w-2">
                   <span className="absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75 animate-ping"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,1)]"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,1)]"></span>
                 </span>
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-300">
+                <span className="text-[11px] font-black uppercase tracking-[0.2em] text-cyan-300 drop-shadow-sm">
                   Radar ativo em sua região
                 </span>
               </div>
 
-              {/* Headline */}
               <h1 className="text-5xl md:text-6xl lg:text-7xl leading-[1.05] font-black mb-6 text-white tracking-tight">
                 SUA CARGA NO{' '}
-                <span className="text-cyan-400 italic drop-shadow-[0_0_25px_rgba(6,182,212,0.5)] relative inline-block">
+                <span className="text-cyan-400 italic drop-shadow-[0_0_30px_rgba(6,182,212,0.6)] relative inline-block">
                   RADAR
                 </span>
                 .<br />
                 O MOTORISTA NA{' '}
-                <span className="text-yellow-400 italic drop-shadow-[0_0_20px_rgba(250,204,21,0.4)]">
+                <span className="text-yellow-400 italic drop-shadow-[0_0_25px_rgba(250,204,21,0.5)]">
                   PORTA
                 </span>
                 .
               </h1>
 
-              {/* Texto Auxiliar */}
-              <p className="text-slate-400 text-lg md:text-xl leading-relaxed max-w-[540px] mb-10 font-medium drop-shadow-sm">
+              <p className="text-slate-300 text-lg md:text-xl leading-relaxed max-w-[540px] mb-12 font-medium drop-shadow-md">
                 A primeira plataforma de fretes autônoma com matching inteligente.
                 Contrate em segundos e acompanhe tudo em tempo real.
-                <span className="block mt-4 text-slate-200 font-bold text-xl">
+                <span className="block mt-4 text-white font-bold text-xl drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)]">
                   Sem mensalidade. Sem burocracia.
                 </span>
               </p>
 
-              {/* BOTÕES */}
-              <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+              {/* BOTÕES (AJUSTADO: Maior presença, padding, gaps e visual premium) */}
+              <div className="flex flex-col sm:flex-row gap-5 w-full sm:w-auto">
                 <Link
                   to="/contratar"
-                  className="group bg-cyan-500 hover:bg-cyan-400 hover:scale-[1.02] active:scale-95 transition-all duration-300 text-slate-950 px-8 py-5 rounded-2xl font-black uppercase italic flex items-center justify-center gap-2 shadow-[0_10px_40px_rgba(6,182,212,0.3)] w-full sm:w-auto text-sm tracking-wide"
+                  className="group bg-cyan-500 hover:bg-cyan-400 hover:scale-[1.02] active:scale-95 transition-all duration-300 text-slate-950 px-10 py-6 rounded-[1.25rem] font-black uppercase italic flex items-center justify-center gap-3 shadow-[0_10px_40px_rgba(6,182,212,0.4)] w-full sm:w-auto text-[15px] tracking-widest"
                 >
                   Contratar Frete
-                  <ChevronRight className="group-hover:translate-x-1.5 transition-transform" size={18} />
+                  <ChevronRight className="group-hover:translate-x-1.5 transition-transform" size={20} />
                 </Link>
 
                 <Link
                   to="/parceiros"
-                  className="bg-slate-800/50 border border-slate-700 hover:bg-slate-800 hover:border-slate-600 transition-all duration-300 px-8 py-5 rounded-2xl font-black uppercase italic flex items-center justify-center w-full sm:w-auto text-sm text-white backdrop-blur-sm tracking-wide"
+                  className="bg-slate-800/60 border border-slate-600 hover:bg-slate-700 hover:border-slate-500 transition-all duration-300 px-10 py-6 rounded-[1.25rem] font-black uppercase italic flex items-center justify-center w-full sm:w-auto text-[15px] text-white backdrop-blur-md tracking-widest shadow-[0_5px_20px_rgba(0,0,0,0.3)]"
                 >
                   Ser Motorista
                 </Link>
 
                 <button
                   onClick={() => setShowModal(true)}
-                  className="bg-yellow-400 hover:bg-yellow-300 hover:scale-[1.02] active:scale-95 transition-all duration-300 text-slate-950 px-8 py-5 rounded-2xl font-black uppercase italic flex items-center justify-center gap-2 shadow-[0_10px_30px_rgba(250,204,21,0.25)] w-full sm:w-auto text-sm tracking-wide"
+                  className="bg-yellow-400 hover:bg-yellow-300 hover:scale-[1.02] active:scale-95 transition-all duration-300 text-slate-950 px-10 py-6 rounded-[1.25rem] font-black uppercase italic flex items-center justify-center gap-3 shadow-[0_10px_35px_rgba(250,204,21,0.35)] w-full sm:w-auto text-[15px] tracking-widest"
                 >
-                  <Download size={18} />
+                  <Download size={20} />
                   Baixar App
                 </button>
               </div>
 
             </div>
 
-            {/* COLUNA DIREITA: CELULAR (ALINHAMENTO CORRIGIDO) */}
+            {/* COLUNA DIREITA: CELULAR */}
             <div className="w-full flex justify-center lg:justify-self-end relative mt-12 lg:mt-0 z-10">
-
-              {/* Box do Celular */}
-              <div className="relative w-full max-w-[320px] xl:max-w-[340px] aspect-[9/16] rounded-[3rem] border-[6px] border-slate-800/80 bg-slate-950 overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.8),0_0_40px_rgba(6,182,212,0.15)] flex-shrink-0 backdrop-blur-sm">
-
+              <div className="relative w-full max-w-[320px] xl:max-w-[340px] aspect-[9/16] rounded-[3rem] border-[6px] border-slate-800/80 bg-slate-950 overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.8),0_0_50px_rgba(6,182,212,0.2)] flex-shrink-0 backdrop-blur-sm">
                 <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/5 via-transparent to-blue-500/5"></div>
 
-                {/* Radar Pulse Interno Celular */}
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="relative w-48 h-48">
                     <div className="absolute inset-0 rounded-full bg-cyan-500/10 animate-[ping_3s_cubic-bezier(0,0,0.2,1)_infinite]"></div>
@@ -211,9 +205,8 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Card Motorista Interno */}
                 <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[85%] z-20">
-                  <div className="bg-slate-900/90 backdrop-blur-md rounded-2xl p-4 border border-white/10 shadow-[0_20px_40px_rgba(0,0,0,0.6)] animate-[bounce_4s_infinite]">
+                  <div className="bg-slate-900/95 backdrop-blur-md rounded-2xl p-4 border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.7)] animate-[bounce_4s_infinite]">
                     <div className="flex items-center gap-3">
                       <div className="bg-yellow-400 p-2.5 rounded-xl shadow-inner">
                         <Truck className="w-5 h-5 text-slate-950 drop-shadow-sm" />
@@ -229,63 +222,61 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
-
               </div>
 
-              {/* Badge Verificado Flutuante */}
-              <div className="absolute -left-4 md:-left-8 top-[30%] bg-slate-900/90 border border-green-500/30 backdrop-blur-xl px-5 py-4 rounded-2xl flex items-center gap-3 shadow-[0_15px_30px_rgba(0,0,0,0.5)] animate-pulse z-30">
-                <ShieldCheck className="text-green-400 w-6 h-6 drop-shadow-[0_0_12px_rgba(74,222,128,0.5)]" />
-                <span className="text-xs font-black uppercase text-white tracking-widest">
+              <div className="absolute -left-4 md:-left-8 top-[30%] bg-slate-900/95 border border-green-500/40 backdrop-blur-xl px-6 py-5 rounded-2xl flex items-center gap-3 shadow-[0_15px_40px_rgba(0,0,0,0.6)] animate-pulse z-30">
+                <ShieldCheck className="text-green-400 w-7 h-7 drop-shadow-[0_0_12px_rgba(74,222,128,0.6)]" />
+                <span className="text-sm font-black uppercase text-white tracking-widest">
                   Verificado
                 </span>
               </div>
-
             </div>
 
           </section>
         </main>
 
         {/* =====================================================
-            CARDS (FOOTER SECTION)
+            CARDS (AJUSTADO: Maior presença, padding e glow sutil)
         ===================================================== */}
-        <section className="w-full mt-auto">
-          <div className="max-w-7xl mx-auto px-6 py-12 border-t border-white/5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 w-full">
+        <section className="w-full mt-auto relative">
+          <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm pointer-events-none"></div>
+          <div className="relative z-10 max-w-7xl mx-auto px-6 py-16 border-t border-white/10">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 w-full">
 
               {[
                 {
-                  icon: <Zap className="text-yellow-400 w-5 h-5 drop-shadow-[0_0_10px_rgba(250,204,21,0.6)]" />,
+                  icon: <Zap className="text-yellow-400 w-7 h-7 drop-shadow-[0_0_12px_rgba(250,204,21,0.7)]" />,
                   t: 'Agilidade',
                   d: 'Match em menos de 1 minuto'
                 },
                 {
-                  icon: <ShieldCheck className="text-green-400 w-5 h-5 drop-shadow-[0_0_10px_rgba(74,222,128,0.6)]" />,
+                  icon: <ShieldCheck className="text-green-400 w-7 h-7 drop-shadow-[0_0_12px_rgba(74,222,128,0.7)]" />,
                   t: 'Segurança',
                   d: 'Motoristas verificados'
                 },
                 {
-                  icon: <MapPin className="text-cyan-400 w-5 h-5 drop-shadow-[0_0_10px_rgba(34,211,238,0.6)]" />,
+                  icon: <MapPin className="text-cyan-400 w-7 h-7 drop-shadow-[0_0_12px_rgba(34,211,238,0.7)]" />,
                   t: 'Radar Vivo',
                   d: 'Rastreamento em tempo real'
                 },
                 {
-                  icon: <Star className="text-orange-400 w-5 h-5 drop-shadow-[0_0_10px_rgba(251,146,60,0.6)]" />,
+                  icon: <Star className="text-orange-400 w-7 h-7 drop-shadow-[0_0_12px_rgba(251,146,60,0.7)]" />,
                   t: 'Zero Taxa',
                   d: 'Sem mensalidades escondidas'
                 }
               ].map((item, i) => (
                 <div
                   key={i}
-                  className="flex items-start gap-4 p-5 rounded-2xl bg-slate-900/30 border border-white/5 hover:bg-slate-900/60 hover:border-white/10 transition-all duration-300 backdrop-blur-sm"
+                  className="flex flex-col items-start gap-5 p-8 rounded-[1.5rem] bg-slate-900/40 border border-white/5 hover:bg-slate-900/80 hover:border-cyan-500/30 transition-all duration-300 backdrop-blur-md shadow-[0_10px_30px_rgba(0,0,0,0.3)] hover:shadow-[0_10px_40px_rgba(6,182,212,0.1)] group"
                 >
-                  <div className="bg-slate-950/80 border border-white/5 p-3 rounded-xl shadow-inner shrink-0">
+                  <div className="bg-slate-950 border border-white/10 p-4 rounded-2xl shadow-inner shrink-0 group-hover:scale-110 transition-transform duration-300">
                     {item.icon}
                   </div>
-                  <div className="flex flex-col justify-center pt-0.5">
-                    <p className="font-black uppercase italic text-sm text-slate-200 tracking-wide">
+                  <div className="flex flex-col">
+                    <p className="font-black uppercase italic text-lg text-white tracking-wide mb-1.5 group-hover:text-cyan-50 transition-colors">
                       {item.t}
                     </p>
-                    <p className="text-slate-500 text-xs mt-1 font-medium leading-snug">
+                    <p className="text-slate-400 text-sm font-medium leading-relaxed">
                       {item.d}
                     </p>
                   </div>
