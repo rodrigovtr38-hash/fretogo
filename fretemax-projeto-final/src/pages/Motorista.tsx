@@ -4,7 +4,7 @@ import { signInWithPopup, signOut } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'; 
 import { collection, query, where, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp, updateDoc, runTransaction, arrayRemove } from 'firebase/firestore';
 import { getMessaging, getToken } from 'firebase/messaging'; 
-import { Loader2, Truck, CheckCircle, Navigation, MapPin, AlertCircle, ShieldCheck, UserPlus, Camera, Zap, Power, AlertTriangle, XCircle, Package, Download } from 'lucide-react';
+import { Loader2, Truck, CheckCircle, Navigation, MapPin, AlertCircle, ShieldCheck, UserPlus, Camera, Zap, Power, AlertTriangle, XCircle, Package, Download, Radar, DollarSign, Clock } from 'lucide-react';
 import ChatFrete from '../components/ChatFrete';
 import { UserProfile, DriverData, OrderData, VehicleType } from '../types';
 
@@ -39,6 +39,9 @@ export default function Motorista() {
   const [tempoRestante, setTempoRestante] = useState(15);
   const [exibindoOferta, setExibindoOferta] = useState(false);
 
+  // 🔥 NOVO: Estado de UX para a busca de cargas (Online)
+  const [loadingMessage, setLoadingMessage] = useState('Analisando cargas próximas...');
+
   const [toast, setToast] = useState<{msg: string, type: 'error' | 'warning'} | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
@@ -59,6 +62,24 @@ export default function Motorista() {
       audioRef.current.currentTime = 0;
     }
   };
+
+  // Efeito Mensagens Rotativas do Radar
+  useEffect(() => {
+    if (isOnline && !exibindoOferta && !activeFrete) {
+      const messages = [
+        'Analisando cargas próximas...',
+        'Otimizando melhor rota...',
+        'Buscando frete ideal...',
+        'Mapeando oportunidades...'
+      ];
+      let i = 0;
+      const interval = setInterval(() => {
+        i = (i + 1) % messages.length;
+        setLoadingMessage(messages[i]);
+      }, 4000);
+      return () => clearInterval(interval);
+    }
+  }, [isOnline, exibindoOferta, activeFrete]);
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: any) => {
@@ -335,126 +356,148 @@ export default function Motorista() {
     window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
   };
 
-  if (loading || checkingDriver) return <div className="h-screen bg-slate-950 flex flex-col items-center justify-center gap-4"><div className="w-24 h-24 bg-blue-600 rounded-3xl flex items-center justify-center animate-pulse shadow-blue-500/50 shadow-2xl"><Truck className="text-white w-14 h-14" /></div><Loader2 className="animate-spin text-blue-500 w-8 h-8 mt-4" /></div>;
+  if (loading || checkingDriver) return (
+    <div className="h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
+      <div className="w-24 h-24 bg-blue-600 rounded-3xl flex items-center justify-center animate-pulse shadow-[0_0_40px_rgba(37,99,235,0.4)]">
+        <Truck className="text-white w-14 h-14" />
+      </div>
+      <Loader2 className="animate-spin text-blue-500 w-8 h-8 mt-4" />
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white font-sans p-4 relative">
+    <div className="min-h-screen bg-slate-950 text-white font-sans p-4 relative pb-20">
       
       {toast && (
-        <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[200] px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 w-[90%] max-w-sm ${toast.type === 'error' ? 'bg-red-500 text-white' : 'bg-amber-500 text-amber-950'}`}>
-          <AlertTriangle size={24} className="shrink-0" />
+        <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[200] px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 w-[90%] max-w-sm border ${toast.type === 'error' ? 'bg-red-950 border-red-500 text-red-200' : 'bg-amber-950 border-amber-500 text-amber-200'}`}>
+          <AlertTriangle size={24} className={`shrink-0 ${toast.type === 'error' ? 'text-red-500' : 'text-amber-500'}`} />
           <span className="font-bold text-sm leading-tight flex-1">{toast.msg}</span>
           <button onClick={() => setToast(null)} className="shrink-0 opacity-80 hover:opacity-100 transition-opacity"><XCircle size={20} /></button>
         </div>
       )}
 
+      {/* 🔥 MODAL DE OFERTA DE FRETE - UX PREMIUM */}
       {exibindoOferta && ofertaFrete && (
-        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center p-4 animate-in fade-in duration-300">
-          <div className="bg-slate-900 border-2 border-blue-500 rounded-[2.5rem] p-8 w-full max-w-sm shadow-[0_0_40px_rgba(59,130,246,0.3)] text-center relative overflow-hidden">
-            <div className="absolute top-0 left-0 h-2 bg-blue-600 transition-all duration-1000 ease-linear" style={{ width: `${(tempoRestante / 15) * 100}%` }}></div>
-            <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse shadow-xl shadow-blue-500/50">
-              <Zap className="text-white w-10 h-10 fill-white" />
+        <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="bg-slate-900 border-2 border-green-500 rounded-[2.5rem] p-8 w-full max-w-sm shadow-[0_0_60px_rgba(34,197,94,0.3)] text-center relative overflow-hidden">
+            
+            {/* Barra de Tempo */}
+            <div className="absolute top-0 left-0 h-2 bg-slate-800 w-full">
+               <div className={`h-full transition-all duration-1000 ease-linear ${tempoRestante > 5 ? 'bg-green-500' : 'bg-red-500'}`} style={{ width: `${(tempoRestante / 15) * 100}%` }}></div>
             </div>
-            <h2 className="text-2xl font-black uppercase italic text-white mb-1">Nova Oferta!</h2>
-            <p className="text-blue-400 font-bold mb-6">{tempoRestante}s restantes</p>
+            
+            <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse shadow-xl shadow-green-500/20 border border-green-500/50">
+              <Zap className="text-green-400 w-10 h-10 fill-green-400" />
+            </div>
+            
+            <h2 className="text-2xl font-black uppercase italic text-white mb-1">Carga Encontrada!</h2>
+            <p className={`font-black text-lg mb-6 flex items-center justify-center gap-2 ${tempoRestante > 5 ? 'text-green-400' : 'text-red-400 animate-bounce'}`}>
+              <Clock size={16} /> 00:{tempoRestante.toString().padStart(2, '0')}
+            </p>
 
-            <div className="bg-slate-950 p-4 rounded-2xl mb-6 text-left border border-slate-800">
-              <div className="flex flex-col items-center justify-center mb-4">
-                 <div className="bg-green-500/20 border border-green-500 text-green-400 rounded-full px-4 py-2 text-[11px] font-bold inline-flex items-center gap-2">
-                   <ShieldCheck className="w-4 h-4" />
-                   Pedágio já incluso no valor
-                 </div>
-              </div>
-
-              <div className="flex items-start gap-3 mb-3">
+            <div className="bg-slate-950 p-5 rounded-2xl mb-6 text-left border border-slate-800 shadow-inner">
+              <div className="flex items-start gap-3 mb-4">
                 <MapPin className="text-blue-500 w-5 h-5 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-[10px] uppercase font-black text-slate-500">Coleta</p>
+                  <p className="text-[10px] uppercase font-black text-slate-500">Local de Coleta</p>
                   <p className="font-bold text-sm text-slate-200 line-clamp-2">{ofertaFrete.enderecoColetaTexto}</p>
                 </div>
               </div>
               <div className="flex items-start gap-3 mb-4">
                 <MapPin className="text-green-500 w-5 h-5 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-[10px] uppercase font-black text-slate-500">Entrega</p>
+                  <p className="text-[10px] uppercase font-black text-slate-500">Local de Entrega</p>
                   <p className="font-bold text-sm text-slate-200 line-clamp-2">{ofertaFrete.enderecoEntregaTexto}</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4 mt-4 mb-4">
-                <div className="bg-blue-500/10 border border-blue-500 rounded-2xl p-4 text-center">
-                  <p className="text-blue-400 text-xs font-black uppercase">Distância</p>
-                  <h3 className="text-2xl font-black text-white">{ofertaFrete.distancia?.toFixed(1)} KM</h3>
+                <div className="bg-slate-900 border border-slate-700/50 rounded-2xl p-4 text-center">
+                  <p className="text-blue-400 text-[10px] font-black uppercase">Distância Estimada</p>
+                  <h3 className="text-xl font-black text-white">{ofertaFrete.distancia?.toFixed(1)} km</h3>
                 </div>
-                <div className="bg-orange-500/10 border border-orange-500 rounded-2xl p-4 text-center">
-                  <p className="text-orange-400 text-xs font-black uppercase">Peso</p>
-                  <h3 className="text-2xl font-black text-white">{ofertaFrete.peso}</h3>
+                <div className="bg-slate-900 border border-slate-700/50 rounded-2xl p-4 text-center">
+                  <p className="text-orange-400 text-[10px] font-black uppercase">Peso / Volume</p>
+                  <h3 className="text-xl font-black text-white">{ofertaFrete.peso}</h3>
                 </div>
               </div>
               
-              <div className="bg-slate-900 p-3 rounded-xl mb-4 border border-slate-700/50 flex flex-wrap gap-2 text-xs justify-center">
-                 <span className="bg-slate-800 text-slate-300 px-2 py-1 rounded font-bold flex items-center gap-1"><Truck size={12} className="text-blue-400"/> {VEHICLE_CONFIG[ofertaFrete.veiculo]?.nome || 'Veículo'}</span>
-                 <span className="bg-slate-800 text-slate-300 px-2 py-1 rounded font-bold flex items-center gap-1"><Package size={12}/> {ofertaFrete.qtdVolumes || 'Não informado'}</span>
-                 <span className="bg-slate-800 text-slate-300 px-2 py-1 rounded font-bold">{ofertaFrete.tipoMaterial}</span>
+              <div className="bg-slate-800/50 p-3 rounded-xl mb-4 flex flex-wrap gap-2 text-[11px] justify-center border border-slate-700">
+                 <span className="bg-slate-900 text-slate-300 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 border border-slate-700"><Truck size={12} className="text-blue-400"/> {VEHICLE_CONFIG[ofertaFrete.veiculo]?.nome || 'Veículo'}</span>
+                 <span className="bg-slate-900 text-slate-300 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 border border-slate-700"><Package size={12}/> {ofertaFrete.qtdVolumes || 'N/A'}</span>
+                 <span className="bg-slate-900 text-slate-300 px-3 py-1.5 rounded-lg font-bold border border-slate-700">{ofertaFrete.tipoMaterial}</span>
               </div>
 
-              <div className="pt-3 border-t border-slate-800 flex justify-center items-center">
-                  <div className="text-center">
-                    <p className="text-xs uppercase font-black text-slate-500 mb-1">Ganhos Reais</p>
-                    <p className="text-4xl font-black text-green-500 italic drop-shadow-md">R$ {ofertaFrete.valorMotorista?.toFixed(2).replace('.', ',')}</p>
+              <div className="pt-4 border-t border-slate-800 flex flex-col justify-center items-center">
+                  <p className="text-[10px] uppercase font-black text-slate-500 mb-1 tracking-widest">Oportunidade de Ganho (Líquido)</p>
+                  <div className="flex items-center gap-1">
+                    <DollarSign className="text-green-500 w-8 h-8" />
+                    <p className="text-5xl font-black text-white italic drop-shadow-[0_0_15px_rgba(34,197,94,0.4)] tracking-tighter">
+                      {ofertaFrete.valorMotorista?.toFixed(2).replace('.', ',')}
+                    </p>
                   </div>
               </div>
             </div>
+            
             <div className="flex gap-3">
-              <button onClick={handleRecusar} className="flex-1 bg-slate-800 text-slate-300 py-4 rounded-xl font-black uppercase hover:bg-slate-700 transition-all border border-slate-700">Recusar</button>
-              <button onClick={handleAceitar} className="flex-1 bg-green-500 text-slate-950 py-4 rounded-xl font-black uppercase hover:scale-105 active:scale-95 transition-all shadow-lg shadow-green-500/30">Aceitar</button>
+              <button onClick={handleRecusar} className="flex-1 bg-slate-800 text-slate-400 py-4 rounded-xl font-black uppercase hover:bg-slate-700 hover:text-white transition-all border border-slate-700 text-sm">Recusar</button>
+              <button onClick={handleAceitar} className="flex-[2] bg-green-500 text-slate-950 py-4 rounded-xl font-black uppercase hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-green-500/30 text-lg italic">Aceitar Corrida</button>
             </div>
           </div>
         </div>
       )}
 
-      <nav className="bg-slate-900 p-4 flex items-center justify-between border-b border-slate-800 font-black italic mb-6 rounded-b-3xl text-lg sticky top-0 z-50 shadow-xl">
-        <div className="flex items-center gap-2 tracking-tight">
-          <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-600/30">
-            <Zap className="text-yellow-400 fill-yellow-400 w-6 h-6" />
+      {/* HEADER PREMIUM */}
+      <nav className="bg-slate-950/80 backdrop-blur-md p-4 flex items-center justify-between border-b border-white/5 font-black italic mb-6 rounded-b-3xl text-lg sticky top-0 z-40 shadow-sm">
+        <div className="flex items-center gap-3 tracking-tight">
+          <div className="w-10 h-10 bg-cyan-500/10 rounded-xl flex items-center justify-center border border-cyan-500/30">
+            <Zap className="text-cyan-400 fill-cyan-400 w-5 h-5" />
           </div> 
-          FRETOGO <span className="text-blue-500 font-bold ml-1">RADAR</span>
+          <span className="text-white">FRETOGO</span> <span className="text-cyan-400 font-bold ml-1 opacity-80">RADAR</span>
         </div>
-        {user && <button onClick={() => signOut(auth)} className="text-xs bg-slate-800 px-4 py-2 rounded-full uppercase hover:bg-slate-700 transition-all">Sair</button>}
+        {user && <button onClick={() => signOut(auth)} className="text-[10px] bg-slate-900 border border-slate-800 text-slate-400 px-4 py-2 rounded-full uppercase hover:text-white transition-all font-bold tracking-wider">Sair da Conta</button>}
       </nav>
 
+      {/* FLUXOS PRINCIPAIS */}
       {!user ? (
-        <div className="text-center py-24 bg-slate-900 rounded-[3rem] border border-slate-800 shadow-2xl animate-in zoom-in-95 max-w-sm mx-auto">
-          <div className="w-28 h-28 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner">
-            <Zap className="w-14 h-14 text-yellow-400 fill-yellow-400" />
+        <div className="text-center py-12 flex flex-col items-center justify-center min-h-[70vh]">
+          <div className="bg-slate-900/50 rounded-[3rem] border border-white/5 shadow-2xl p-8 max-w-sm w-full animate-in zoom-in-95 backdrop-blur-sm relative overflow-hidden">
+            <div className="absolute inset-0 bg-cyan-500/5 blur-3xl rounded-full"></div>
+            <div className="w-24 h-24 bg-slate-950 rounded-full flex items-center justify-center mx-auto mb-8 border border-white/5 relative z-10">
+              <Zap className="w-10 h-10 text-cyan-400 fill-cyan-400" />
+            </div>
+            <h1 className="text-4xl font-black italic mb-2 uppercase tracking-tight text-white relative z-10">
+              Portal do<br/><span className="text-cyan-400 drop-shadow-[0_0_10px_rgba(6,182,212,0.3)]">Motorista</span>
+            </h1>
+            <p className="text-sm text-slate-400 mb-8 font-medium relative z-10">Entre para acessar as cargas disponíveis na sua região.</p>
+            
+            <button onClick={() => signInWithPopup(auth, provider)} className="w-full bg-cyan-500 text-slate-950 p-5 rounded-2xl font-black uppercase italic shadow-[0_0_20px_rgba(6,182,212,0.3)] text-lg hover:scale-105 active:scale-95 transition-all duration-200 flex justify-center items-center gap-3 relative z-10">
+              <Truck size={20} /> Acessar Conta
+            </button>
           </div>
-          <h1 className="text-5xl font-black italic mb-10 uppercase tracking-tight drop-shadow-lg leading-none">
-            Login<br/><span className="text-blue-500">Motorista</span>
-          </h1>
-          <button onClick={() => signInWithPopup(auth, provider)} className="w-full bg-blue-600 p-6 rounded-2xl font-black uppercase italic shadow-blue-600/50 shadow-2xl text-xl hover:scale-105 active:scale-95 transition-all duration-200 flex justify-center items-center gap-3">
-            <Truck size={24} /> ENTRAR NO APP
-          </button>
         </div>
       ) : formStep ? (
-        <div className="bg-white text-slate-950 p-8 rounded-[3rem] shadow-2xl animate-in slide-in-from-bottom">
-          <div className="flex items-center gap-3 mb-8 pb-4 border-b-2 border-slate-100">
-            <UserPlus className="text-blue-600 w-10 h-10" />
-            <h2 className="text-3xl font-black uppercase italic tracking-tight leading-none">Finalizar<br/>Cadastro</h2>
+        <div className="bg-slate-900 border border-white/5 p-8 rounded-[3rem] shadow-2xl animate-in slide-in-from-bottom max-w-md mx-auto">
+          <div className="flex items-center gap-4 mb-8 pb-6 border-b border-slate-800">
+            <div className="bg-cyan-500/20 p-3 rounded-2xl border border-cyan-500/30">
+               <UserPlus className="text-cyan-400 w-8 h-8" />
+            </div>
+            <h2 className="text-2xl font-black uppercase italic tracking-tight leading-none text-white">Seu Veículo,<br/><span className="text-cyan-400">Seu Dinheiro.</span></h2>
           </div>
           <div className="space-y-4">
-            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="Nome Completo" onChange={e => setForm({...form, nome: e.target.value})} />
-            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="CPF" onChange={e => setForm({...form, cpf: e.target.value})} />
+            <input className="w-full p-4 bg-slate-950 rounded-xl border border-slate-800 text-white font-bold placeholder:text-slate-500 outline-none focus:border-cyan-500 transition-all text-sm" placeholder="Nome Completo" onChange={e => setForm({...form, nome: e.target.value})} />
+            <input className="w-full p-4 bg-slate-950 rounded-xl border border-slate-800 text-white font-bold placeholder:text-slate-500 outline-none focus:border-cyan-500 transition-all text-sm" placeholder="CPF" onChange={e => setForm({...form, cpf: e.target.value})} />
             
-            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="Cidade / Estado (Ex: Guarulhos - SP)" onChange={e => setForm({...form, cidadeEstado: e.target.value})} />
+            <input className="w-full p-4 bg-slate-950 rounded-xl border border-slate-800 text-white font-bold placeholder:text-slate-500 outline-none focus:border-cyan-500 transition-all text-sm" placeholder="Cidade / Estado (Ex: Guarulhos - SP)" onChange={e => setForm({...form, cidadeEstado: e.target.value})} />
             
-            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all" placeholder="WhatsApp (DDD)" onChange={e => setForm({...form, whatsapp: e.target.value})} />
+            <input className="w-full p-4 bg-slate-950 rounded-xl border border-slate-800 text-white font-bold placeholder:text-slate-500 outline-none focus:border-cyan-500 transition-all text-sm" placeholder="WhatsApp (DDD)" onChange={e => setForm({...form, whatsapp: e.target.value})} />
             <div className="grid grid-cols-2 gap-3">
-              <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all uppercase" placeholder="Placa" onChange={e => setForm({...form, placa: e.target.value})} />
-              <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all uppercase" placeholder="CNH" onChange={e => setForm({...form, cnh: e.target.value})} />
+              <input className="w-full p-4 bg-slate-950 rounded-xl border border-slate-800 text-white font-bold placeholder:text-slate-500 outline-none focus:border-cyan-500 transition-all text-sm uppercase" placeholder="Placa" onChange={e => setForm({...form, placa: e.target.value})} />
+              <input className="w-full p-4 bg-slate-950 rounded-xl border border-slate-800 text-white font-bold placeholder:text-slate-500 outline-none focus:border-cyan-500 transition-all text-sm uppercase" placeholder="CNH" onChange={e => setForm({...form, cnh: e.target.value})} />
             </div>
-            <input className="w-full p-4 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-950 font-black placeholder:text-slate-400 outline-none focus:border-blue-500 transition-all uppercase" placeholder="RENAVAM" onChange={e => setForm({...form, renavam: e.target.value})} />
+            <input className="w-full p-4 bg-slate-950 rounded-xl border border-slate-800 text-white font-bold placeholder:text-slate-500 outline-none focus:border-cyan-500 transition-all text-sm uppercase" placeholder="RENAVAM" onChange={e => setForm({...form, renavam: e.target.value})} />
             
-            <select className="w-full p-4 bg-slate-950 text-white rounded-xl font-black outline-none cursor-pointer" onChange={e => setForm({...form, categoria: e.target.value as VehicleType})}>
+            <select className="w-full p-4 bg-slate-950 text-white rounded-xl font-bold outline-none cursor-pointer border border-slate-800 focus:border-cyan-500 text-sm" onChange={e => setForm({...form, categoria: e.target.value as VehicleType})}>
               <option value="moto">Moto</option>
               <option value="carro_pequeno">Carro Pequeno</option>
               <option value="utilitario">Utilitário</option>
@@ -464,102 +507,149 @@ export default function Motorista() {
               <option value="bi_trem_cegonha">Bi-trem / Cegonha</option>
             </select>
 
-            <div className="mt-4">
-              <label className={`border-2 rounded-2xl p-6 cursor-pointer flex flex-col items-center justify-center gap-3 transition-all ${docFile ? 'bg-green-100 border-green-500 text-green-700' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
-                <Camera size={32} />
+            <div className="mt-6">
+              <label className={`border-2 border-dashed rounded-2xl p-6 cursor-pointer flex flex-col items-center justify-center gap-3 transition-all ${docFile ? 'bg-cyan-500/10 border-cyan-500 text-cyan-400' : 'bg-slate-950 border-slate-700 text-slate-400 hover:border-slate-500'}`}>
+                <Camera size={32} className={docFile ? "text-cyan-400" : "text-slate-500"} />
                 <div className="text-center">
-                    <span className="font-black text-sm uppercase block mb-1">{docFile ? 'FOTO ANEXADA COM SUCESSO' : 'Tire uma Selfie segurando a CNH'}</span>
-                    <span className="text-xs font-bold opacity-70">O documento deve estar legível ao lado do seu rosto</span>
+                    <span className="font-black text-xs uppercase block mb-1 tracking-wider">{docFile ? 'FOTO ANEXADA COM SUCESSO' : 'Selfie com a CNH'}</span>
+                    <span className="text-[10px] font-medium opacity-70 block max-w-[200px] mx-auto">O documento deve estar perfeitamente legível ao lado do seu rosto.</span>
                 </div>
                 <input type="file" hidden accept="image/*" capture="user" onChange={(e) => setDocFile(e.target.files?.[0] || null)} />
               </label>
             </div>
 
-            <button onClick={handleCadastro} disabled={uploadingDocs} className="w-full bg-blue-600 text-white py-6 rounded-2xl font-black text-xl uppercase italic shadow-xl hover:scale-105 active:scale-95 transition-all duration-200 mt-6 flex justify-center items-center gap-2 disabled:bg-slate-400">
-              {uploadingDocs ? <><Loader2 className="animate-spin" /> ENVIANDO...</> : <><ShieldCheck /> Enviar para Análise</>}
+            <button onClick={handleCadastro} disabled={uploadingDocs} className="w-full bg-cyan-500 text-slate-950 py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-[0_0_20px_rgba(6,182,212,0.3)] hover:scale-[1.02] active:scale-95 transition-all mt-6 flex justify-center items-center gap-2 disabled:bg-slate-700 disabled:text-slate-500 disabled:shadow-none">
+              {uploadingDocs ? <><Loader2 className="animate-spin w-4 h-4" /> ENVIANDO SEUS DADOS...</> : <><ShieldCheck className="w-4 h-4" /> Enviar para Análise</>}
             </button>
           </div>
         </div>
       ) : driverData?.status !== 'aprovado' ? (
-        <div className="text-center py-12 flex flex-col items-center justify-center min-h-[75vh]">
-          <div className="bg-slate-900 rounded-[3rem] border border-yellow-600/50 shadow-2xl p-8 max-w-sm w-full animate-in zoom-in-95">
-            <div className="w-20 h-20 bg-yellow-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
-              <AlertCircle className="w-10 h-10 text-yellow-500" />
+        <div className="text-center py-12 flex flex-col items-center justify-center min-h-[70vh]">
+          <div className="bg-slate-900/80 rounded-[3rem] border border-cyan-500/30 shadow-2xl p-8 max-w-sm w-full animate-in zoom-in-95 backdrop-blur-md">
+            <div className="w-20 h-20 bg-cyan-500/10 rounded-full flex items-center justify-center mx-auto mb-6 border border-cyan-500/20">
+              <ShieldCheck className="w-10 h-10 text-cyan-400" />
             </div>
-            <h2 className="text-2xl font-black italic uppercase mb-2 text-yellow-500 tracking-tight">Em Análise</h2>
-            <p className="text-slate-300 font-bold text-sm leading-relaxed">Sua documentação está sendo validada pelo nosso time de segurança. Aguarde a liberação.</p>
+            <h2 className="text-2xl font-black italic uppercase mb-2 text-white tracking-tight">Status: <span className="text-cyan-400">Em Análise</span></h2>
+            <p className="text-slate-400 font-medium text-sm leading-relaxed mb-8">Nossa equipe de segurança está validando sua CNH e documento do veículo. Esse processo garante cargas seguras para todos.</p>
             
             <button 
               onClick={() => window.location.href = 'https://chat.whatsapp.com/IGylgsZPYhsDfMZDKzVjHT'} 
-              className="mt-8 w-full bg-green-500 hover:bg-green-600 hover:scale-105 transition-all text-white p-6 rounded-3xl font-black flex flex-col items-center gap-2 shadow-2xl shadow-green-500/20 text-center"
+              className="w-full bg-green-500 hover:bg-green-400 transition-all text-slate-950 p-5 rounded-2xl font-black flex flex-col items-center gap-1 shadow-[0_0_20px_rgba(34,197,94,0.3)] text-center group"
             >
-              <span className="text-xl uppercase italic tracking-tight">🚀 Acelere sua Aprovação!</span>
-              <span className="text-xs font-bold text-green-50">Entre no Grupo VIP e pegue as melhores cargas primeiro. Clique e Entre.</span>
+              <span className="text-sm uppercase tracking-widest flex items-center gap-2"><Zap className="w-4 h-4 fill-slate-950" /> Acelerar Aprovação</span>
+              <span className="text-[10px] font-bold opacity-80 uppercase tracking-widest">Entrar no Grupo Oficial</span>
             </button>
 
             {deferredPrompt && (
-              <button onClick={handleInstallClick} className="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-3xl shadow-xl flex items-center justify-center gap-2 uppercase transition-all">
-                <Download size={20} /> Baixar Aplicativo Fretogo
+              <button onClick={handleInstallClick} className="w-full mt-4 bg-slate-950 border border-white/5 text-slate-300 font-bold text-xs py-4 rounded-2xl flex items-center justify-center gap-2 uppercase transition-all hover:bg-slate-800">
+                <Download size={16} /> Instalar Fretogo no Celular
               </button>
             )}
           </div>
         </div>
       ) : activeFrete ? (
-        <div className="bg-slate-900 p-8 rounded-[3rem] border border-blue-500/30 shadow-2xl animate-in slide-in-from-bottom">
+        /* 🔥 UX PREMIUM DA ROTA (ACTIVE FRETE) */
+        <div className="bg-slate-900 border border-cyan-500/30 p-6 rounded-[2.5rem] shadow-2xl animate-in slide-in-from-bottom max-w-md mx-auto relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-cyan-500 to-transparent opacity-50"></div>
+          
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-4 h-4 bg-blue-500 rounded-full animate-pulse shadow-[0_0_15px_rgba(59,130,246,1)]"></div>
-            <h2 className="text-2xl font-black uppercase text-blue-400 italic tracking-tight">Nova Carga Atribuída!</h2>
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-500"></span>
+            </span>
+            <h2 className="text-xl font-black uppercase text-white italic tracking-tight">Rota Ativa</h2>
+            <span className="ml-auto bg-slate-950 text-slate-400 text-[10px] font-bold px-3 py-1.5 rounded-lg border border-white/5 uppercase tracking-widest">{activeFrete.distancia?.toFixed(1)} km</span>
           </div>
           
-          <div className="bg-slate-950 p-6 rounded-3xl mb-8 border border-slate-800 shadow-inner">
-            <p className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-1 mb-2"><MapPin size={12}/> Destino Imediato</p>
-            <p className="text-xl font-black text-white leading-tight">{activeFrete.status === 'aceito' ? activeFrete.enderecoColetaTexto : activeFrete.enderecoEntregaTexto}</p>
+          <div className="bg-slate-950 p-5 rounded-3xl mb-8 border border-white/5 shadow-inner">
+            <div className="flex items-start gap-4">
+               <div className="flex flex-col items-center gap-1 mt-1">
+                 <MapPin className="text-blue-500 w-5 h-5" />
+                 <div className="w-0.5 h-8 bg-slate-800 rounded-full"></div>
+                 <MapPin className="text-green-500 w-5 h-5" />
+               </div>
+               <div className="flex-1 space-y-4">
+                 <div>
+                   <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Retirada</p>
+                   <p className="text-sm font-bold text-slate-200 line-clamp-1">{activeFrete.enderecoColetaTexto}</p>
+                 </div>
+                 <div>
+                   <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Entrega</p>
+                   <p className="text-sm font-bold text-slate-200 line-clamp-1">{activeFrete.enderecoEntregaTexto}</p>
+                 </div>
+               </div>
+            </div>
           </div>
           
           <div className="flex flex-col gap-4">
-             <button onClick={() => openMaps(activeFrete.status === 'aceito' ? activeFrete.origemLat : activeFrete.destinoLat, activeFrete.status === 'aceito' ? activeFrete.origemLng : activeFrete.destinoLng)} className="bg-white text-slate-950 py-5 rounded-2xl font-black text-lg uppercase flex items-center justify-center gap-2 hover:scale-[1.02] transition-all shadow-lg"><Navigation className="w-5 h-5"/> Abrir no GPS ({activeFrete.status === 'aceito' ? 'Coleta' : 'Entrega'})</button>
+             <button onClick={() => openMaps(activeFrete.status === 'aceito' ? activeFrete.origemLat : activeFrete.destinoLat, activeFrete.status === 'aceito' ? activeFrete.origemLng : activeFrete.destinoLng)} className="bg-slate-800 text-white py-4 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-slate-700 transition-all border border-white/10"><Navigation className="w-4 h-4"/> Rota no GPS ({activeFrete.status === 'aceito' ? 'Coleta' : 'Destino'})</button>
              
-             {activeFrete.status === 'aceito' && <button onClick={() => updateStatusFrete('coleta')} className="bg-blue-600 py-6 rounded-2xl font-black text-xl uppercase italic shadow-blue-600/20 shadow-lg hover:scale-[1.02] transition-all">Cheguei na Coleta</button>}
-             {activeFrete.status === 'coleta' && <button onClick={() => updateStatusFrete('em_transporte')} className="bg-amber-500 py-6 rounded-2xl font-black text-xl uppercase italic shadow-amber-500/20 shadow-lg hover:scale-[1.02] transition-all text-slate-950">Carga Embarcada</button>}
+             {activeFrete.status === 'aceito' && <button onClick={() => updateStatusFrete('coleta')} className="bg-cyan-500 text-slate-950 py-5 rounded-2xl font-black text-lg uppercase italic shadow-[0_0_20px_rgba(6,182,212,0.3)] hover:scale-[1.02] transition-all flex justify-center items-center gap-2"><MapPin className="w-5 h-5"/> Cheguei na Coleta</button>}
+             
+             {activeFrete.status === 'coleta' && <button onClick={() => updateStatusFrete('em_transporte')} className="bg-yellow-400 text-slate-950 py-5 rounded-2xl font-black text-lg uppercase italic shadow-[0_0_20px_rgba(250,204,21,0.3)] hover:scale-[1.02] transition-all flex justify-center items-center gap-2"><Truck className="w-5 h-5"/> Carga Embarcada</button>}
+             
              {activeFrete.status === 'em_transporte' && (
-               <div className="bg-slate-800 p-4 rounded-3xl border border-slate-700 mt-2">
+               <div className="bg-slate-950 p-5 rounded-3xl border border-white/5 mt-2">
+                 <p className="text-center text-xs text-slate-400 font-bold mb-4 uppercase tracking-widest">Comprovante de Entrega</p>
                  <input type="file" id="foto" className="hidden" capture="environment" onChange={(e) => setComprovante(e.target.files?.[0] || null)} />
-                 <label htmlFor="foto" className={`p-6 rounded-2xl font-black text-center flex items-center justify-center gap-3 cursor-pointer transition-all mb-4 ${comprovante ? 'bg-green-500/20 text-green-400 border-2 border-green-500' : 'bg-slate-700 text-white hover:bg-slate-600'}`}>
-                   <Camera size={24}/> {comprovante ? "COMPROVANTE ANEXADO" : "FOTO DA NOTA / CARGA"}
+                 <label htmlFor="foto" className={`py-4 rounded-2xl font-black text-xs uppercase tracking-widest text-center flex items-center justify-center gap-2 cursor-pointer transition-all mb-4 border-2 border-dashed ${comprovante ? 'bg-cyan-500/10 border-cyan-500 text-cyan-400' : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500'}`}>
+                   <Camera size={18}/> {comprovante ? "FOTO ANEXADA" : "TIRAR FOTO DA NF/CARGA"}
                  </label>
-                 <button onClick={() => updateStatusFrete('entregue')} className="w-full bg-green-500 py-6 rounded-2xl font-black text-2xl uppercase italic shadow-green-500/30 shadow-xl hover:scale-[1.02] transition-all text-slate-950 flex items-center justify-center gap-2">
-                   <CheckCircle /> Finalizar Entrega
+                 <button onClick={() => updateStatusFrete('entregue')} className="w-full bg-green-500 py-5 rounded-2xl font-black text-lg uppercase italic shadow-[0_0_20px_rgba(34,197,94,0.3)] hover:scale-[1.02] transition-all text-slate-950 flex items-center justify-center gap-2">
+                   <CheckCircle className="w-5 h-5"/> Finalizar Corrida
                  </button>
                </div>
              )}
           </div>
-          <div className="mt-8 pt-8 border-t border-slate-800">
+          <div className="mt-8 pt-6 border-t border-slate-800">
             {activeFrete.id && <ChatFrete freteId={activeFrete.id} tipoUsuario="motorista" nome={driverData?.nome || "Motorista"} />}
           </div>
         </div>
       ) : (
-        <div className="text-center py-20 flex flex-col items-center justify-center h-[75vh]">
-            <button onClick={toggleStatus} className={`w-32 h-32 rounded-full flex flex-col items-center justify-center shadow-2xl transition-all duration-300 mb-12 hover:scale-105 active:scale-95 border-4 ${isOnline ? 'bg-blue-600 border-blue-400 shadow-blue-600/50' : 'bg-slate-800 border-slate-700 shadow-black'}`}>
-              <Power className={`w-12 h-12 mb-2 ${isOnline ? 'text-white' : 'text-slate-500'}`} />
-              <span className={`font-black uppercase text-sm ${isOnline ? 'text-white' : 'text-slate-500'}`}> {isOnline ? 'Online' : 'Offline'} </span>
-            </button>
+        /* 🔥 UX PREMIUM DO RADAR (ONLINE / OFFLINE) */
+        <div className="text-center flex flex-col items-center justify-center min-h-[70vh]">
+            
+            <div className="relative mb-12">
+               {isOnline && (
+                 <>
+                   <div className="absolute inset-0 bg-cyan-500 rounded-full animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite] opacity-20 w-48 h-48 -left-8 -top-8"></div>
+                   <div className="absolute inset-0 bg-cyan-400 rounded-full animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite] opacity-10 w-64 h-64 -left-16 -top-16" style={{ animationDelay: '0.5s'}}></div>
+                 </>
+               )}
+               <button onClick={toggleStatus} className={`w-32 h-32 rounded-full flex flex-col items-center justify-center shadow-2xl transition-all duration-300 relative z-10 hover:scale-105 active:scale-95 border-4 ${isOnline ? 'bg-slate-950 border-cyan-500 shadow-[0_0_40px_rgba(6,182,212,0.4)]' : 'bg-slate-900 border-slate-800 shadow-xl'}`}>
+                 <Power className={`w-10 h-10 mb-1 transition-colors ${isOnline ? 'text-cyan-400' : 'text-slate-600'}`} />
+                 <span className={`font-black uppercase tracking-widest text-[10px] ${isOnline ? 'text-cyan-400' : 'text-slate-600'}`}> {isOnline ? 'Online' : 'Offline'} </span>
+               </button>
+            </div>
+
             {isOnline ? (
-              <div className="animate-in fade-in duration-500">
-                <h2 className="text-3xl font-black italic uppercase tracking-tight drop-shadow-lg mb-2 text-white">Buscando Fretes...</h2>
-                <p className="text-blue-400 font-bold text-sm uppercase tracking-widest bg-blue-950/50 px-4 py-2 rounded-full border border-blue-900/50 mt-4 inline-block">Radar Ativo: {VEHICLE_CONFIG[driverData?.categoria || 'carro_pequeno']?.nome || 'Veículo'}</p>
-                <div className="mt-12 bg-slate-900 p-5 rounded-3xl border border-slate-800 text-left w-full max-w-sm mx-auto">
-                  <p className="text-[10px] font-black uppercase text-blue-400 mb-3 flex items-center gap-1"><MapPin size={12}/> Destino Inteligente (Volta)</p>
-                  <input className="w-full bg-transparent border-b-2 border-slate-700 p-2 font-black text-lg outline-none focus:border-blue-500 transition-all placeholder:text-slate-600" placeholder="Ex: São Paulo" value={backhaulDestino} onChange={e => setBackhaulDestino(e.target.value)} />
+              <div className="animate-in fade-in duration-500 w-full max-w-sm">
+                <h2 className="text-3xl font-black italic uppercase tracking-tighter text-white mb-2 flex items-center justify-center gap-2">
+                  <Radar className="w-8 h-8 text-cyan-400 animate-[spin_3s_linear_infinite]" /> Radar Ativo
+                </h2>
+                <div className="h-6 mb-8">
+                  <p className="text-cyan-400 font-bold text-xs uppercase tracking-widest animate-pulse" key={loadingMessage}>
+                    {loadingMessage}
+                  </p>
+                </div>
+
+                <div className="bg-slate-900/80 backdrop-blur-sm p-6 rounded-3xl border border-white/5 text-left shadow-2xl">
+                  <div className="flex items-center justify-between mb-4">
+                    <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest flex items-center gap-2"><MapPin size={14} className="text-blue-500"/> Busca Inteligente</p>
+                    <span className="bg-slate-950 text-slate-400 text-[9px] font-bold px-2 py-1 rounded border border-white/5 uppercase">{VEHICLE_CONFIG[driverData?.categoria || 'carro_pequeno']?.nome}</span>
+                  </div>
+                  <input className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 font-bold text-sm outline-none focus:border-cyan-500 transition-all placeholder:text-slate-600 text-white" placeholder="Destino preferencial (Ex: Campinas)" value={backhaulDestino} onChange={e => setBackhaulDestino(e.target.value)} />
+                  <p className="text-[9px] font-medium text-slate-500 mt-3 text-center">Filtraremos cargas que retornam para este destino.</p>
                 </div>
               </div>
             ) : (
               <div className="animate-in fade-in duration-500 w-full max-w-sm mx-auto">
-                 <h2 className="text-2xl font-black uppercase text-slate-600 mb-2">Você está offline</h2>
-                 <p className="text-slate-500 font-bold text-sm">Toque no botão para entrar no radar.</p>
+                 <h2 className="text-3xl font-black italic uppercase text-slate-700 mb-2 tracking-tighter">Radar Desligado</h2>
+                 <p className="text-slate-500 font-medium text-sm leading-relaxed mb-8 px-4">Você está invisível para os clientes. Toque no botão acima para começar a receber fretes na sua região.</p>
 
                  {deferredPrompt && (
-                   <button onClick={handleInstallClick} className="w-full mt-10 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-black py-4 rounded-3xl shadow-xl flex items-center justify-center gap-2 uppercase transition-all">
-                     <Download size={20} /> Instalar Aplicativo Fretogo
+                   <button onClick={handleInstallClick} className="w-full bg-slate-900 border border-white/5 text-slate-300 font-bold text-xs py-4 rounded-2xl flex items-center justify-center gap-2 uppercase tracking-widest transition-all hover:bg-slate-800">
+                     <Download size={16} /> Instalar Painel no Celular
                    </button>
                  )}
               </div>
