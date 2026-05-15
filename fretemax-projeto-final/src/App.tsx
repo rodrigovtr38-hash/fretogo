@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { Zap } from 'lucide-react';
 
 import Home from './pages/Home';
+
 import Cliente from './pages/Cliente';
 import Motorista from './pages/Motorista';
 import Admin from './pages/Admin';
@@ -11,11 +12,14 @@ import Admin from './pages/Admin';
 import LandingCliente from './pages/LandingCliente';
 import LandingMotorista from './pages/LandingMotorista';
 
-// Proteção simples para clientes com pedido ativo
+/* =========================================================
+   HOME GUARD
+========================================================= */
+
 const HomeGuard = ({ children }: { children: ReactNode }) => {
   const hasActiveOrder = localStorage.getItem('fretogo_current_order');
 
-  // Se existir pedido ativo, envia direto para o radar
+  // Cliente já possui pedido ativo
   if (hasActiveOrder) {
     return <Navigate to="/simular" replace />;
   }
@@ -23,16 +27,22 @@ const HomeGuard = ({ children }: { children: ReactNode }) => {
   return <>{children}</>;
 };
 
+/* =========================================================
+   APP
+========================================================= */
+
 export default function App() {
   return (
     <Router>
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans overflow-x-hidden">
 
         <main className="flex-1 w-full relative">
 
           <Routes>
 
-            {/* HOME PRINCIPAL */}
+            {/* =====================================================
+                HOME PRINCIPAL
+            ===================================================== */}
             <Route
               path="/"
               element={
@@ -42,37 +52,67 @@ export default function App() {
               }
             />
 
-            {/* LANDING CLIENTE */}
+            {/* =====================================================
+                LANDING CLIENTE
+            ===================================================== */}
             <Route
-              path="/cliente"
+              path="/contratar"
               element={<LandingCliente />}
             />
 
-            {/* LANDING MOTORISTA */}
+            {/* Compatibilidade antiga */}
+            <Route
+              path="/cliente"
+              element={<Navigate to="/contratar" replace />}
+            />
+
+            {/* =====================================================
+                LANDING MOTORISTA
+            ===================================================== */}
             <Route
               path="/parceiros"
               element={<LandingMotorista />}
             />
 
-            {/* APP CLIENTE */}
+            {/* Compatibilidade antiga */}
+            <Route
+              path="/motorista-landing"
+              element={<Navigate to="/parceiros" replace />}
+            />
+
+            {/* =====================================================
+                APP CLIENTE
+            ===================================================== */}
             <Route
               path="/simular"
               element={<Cliente />}
             />
 
-            {/* APP MOTORISTA */}
+            {/* =====================================================
+                APP MOTORISTA / RADAR
+            ===================================================== */}
             <Route
-              path="/motorista"
+              path="/radar"
               element={<Motorista />}
             />
 
-            {/* ADMIN */}
+            {/* Compatibilidade antiga */}
+            <Route
+              path="/motorista"
+              element={<Navigate to="/radar" replace />}
+            />
+
+            {/* =====================================================
+                ADMIN
+            ===================================================== */}
             <Route
               path="/admin"
               element={<Admin />}
             />
 
-            {/* FALLBACK */}
+            {/* =====================================================
+                FALLBACK
+            ===================================================== */}
             <Route
               path="*"
               element={<Navigate to="/" replace />}
@@ -81,15 +121,19 @@ export default function App() {
           </Routes>
         </main>
 
-        {/* FOOTER GLOBAL */}
-        <footer className="bg-slate-950 py-8 text-center border-t border-slate-900">
+        {/* =====================================================
+            FOOTER GLOBAL
+        ===================================================== */}
+        <footer className="bg-slate-950 border-t border-slate-900 py-8 text-center">
 
-          <div className="flex justify-center gap-2 mb-4">
+          <div className="flex justify-center items-center gap-2 mb-4">
+
             <Zap className="text-yellow-400 w-4 h-4 fill-yellow-400" />
 
             <span className="font-black text-sm italic tracking-tighter uppercase text-white">
               FRETOGO
             </span>
+
           </div>
 
           <p className="text-[9px] text-slate-600 font-bold uppercase tracking-[0.3em]">
@@ -97,6 +141,7 @@ export default function App() {
           </p>
 
         </footer>
+
       </div>
     </Router>
   );
