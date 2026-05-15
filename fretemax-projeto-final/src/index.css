@@ -1,43 +1,6 @@
 @import "tailwindcss";
 
 /* ============================= */
-/* FRETOGO GLOBAL DESIGN SYSTEM */
-/* ============================= */
-
-:root {
-  color-scheme: dark;
-
-  --bg-primary: #071226;
-  --bg-secondary: #0b1730;
-  --bg-card: rgba(10, 22, 45, 0.78);
-
-  --border-primary: rgba(34, 211, 238, 0.12);
-  --border-secondary: rgba(255, 255, 255, 0.06);
-
-  --text-primary: #f8fafc;
-  --text-secondary: #cbd5e1;
-  --text-muted: #64748b;
-
-  --cyan-primary: #22d3ee;
-  --cyan-strong: #06b6d4;
-
-  --green-primary: #22c55e;
-  --yellow-primary: #facc15;
-
-  --shadow-cyan:
-    0 0 20px rgba(34, 211, 238, 0.18),
-    0 0 60px rgba(34, 211, 238, 0.08);
-
-  --shadow-card:
-    0 10px 40px rgba(0, 0, 0, 0.35);
-
-  --gradient-main:
-    radial-gradient(circle at top left, rgba(34,211,238,0.10), transparent 30%),
-    radial-gradient(circle at bottom right, rgba(59,130,246,0.10), transparent 35%),
-    linear-gradient(to bottom, #071226 0%, #08111f 100%);
-}
-
-/* ============================= */
 /* RESET */
 /* ============================= */
 
@@ -48,27 +11,43 @@
 }
 
 /* ============================= */
-/* BODY */
+/* ROOT */
 /* ============================= */
 
 html,
 body,
 #root {
-  min-height: 100%;
   width: 100%;
+  min-height: 100%;
 }
 
-body {
-  background: var(--gradient-main);
-  color: var(--text-primary);
+/* ============================= */
+/* BODY */
+/* ============================= */
 
+body {
   font-family:
     Inter,
     system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
     sans-serif;
+
+  background:
+    radial-gradient(circle at top left,
+      rgba(34,211,238,0.16),
+      transparent 28%),
+
+    radial-gradient(circle at bottom right,
+      rgba(59,130,246,0.14),
+      transparent 35%),
+
+    linear-gradient(
+      135deg,
+      #071120 0%,
+      #081426 40%,
+      #0a1830 100%
+    );
+
+  color: white;
 
   overflow-x: hidden;
 
@@ -77,50 +56,20 @@ body {
 }
 
 /* ============================= */
-/* SCROLLBAR */
+/* SCROLL */
 /* ============================= */
 
 ::-webkit-scrollbar {
-  width: 10px;
+  width: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #071226;
+  background: #071120;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(34, 211, 238, 0.25);
+  background: rgba(34,211,238,0.28);
   border-radius: 999px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(34, 211, 238, 0.45);
-}
-
-/* ============================= */
-/* GLOBAL CARD STYLE */
-/* ============================= */
-
-.glass-card {
-  background: var(--bg-card);
-
-  backdrop-filter: blur(18px);
-
-  border: 1px solid var(--border-primary);
-
-  box-shadow:
-    var(--shadow-card),
-    inset 0 1px 0 rgba(255,255,255,0.03);
-
-  border-radius: 24px;
-}
-
-/* ============================= */
-/* CYAN GLOW */
-/* ============================= */
-
-.glow-cyan {
-  box-shadow: var(--shadow-cyan);
 }
 
 /* ============================= */
@@ -137,27 +86,27 @@ body {
 
   position: absolute;
 
-  inset: -20px;
+  inset: -45px;
 
   border-radius: 9999px;
 
-  border: 1px solid rgba(34, 211, 238, 0.25);
+  border: 1px solid rgba(34,211,238,0.22);
 
-  animation: radarPulse 3s linear infinite;
+  animation: radarPulse 4s linear infinite;
 }
 
 .radar-pulse::after {
-  animation-delay: 1.5s;
+  animation-delay: 2s;
 }
 
 @keyframes radarPulse {
   0% {
-    transform: scale(0.9);
-    opacity: 0.8;
+    transform: scale(0.85);
+    opacity: 0.9;
   }
 
   70% {
-    transform: scale(1.4);
+    transform: scale(1.8);
     opacity: 0;
   }
 
@@ -167,16 +116,40 @@ body {
 }
 
 /* ============================= */
-/* BUTTON TRANSITIONS */
+/* GLOW */
+/* ============================= */
+
+.glow-cyan {
+  box-shadow:
+    0 0 25px rgba(34,211,238,0.20),
+    0 0 80px rgba(34,211,238,0.10);
+}
+
+/* ============================= */
+/* GLASS */
+/* ============================= */
+
+.glass-card {
+  background: rgba(10,20,40,0.72);
+
+  backdrop-filter: blur(18px);
+
+  border: 1px solid rgba(255,255,255,0.06);
+
+  box-shadow:
+    0 10px 40px rgba(0,0,0,0.30);
+
+  border-radius: 24px;
+}
+
+/* ============================= */
+/* BUTTONS */
 /* ============================= */
 
 button,
 a {
   transition:
-    transform 0.25s ease,
-    box-shadow 0.25s ease,
-    opacity 0.25s ease,
-    background 0.25s ease;
+    all 0.25s ease;
 }
 
 button:hover,
@@ -199,6 +172,6 @@ select {
 /* ============================= */
 
 ::selection {
-  background: rgba(34, 211, 238, 0.3);
+  background: rgba(34,211,238,0.30);
   color: white;
 }
