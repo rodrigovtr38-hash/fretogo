@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+
 import {
   ShieldCheck,
   Zap,
@@ -14,138 +15,191 @@ export default function Home() {
   const [showModal, setShowModal] = useState(false);
 
   return (
-    <div className="min-h-screen bg-[#09090b] text-white font-sans overflow-x-hidden relative">
+    <div className="min-h-screen bg-[#050816] text-white font-sans overflow-x-hidden relative">
 
-      {/* FUNDO */}
-      <div className="absolute inset-0 bg-gradient-to-br from-[#09090b] via-[#18181b] to-cyan-900/10 pointer-events-none"></div>
+      {/* =====================================================
+          FUNDO PREMIUM
+      ===================================================== */}
 
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] pointer-events-none opacity-40">
-        <div className="absolute inset-0 rounded-full bg-cyan-500/10 animate-[ping_3s_ease-in-out_infinite]"></div>
+      <div className="absolute inset-0 bg-gradient-to-br from-[#050816] via-[#0b1120] to-cyan-950/30 pointer-events-none"></div>
 
-        <div
-          className="absolute inset-0 rounded-full bg-cyan-500/10 animate-[ping_3s_ease-in-out_infinite]"
-          style={{ animationDelay: '1s' }}
-        ></div>
+      {/* Glow superior */}
+      <div className="absolute top-[-200px] left-[-100px] w-[500px] h-[500px] bg-cyan-500/10 blur-[120px] rounded-full"></div>
 
-        <div
-          className="absolute inset-0 rounded-full bg-cyan-500/10 animate-[ping_3s_ease-in-out_infinite]"
-          style={{ animationDelay: '2s' }}
-        ></div>
+      {/* Glow lateral */}
+      <div className="absolute bottom-[-200px] right-[-100px] w-[500px] h-[500px] bg-blue-500/10 blur-[140px] rounded-full"></div>
+
+      {/* Radar */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-60">
+
+        <div className="relative w-[700px] h-[700px]">
+
+          <div className="absolute inset-0 rounded-full border border-cyan-500/10 animate-ping"></div>
+
+          <div
+            className="absolute inset-[10%] rounded-full border border-cyan-400/10 animate-ping"
+            style={{ animationDelay: '1s' }}
+          ></div>
+
+          <div
+            className="absolute inset-[20%] rounded-full border border-cyan-300/10 animate-ping"
+            style={{ animationDelay: '2s' }}
+          ></div>
+
+        </div>
       </div>
 
-      {/* MODAL */}
+      {/* =====================================================
+          MODAL APP
+      ===================================================== */}
+
       {showModal && (
-        <div className="fixed inset-0 z-[200] bg-[#09090b]/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
 
-          <div className="bg-[#18181b] rounded-[2rem] p-8 max-w-sm w-full text-center shadow-[0_0_40px_rgba(6,182,212,0.2)] border border-white/10">
+          <div className="bg-[#111827] border border-cyan-500/20 rounded-[2rem] p-8 max-w-sm w-full text-center shadow-[0_0_50px_rgba(6,182,212,0.25)]">
 
-            <Download className="w-12 h-12 text-yellow-500 mx-auto mb-4 drop-shadow-md" />
+            <Download className="w-14 h-14 text-yellow-400 mx-auto mb-5" />
 
-            <h3 className="text-xl font-black text-white mb-2 uppercase italic">
+            <h3 className="text-2xl font-black italic uppercase mb-3">
               App Em Breve
             </h3>
 
-            <p className="text-gray-400 font-medium text-sm mb-6">
-              O App Fretogo Driver está em fase final de publicação nas lojas!
-              Por enquanto, clique em "Ser Motorista" para acessar o painel e
-              receber corridas pelo navegador.
+            <p className="text-slate-300 text-sm leading-relaxed mb-6">
+              O aplicativo oficial da FRETOGO está sendo publicado nas lojas.
+              Enquanto isso, você já pode usar o sistema completo pelo navegador.
             </p>
 
             <button
               onClick={() => setShowModal(false)}
-              className="w-full bg-cyan-500 hover:bg-cyan-400 text-black font-black py-4 rounded-xl transition-colors uppercase text-xs flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(6,182,212,0.4)]"
+              className="w-full bg-cyan-500 hover:bg-cyan-400 hover:scale-[1.02] transition-all text-black font-black py-4 rounded-2xl uppercase text-sm shadow-[0_0_20px_rgba(6,182,212,0.4)]"
             >
               Entendi
             </button>
+
           </div>
         </div>
       )}
 
-      {/* WHATSAPP */}
+      {/* =====================================================
+          WHATSAPP
+      ===================================================== */}
+
       <a
         href="https://wa.me/5511946099840"
         target="_blank"
         rel="noreferrer"
-        className="fixed bottom-6 right-6 z-50 bg-[#25D366] hover:bg-[#128C7E] hover:scale-110 transition-all p-4 rounded-full shadow-2xl flex items-center justify-center"
+        className="fixed bottom-6 right-6 z-50 bg-[#25D366] hover:scale-110 transition-all p-4 rounded-full shadow-[0_0_30px_rgba(37,211,102,0.4)]"
       >
-        <svg viewBox="0 0 24 24" className="w-8 h-8 animate-pulse fill-white">
-          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347" />
+        <svg viewBox="0 0 24 24" className="w-8 h-8 fill-white">
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487" />
         </svg>
       </a>
 
-      {/* NAVBAR */}
-      <nav className="flex items-center justify-between p-6 max-w-7xl mx-auto relative z-10">
+      {/* =====================================================
+          NAVBAR
+      ===================================================== */}
 
-        <div className="flex items-center gap-2">
-          <Zap className="text-cyan-400 w-8 h-8 fill-cyan-400 drop-shadow-[0_0_10px_rgba(6,182,212,0.5)]" />
+      <nav className="relative z-20 max-w-7xl mx-auto px-6 py-6 flex items-center justify-between">
 
-          <span className="font-black text-2xl italic tracking-tighter text-white">
+        {/* LOGO */}
+        <div className="flex items-center gap-3">
+
+          {/* FUTURA LOGO PNG */}
+          {/* <img src="/logo-fretogo.png" className="h-10 w-auto" /> */}
+
+          <Zap className="w-8 h-8 text-cyan-400 fill-cyan-400 drop-shadow-[0_0_12px_rgba(6,182,212,0.5)]" />
+
+          <span className="font-black text-2xl italic tracking-tighter">
             FRETOGO
           </span>
+
         </div>
 
-        <div className="hidden md:flex gap-8">
+        {/* LINKS */}
+        <div className="hidden md:flex items-center gap-8">
+
           <Link
-            to="/cliente"
-            className="text-sm font-bold text-gray-300 hover:text-cyan-400 transition"
+            to="/contratar"
+            className="text-sm font-bold text-slate-300 hover:text-cyan-400 transition"
           >
             Simular Frete
           </Link>
 
           <Link
             to="/parceiros"
-            className="text-sm font-bold text-gray-300 hover:text-white transition"
+            className="text-sm font-bold text-slate-300 hover:text-white transition"
           >
             Sou Motorista
           </Link>
+
         </div>
       </nav>
 
-      {/* HERO */}
-      <section className="relative grid md:grid-cols-2 gap-10 items-center max-w-7xl mx-auto px-6 py-12 md:py-24">
+      {/* =====================================================
+          HERO
+      ===================================================== */}
 
-        <div className="z-10">
+      <section className="relative z-10 max-w-7xl mx-auto px-6 py-14 md:py-24 grid md:grid-cols-2 gap-16 items-center">
 
-          <div className="inline-flex items-center gap-2 bg-cyan-500/10 border border-cyan-500/20 px-4 py-2 rounded-full mb-6">
+        {/* TEXTO */}
+        <div>
+
+          {/* Badge */}
+          <div className="inline-flex items-center gap-2 bg-cyan-500/10 border border-cyan-400/20 px-5 py-2 rounded-full mb-8 backdrop-blur-sm">
 
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
 
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+              <span className="absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75 animate-ping"></span>
+
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-400"></span>
+
             </span>
 
-            <span className="text-[10px] font-black uppercase tracking-widest text-cyan-400">
-              Radar Ativo em sua região
+            <span className="text-[10px] font-black uppercase tracking-[0.25em] text-cyan-300">
+              Radar ativo em sua região
             </span>
+
           </div>
 
-          <h1 className="text-5xl md:text-7xl font-black leading-[0.9] mb-6 text-white">
+          {/* Headline */}
+          <h1 className="text-5xl md:text-7xl leading-[0.92] font-black mb-8">
+
             SUA CARGA NO{' '}
-            <span className="text-cyan-400 italic drop-shadow-[0_0_15px_rgba(6,182,212,0.5)]">
+
+            <span className="text-cyan-400 italic drop-shadow-[0_0_20px_rgba(6,182,212,0.6)]">
               RADAR
             </span>
+
             .<br />
+
             O MOTORISTA NA{' '}
+
             <span className="text-yellow-400 italic">
               PORTA
             </span>
+
             .
+
           </h1>
 
-          <p className="text-gray-300 text-lg md:text-xl max-w-xl mb-10 leading-relaxed">
-            A primeira plataforma de fretes autônoma com matching inteligente.
-            Contrate em segundos, acompanhe em tempo real.
+          {/* Texto */}
+          <p className="text-slate-300 text-lg md:text-xl leading-relaxed max-w-xl mb-10">
 
-            <span className="text-white font-bold block mt-2">
+            A primeira plataforma de fretes autônoma com matching inteligente.
+            Contrate em segundos e acompanhe tudo em tempo real.
+
+            <span className="block mt-3 text-white font-bold">
               Sem mensalidade. Sem burocracia.
             </span>
+
           </p>
 
-          <div className="flex flex-col sm:flex-row flex-wrap gap-4">
+          {/* BOTÕES */}
+          <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
 
             <Link
-              to="/cliente"
-              className="group bg-cyan-500 hover:bg-cyan-400 text-black px-8 py-5 rounded-2xl font-black uppercase italic shadow-[0_0_20px_rgba(6,182,212,0.4)] transition-all flex items-center justify-center gap-2"
+              to="/contratar"
+              className="group bg-cyan-500 hover:bg-cyan-400 hover:scale-[1.02] transition-all text-black px-8 py-5 rounded-2xl font-black uppercase italic flex items-center justify-center gap-2 shadow-[0_0_30px_rgba(6,182,212,0.35)]"
             >
               Contratar Frete
 
@@ -154,111 +208,151 @@ export default function Home() {
 
             <Link
               to="/parceiros"
-              className="bg-[#18181b] border border-white/10 text-white hover:bg-white/5 px-8 py-5 rounded-2xl font-black uppercase italic transition-all text-center flex items-center justify-center"
+              className="bg-white/5 border border-white/10 hover:bg-white/10 transition-all px-8 py-5 rounded-2xl font-black uppercase italic flex items-center justify-center"
             >
               Ser Motorista
             </Link>
 
             <button
               onClick={() => setShowModal(true)}
-              className="bg-yellow-500 hover:bg-yellow-400 text-black px-8 py-5 rounded-2xl font-black uppercase italic transition-all shadow-[0_0_15px_rgba(234,179,8,0.3)] text-center flex items-center justify-center gap-2 sm:w-auto w-full"
+              className="bg-yellow-400 hover:bg-yellow-300 hover:scale-[1.02] transition-all text-black px-8 py-5 rounded-2xl font-black uppercase italic flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(250,204,21,0.3)]"
             >
               <Download size={20} />
+
               Baixar App
             </button>
+
           </div>
+
         </div>
 
         {/* CELULAR */}
-        <div className="relative flex justify-center mt-8 md:mt-0 z-10">
+        <div className="relative flex justify-center">
 
-          <div className="w-full max-w-[340px] aspect-[9/16] bg-[#18181b] rounded-[3rem] border-[8px] border-[#27272a] shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden relative">
+          <div className="relative w-full max-w-[340px] aspect-[9/16] rounded-[3rem] border-[8px] border-[#27272a] bg-[#111827] overflow-hidden shadow-[0_30px_80px_rgba(0,0,0,0.6)]">
 
-            <div className="absolute top-0 w-full h-full bg-[url('https://www.google.com/maps/about/images/home/home-maps-icon.svg')] opacity-20 bg-center bg-cover"></div>
+            <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 to-blue-500/10"></div>
 
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full px-6">
+            {/* Radar Pulse */}
+            <div className="absolute inset-0 flex items-center justify-center">
 
-              <div className="bg-white text-slate-950 p-4 rounded-2xl shadow-xl animate-bounce">
+              <div className="relative w-40 h-40">
+
+                <div className="absolute inset-0 rounded-full bg-cyan-500/10 animate-ping"></div>
+
+                <div
+                  className="absolute inset-4 rounded-full bg-cyan-400/10 animate-ping"
+                  style={{ animationDelay: '1s' }}
+                ></div>
+
+              </div>
+
+            </div>
+
+            {/* Card motorista */}
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[85%]">
+
+              <div className="bg-white rounded-2xl p-4 shadow-2xl animate-bounce">
 
                 <div className="flex items-center gap-3">
 
-                  <div className="bg-yellow-400 p-2 rounded-lg">
-                    <Truck className="w-5 h-5" />
+                  <div className="bg-yellow-400 p-2 rounded-xl">
+                    <Truck className="w-5 h-5 text-black" />
                   </div>
 
                   <div>
-                    <p className="text-[10px] font-black uppercase opacity-50">
+
+                    <p className="text-[10px] uppercase font-black text-slate-400">
                       Motorista Próximo
                     </p>
 
-                    <p className="font-black italic">
-                      Ricardo S. - 2.4km
+                    <p className="font-black italic text-slate-900">
+                      Ricardo S. • 2.4km
                     </p>
+
                   </div>
+
                 </div>
+
               </div>
+
             </div>
+
           </div>
 
-          <div className="absolute -left-2 md:-left-6 top-1/4 bg-[#18181b] border border-white/10 p-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-[pulse_3s_ease-in-out_infinite]">
+          {/* Verificado */}
+          <div className="absolute -left-4 top-1/4 bg-[#111827] border border-white/10 backdrop-blur-md px-5 py-4 rounded-2xl flex items-center gap-3 shadow-2xl animate-pulse">
 
-            <ShieldCheck className="text-green-500 w-6 h-6 drop-shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
+            <ShieldCheck className="text-green-500 w-6 h-6" />
 
-            <p className="text-xs font-bold uppercase text-white">
+            <span className="text-xs font-black uppercase">
               Verificado
-            </p>
+            </span>
+
           </div>
+
         </div>
+
       </section>
 
-      {/* CARDS */}
-      <section className="max-w-7xl mx-auto px-6 py-12 border-t border-white/5 relative z-10">
+      {/* =====================================================
+          CARDS
+      ===================================================== */}
+
+      <section className="relative z-10 max-w-7xl mx-auto px-6 py-14 border-t border-white/5">
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
 
           {[
             {
-              icon: <Zap className="text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.5)]" />,
+              icon: <Zap className="text-yellow-400" />,
               t: 'Agilidade',
-              d: 'Match em < 1 min'
+              d: 'Match em menos de 1 minuto'
             },
             {
-              icon: <ShieldCheck className="text-green-500 drop-shadow-[0_0_8px_rgba(34,197,94,0.5)]" />,
+              icon: <ShieldCheck className="text-green-500" />,
               t: 'Segurança',
-              d: 'Motoristas Rigorosos'
+              d: 'Motoristas verificados'
             },
             {
-              icon: <MapPin className="text-cyan-400 drop-shadow-[0_0_8px_rgba(6,182,212,0.5)]" />,
+              icon: <MapPin className="text-cyan-400" />,
               t: 'Radar',
-              d: 'Rastreio Real-Time'
+              d: 'Rastreamento em tempo real'
             },
             {
-              icon: <Star className="text-orange-400 drop-shadow-[0_0_8px_rgba(251,146,60,0.5)]" />,
+              icon: <Star className="text-orange-400" />,
               t: 'Zero Taxa',
-              d: 'Sem Mensalidades'
+              d: 'Sem mensalidade'
             }
           ].map((item, i) => (
             <div
               key={i}
               className="flex flex-col md:flex-row gap-4 items-center md:items-start text-center md:text-left"
             >
-              <div className="bg-[#18181b] border border-white/5 p-3 rounded-xl h-fit w-fit">
+
+              <div className="bg-white/5 border border-white/10 p-4 rounded-2xl backdrop-blur-sm">
                 {item.icon}
               </div>
 
               <div>
-                <p className="font-black uppercase text-sm italic text-white">
+
+                <p className="font-black uppercase italic text-sm">
                   {item.t}
                 </p>
 
-                <p className="text-gray-400 text-xs mt-1">
+                <p className="text-slate-400 text-xs mt-1">
                   {item.d}
                 </p>
+
               </div>
+
             </div>
           ))}
+
         </div>
+
       </section>
+
     </div>
   );
 }
