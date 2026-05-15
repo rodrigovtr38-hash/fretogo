@@ -1,65 +1,216 @@
-// firestore.rules
 rules_version = '2';
+
 service cloud.firestore {
+
   match /databases/{database}/documents {
-    
-    // Auth helper function
+
+    // =========================================================
+    // 🔐 HELPERS
+    // =========================================================
+
     function isAuthenticated() {
       return request.auth != null;
     }
-    
-    // Ownership helper function
+
     function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+      return isAuthenticated() &&
+             request.auth.uid == userId;
     }
+
+    // 🔥 ADMINS OFICIAIS
+    function isAdmin() {
+      return isAuthenticated() &&
+        request.auth.uid in [
+          "SEU_UID_ADMIN_AQUI"
+        ];
+    }
+
+    // =========================================================
+    // 🚚 MOTORISTAS CADASTROS
+    // =========================================================
 
     match /motoristas_cadastros/{userId} {
+
       allow read: if isAuthenticated();
-      // Allow create if authenticated and user ID matches document ID
+
       allow create: if isOwner(userId);
-      // Allow update if owner, prevent modifying rating and totalCorridas to protect Score System
-      allow update: if isOwner(userId) && 
-                       (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['rating', 'totalCorridas']));
-      allow delete: if false; 
+
+      allow update: if
+
+        // 👤 Dono atualizando perfil limitado
+        (
+          isOwner(userId) &&
+
+          !request.resource.data
+            .diff(resource.data)
+            .affectedKeys()
+            .hasAny([
+              'score',
+              'taxaAceite',
+              'totalCorridas',
+              'aprovado',
+              'status',
+              'riscoFraude',
+              'validacaoManual'
+            ])
+        )
+
+        ||
+
+        // 🛡️ Admin validando motorista
+        isAdmin();
+
+      allow delete: if false;
     }
+
+    // =========================================================
+    // 📡 MOTORISTAS ONLINE
+    // =========================================================
 
     match /motoristas_online/{userId} {
+
       allow read: if isAuthenticated();
-      allow write: if isOwner(userId); 
+
+      allow create, update: if
+
+        isOwner(userId)
+
+        &&
+
+        request.resource.data.keys().hasAll([
+          'lat',
+          'lng',
+          'status'
+        ]);
+
+      allow delete: if
+        isOwner(userId)
+        || isAdmin();
     }
+
+    // =========================================================
+    // 📦 FRETES
+    // =========================================================
 
     match /fretes/{freteId} {
-      // 🔓 FUNIL DE VENDAS ABERTO: Clientes podem ler e criar fretes sem login.
-      // (Protegido pelo fato de que o ID do frete tem 20 letras aleatórias, impossível de adivinhar)
-      allow read: if true; 
-      allow create: if true; 
-      
-      // 🔒 CRÍTICO C6 RESOLVIDO: O CADEADO DE TITÂNIO
-      // Ninguém mais consegue hackear e alterar o preço ou roubar fretes.
-      allow update: if 
-        // 1. Motorista assumindo o frete (Dando Match)
-        (isAuthenticated() && resource.data.status == 'disponivel' && request.resource.data.status == 'aceito' && request.resource.data.motoristaId == request.auth.uid) ||
-        // 2. Motorista atualizando o frete que JÁ É DELE (Cheguei na Coleta, Carga Embarcada, etc)
-        (isAuthenticated() && resource.data.motoristaId == request.auth.uid) ||
-        // 3. Cliente cancelando o frete via Frontend (A ÚNICA edição permitida para quem não está logado)
-        (request.resource.data.status == 'cancelado') ||
-        // 4. Motorista recusando o frete (Ele só tira o próprio nome da fila de matching, sem tocar no status ou no valor)
-        (isAuthenticated() && resource.data.status == 'disponivel' && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['valorTotal', 'valorMotorista', 'status', 'motoristaId']));
-        
+
+      // 🔒 Apenas usuários autenticados leem
+      allow read: if isAuthenticated();
+
+      // 🟢 Cliente cria frete
+      allow create: if
+
+        request.resource.data.keys().hasAll([
+          'status',
+          'valorTotal',
+          'cidadeOrigem',
+          'cidadeDestino',
+          'createdAt'
+        ]);
+
+      // =====================================================
+      // 🔄 UPDATE
+      // =====================================================
+
+      allow update: if
+
+        // =================================================
+        // 🚚 MOTORISTA ACEITANDO FRETE
+        // =================================================
+
+        (
+          isAuthenticated()
+
+          &&
+
+          resource.data.status == 'disponivel'
+
+          &&
+
+          request.resource.data.status == 'aceito'
+
+          &&
+
+          request.resource.data.motoristaId == request.auth.uid
+        )
+
+        ||
+
+        // =================================================
+        // 🚚 MOTORISTA ATUALIZANDO PRÓPRIO FRETE
+        // =================================================
+
+        (
+          isAuthenticated()
+
+          &&
+
+          resource.data.motoristaId == request.auth.uid
+
+          &&
+
+          !request.resource.data
+            .diff(resource.data)
+            .affectedKeys()
+            .hasAny([
+              'valorTotal',
+              'valorMotorista',
+              'lucroPlataforma',
+              'clienteNome',
+              'clienteZap'
+            ])
+        )
+
+        ||
+
+        // =================================================
+        // 🛡️ ADMIN TOTAL
+        // =================================================
+
+        isAdmin();
+
       allow delete: if false;
     }
 
+    // =========================================================
+    // 🎯 OFERTAS
+    // =========================================================
+
     match /ofertas/{ofertaId} {
+
       allow read: if isAuthenticated();
-      // Allow driver to read and update their own offers
-      allow update: if isAuthenticated() && resource.data.motoristaId == request.auth.uid;
-      // Creation mostly happens via Cloud Functions
-      allow create: if false; 
+
+      allow update: if
+
+        isAuthenticated()
+
+        &&
+
+        resource.data.motoristaId == request.auth.uid;
+
+      allow create: if false;
+
       allow delete: if false;
     }
-    
+
+    // =========================================================
+    // 📊 ANALYTICS
+    // =========================================================
+
     match /analytics_demand/{docId} {
-        allow read, write: if false;
+
+      allow read: if isAdmin();
+
+      allow write: if false;
+    }
+
+    // =========================================================
+    // 🛡️ FALLBACK GLOBAL
+    // =========================================================
+
+    match /{document=**} {
+
+      allow read, write: if false;
     }
   }
 }
