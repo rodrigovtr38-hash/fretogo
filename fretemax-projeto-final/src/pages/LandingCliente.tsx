@@ -7,7 +7,8 @@ import {
   ShieldCheck,
   Zap,
   MessageCircle,
-  ChevronRight
+  ChevronRight,
+  Navigation
 } from 'lucide-react';
 
 const LandingCliente = () => {
@@ -23,12 +24,13 @@ const LandingCliente = () => {
 
       <div className="absolute inset-0 bg-gradient-to-br from-[#050816] via-[#081020] to-cyan-950/20"></div>
 
-      {/* Glow */}
-      <div className="absolute top-[-200px] left-[-100px] w-[500px] h-[500px] bg-cyan-500/10 rounded-full blur-[120px]"></div>
+      {/* Glow Superior */}
+      <div className="absolute top-[-200px] left-[-100px] w-[500px] h-[500px] bg-cyan-500/20 rounded-full blur-[120px]"></div>
 
-      <div className="absolute bottom-[-200px] right-[-100px] w-[500px] h-[500px] bg-blue-500/10 rounded-full blur-[120px]"></div>
+      {/* Glow Inferior */}
+      <div className="absolute bottom-[-200px] right-[-100px] w-[500px] h-[500px] bg-blue-500/20 rounded-full blur-[120px]"></div>
 
-      {/* Radar */}
+      {/* Radar Pulsando */}
       <div className="absolute inset-0 flex items-center justify-center opacity-40 pointer-events-none">
 
         <div className="relative w-[900px] h-[900px]">
@@ -73,7 +75,7 @@ const LandingCliente = () => {
                   <img
                     src="https://horizons-cdn.hostinger.com/9b5419fa-dd23-4135-8799-4e32004a3782/7c019b5a3cef7d446f89d375b4df5fc1.png"
                     alt="Logo FRETOGO"
-                    className="h-20 md:h-24 w-auto drop-shadow-[0_0_20px_rgba(6,182,212,0.3)]"
+                    className="h-20 md:h-24 w-auto drop-shadow-[0_0_20px_rgba(6,182,212,0.35)]"
                   />
 
                 </a>
@@ -200,7 +202,7 @@ const LandingCliente = () => {
               {/* Glow */}
               <div className="absolute inset-0 bg-cyan-400/10 blur-[100px] rounded-full"></div>
 
-              {/* Card flutuante */}
+              {/* Card Superior */}
               <div className="absolute top-10 -left-8 z-20 bg-[#111827] border border-white/10 backdrop-blur-md px-5 py-4 rounded-2xl shadow-2xl flex items-center gap-4 animate-pulse">
 
                 <div className="bg-yellow-400 p-3 rounded-xl">
@@ -221,14 +223,14 @@ const LandingCliente = () => {
 
               </div>
 
-              {/* Imagem */}
+              {/* IMAGEM */}
               <img
                 src="https://horizons-cdn.hostinger.com/1683b8d2-7bb3-4624-aa4b-7fcad49ae444/gemini_generated_image_qnpbzrqnpbzrqnpb-hz4us.png"
                 alt="Frete"
                 className="relative z-10 w-full max-w-[650px] rounded-[2rem] border border-white/10 shadow-[0_20px_80px_rgba(0,0,0,0.6)]"
               />
 
-              {/* Card inferior */}
+              {/* Card Inferior */}
               <div className="absolute bottom-10 right-0 z-20 bg-[#111827] border border-white/10 backdrop-blur-md px-5 py-4 rounded-2xl shadow-2xl flex items-center gap-4">
 
                 <div className="bg-cyan-500/10 p-3 rounded-xl">
