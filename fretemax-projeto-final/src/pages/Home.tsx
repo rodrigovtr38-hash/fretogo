@@ -45,19 +45,19 @@ export default function Home() {
       <div className="pointer-events-none absolute inset-0 overflow-hidden z-0">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#0f172a] via-[#020617] to-[#020617]"></div>
         {/* Glows mais abertos e centralizados para dar profundidade sem borrar */}
-        <div className="absolute left-[-10%] top-[-5%] h-[45rem] w-[45rem] rounded-full bg-cyan-600/15 blur-[140px] mix-blend-screen" />
-        <div className="absolute right-[-10%] top-[10%] h-[40rem] w-[40rem] rounded-full bg-blue-600/15 blur-[160px] mix-blend-screen" />
-        <div className="absolute bottom-[-10%] left-[20%] h-[30rem] w-[60rem] rounded-full bg-cyan-400/5 blur-[120px] mix-blend-screen" />
+        <div className="absolute left-[-15%] top-[-5%] h-[55rem] w-[55rem] rounded-full bg-cyan-600/20 blur-[160px] mix-blend-screen" />
+        <div className="absolute right-[-10%] top-[15%] h-[45rem] w-[45rem] rounded-full bg-blue-600/20 blur-[180px] mix-blend-screen" />
+        <div className="absolute bottom-[-10%] left-[20%] h-[35rem] w-[65rem] rounded-full bg-cyan-400/10 blur-[140px] mix-blend-screen" />
       </div>
 
       {/* =====================================================
-          RADAR SYSTEM (CONTAINMENT)
+          RADAR SYSTEM (CONTAINMENT E ELEGÂNCIA PREMIUM)
       ===================================================== */}
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden z-0 opacity-40">
-        <div className="relative flex h-[1000px] w-[1000px] items-center justify-center gpu-accelerated max-w-[100vw]">
-          <div className="absolute inset-0 rounded-full border border-cyan-500/20 animate-[ping_6s_cubic-bezier(0,0,0.2,1)_infinite] shadow-[inset_0_0_30px_rgba(6,182,212,0.1)]" />
-          <div className="absolute inset-[15%] rounded-full border border-cyan-400/15 animate-[ping_6s_cubic-bezier(0,0,0.2,1)_infinite] shadow-[inset_0_0_20px_rgba(6,182,212,0.1)]" style={{ animationDelay: '2s' }} />
-          <div className="absolute inset-[30%] rounded-full border border-cyan-300/10 animate-[ping_6s_cubic-bezier(0,0,0.2,1)_infinite]" style={{ animationDelay: '4s' }} />
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden z-0 opacity-60 mix-blend-screen">
+        <div className="relative flex h-[1000px] w-[1000px] md:h-[1200px] md:w-[1200px] items-center justify-center gpu-accelerated overflow-hidden">
+          <div className="absolute inset-0 rounded-full border border-cyan-500/30 animate-[ping_6s_cubic-bezier(0,0,0.2,1)_infinite] shadow-[inset_0_0_40px_rgba(6,182,212,0.2),0_0_20px_rgba(6,182,212,0.1)] bg-cyan-500/5" />
+          <div className="absolute inset-[15%] rounded-full border border-cyan-400/25 animate-[ping_6s_cubic-bezier(0,0,0.2,1)_infinite] shadow-[inset_0_0_30px_rgba(6,182,212,0.2),0_0_15px_rgba(6,182,212,0.1)] bg-cyan-400/5" style={{ animationDelay: '1.5s' }} />
+          <div className="absolute inset-[30%] rounded-full border border-cyan-300/20 animate-[ping_6s_cubic-bezier(0,0,0.2,1)_infinite] shadow-[inset_0_0_20px_rgba(6,182,212,0.2),0_0_10px_rgba(6,182,212,0.1)] bg-cyan-300/5" style={{ animationDelay: '3s' }} />
         </div>
       </div>
 
@@ -96,7 +96,7 @@ export default function Home() {
         className="fixed bottom-6 right-6 z-[100] rounded-full bg-[#25D366] p-4 shadow-[0_10px_35px_rgba(37,211,102,0.4)] hover:bg-[#20bd5a] hover:scale-110 active:scale-95 transition-all duration-300 group"
       >
         <svg viewBox="0 0 24 24" className="h-8 w-8 fill-white group-hover:animate-pulse">
-          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207" />
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487" />
         </svg>
       </a>
 
@@ -240,8 +240,8 @@ export default function Home() {
       ===================================================== */}
       <section className="relative z-20 w-full mt-auto">
         <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm pointer-events-none" />
-        <div className="relative border-t border-white/10 px-6 py-16 flex w-full justify-center">
-          <div className="w-full max-w-7xl grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8">
+        <div className="relative border-t border-white/10 px-6 py-16 w-full flex flex-col items-center">
+          <div className="w-full max-w-7xl grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8 mx-auto">
             {benefits.map((item, index) => (
               <div
                 key={index}
