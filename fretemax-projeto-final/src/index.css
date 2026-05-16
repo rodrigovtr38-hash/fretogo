@@ -1,9 +1,8 @@
 @import "tailwindcss";
 
 /* =========================================================
-   RESET
+   CSS RESET & NORMALIZE
 ========================================================= */
-
 *,
 *::before,
 *::after {
@@ -13,427 +12,118 @@
 }
 
 /* =========================================================
-   ROOT
+   STABILIZE VIEWPORT & ROOT ORCHESTRATION
 ========================================================= */
-
-:root {
-  /* =========================
-     CORE COLORS
-  ========================= */
-
-  --fretogo-bg: #020617;
-  --fretogo-bg-soft: #081321;
-
-  --fretogo-cyan: #22d3ee;
-  --fretogo-cyan-soft: rgba(34, 211, 238, 0.16);
-
-  --fretogo-blue: #3b82f6;
-
-  --fretogo-yellow: #facc15;
-
-  --fretogo-text: #f8fafc;
-  --fretogo-muted: #94a3b8;
-
-  /* =========================
-     PREMIUM SHADOWS
-  ========================= */
-
-  --shadow-cyan-sm:
-    0 0 18px rgba(34, 211, 238, 0.12);
-
-  --shadow-cyan-md:
-    0 0 32px rgba(34, 211, 238, 0.14);
-
-  --shadow-cyan-lg:
-    0 0 48px rgba(34, 211, 238, 0.16);
-
-  --shadow-dark-xl:
-    0 25px 70px rgba(0, 0, 0, 0.55);
-
-  /* =========================
-     BORDERS
-  ========================= */
-
-  --border-soft:
-    1px solid rgba(255, 255, 255, 0.08);
-
-  --border-cyan:
-    1px solid rgba(34, 211, 238, 0.22);
-
-  /* =========================
-     MOTION
-  ========================= */
-
-  --ease-premium:
-    cubic-bezier(0.22, 1, 0.36, 1);
-
-  --transition-fast:
-    180ms var(--ease-premium);
-
-  --transition-base:
-    280ms var(--ease-premium);
-
-  --transition-slow:
-    420ms var(--ease-premium);
-}
-
-/* =========================================================
-   ROOT APP
-========================================================= */
-
-html,
-body,
-#root {
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
   width: 100%;
-  min-height: 100%;
   height: 100%;
 }
 
-/* =========================================================
-   HTML
-========================================================= */
-
-html {
-  scroll-behavior: smooth;
-}
-
-/* =========================================================
-   BODY
-========================================================= */
-
 body {
-  display: block;
-
+  width: 100%;
+  min-height: 100vh;
+  /* Garante que o body propague altura para o root */
+  display: flex;
+  flex-direction: column;
   overflow-x: hidden;
-
-  font-family:
-    Inter,
-    system-ui,
-    sans-serif;
-
-  color: var(--fretogo-text);
-
-  background:
-    radial-gradient(
-      circle at top left,
-      rgba(34, 211, 238, 0.10),
-      transparent 26%
-    ),
-
-    radial-gradient(
-      circle at bottom right,
-      rgba(59, 130, 246, 0.10),
-      transparent 30%
-    ),
-
-    linear-gradient(
-      135deg,
-      #020617 0%,
-      #06101d 45%,
-      #081321 100%
-    );
-
-  -webkit-font-smoothing: antialiased;
-
-  text-rendering: optimizeLegibility;
-
-  -webkit-tap-highlight-color: transparent;
-
+  background-color: #020617; /* Fundo base fallback */
+  color: #f8fafc;
   isolation: isolate;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  /* Containment global para evitar que divs vaze as margens da viewport */
+  contain: content;
 }
 
 /* =========================================================
-   TYPOGRAPHY
+   TYPOGRAPHY TWEAKS
 ========================================================= */
-
-h1,
-h2,
-h3,
-h4,
-h5,
-h6 {
+h1, h2, h3, h4, h5, h6 {
   letter-spacing: -0.03em;
 }
-
 p {
-  line-height: 1.65;
+  line-height: 1.6;
 }
 
 /* =========================================================
-   LINKS & BUTTONS
+   INTERACTIONS & MOTIONS (GPU OPTIMIZED)
 ========================================================= */
-
 button,
 a {
-  transition:
-    transform var(--transition-base),
-    opacity var(--transition-base),
-    background-color var(--transition-base),
-    border-color var(--transition-base),
-    box-shadow var(--transition-base);
-
+  transition-property: transform, opacity, background-color, border-color, box-shadow;
+  transition-duration: 250ms;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform;
-}
-
-button:hover,
-a:hover {
-  transform: translateY(-1px);
 }
 
 button:active,
 a:active {
-  transform: scale(0.985);
+  transform: scale(0.97);
+}
+
+/* Hardware Acceleration Classes */
+.gpu-accelerated {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000px;
 }
 
 /* =========================================================
-   INPUTS
+   SCROLLBAR PREMIUM
 ========================================================= */
-
-input,
-textarea,
-select {
-  outline: none;
-
-  font: inherit;
-}
-
-/* =========================================================
-   SELECTION
-========================================================= */
-
-::selection {
-  background: rgba(34, 211, 238, 0.22);
-  color: white;
-}
-
-/* =========================================================
-   SCROLLBAR
-========================================================= */
-
 ::-webkit-scrollbar {
   width: 8px;
 }
-
 ::-webkit-scrollbar-track {
   background: #020617;
 }
-
 ::-webkit-scrollbar-thumb {
-  background: rgba(34, 211, 238, 0.22);
-  border-radius: 999px;
-
+  background: rgba(34, 211, 238, 0.2);
+  border-radius: 9999px;
   border: 2px solid #020617;
 }
-
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(34, 211, 238, 0.40);
+  background: rgba(34, 211, 238, 0.4);
 }
 
 /* =========================================================
-   PREMIUM GLOW SYSTEM
+   GLASS & GLOW SYSTEM (LESS BLUR, MORE DEPTH)
 ========================================================= */
-
-.glow-cyan-sm {
-  box-shadow: var(--shadow-cyan-sm);
-}
-
-.glow-cyan-md {
-  box-shadow: var(--shadow-cyan-md);
-}
-
-.glow-cyan-lg {
-  box-shadow: var(--shadow-cyan-lg);
-}
-
-.glow-yellow {
-  box-shadow:
-    0 0 28px rgba(250, 204, 21, 0.18);
-}
-
-/* =========================================================
-   GLASS SYSTEM
-========================================================= */
-
 .glass-card {
-  background:
-    linear-gradient(
-      180deg,
-      rgba(15, 23, 42, 0.78),
-      rgba(8, 19, 33, 0.82)
-    );
-
-  border: var(--border-soft);
-
-  backdrop-filter: blur(14px);
-
-  -webkit-backdrop-filter: blur(14px);
-
-  border-radius: 28px;
-
-  box-shadow:
-    0 16px 48px rgba(0, 0, 0, 0.38);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  /* Reduced blur for better performance and less visual competition */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 24px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
 }
-
-/* =========================================================
-   RADAR SYSTEM
-========================================================= */
-
-.radar-pulse {
-  position: relative;
-}
-
-.radar-pulse::before,
-.radar-pulse::after {
-  content: "";
-
-  position: absolute;
-
-  inset: -50px;
-
-  border-radius: 9999px;
-
-  border: 1px solid rgba(34, 211, 238, 0.14);
-
-  animation: radarPulse 7s linear infinite;
-
-  pointer-events: none;
-}
-
-.radar-pulse::after {
-  animation-delay: 3.5s;
-}
-
-@keyframes radarPulse {
-  0% {
-    transform: scale(0.82);
-    opacity: 0.55;
-  }
-
-  70% {
-    transform: scale(1.9);
-    opacity: 0;
-  }
-
-  100% {
-    opacity: 0;
-  }
-}
-
-/* =========================================================
-   FLOATING AMBIENT
-========================================================= */
-
-.floating-ambient {
-  position: absolute;
-
-  border-radius: 9999px;
-
-  filter: blur(80px);
-
-  opacity: 0.12;
-
-  pointer-events: none;
-}
-
-/* =========================================================
-   PREMIUM CARD HOVER
-========================================================= */
-
-.premium-card {
-  transition:
-    transform var(--transition-slow),
-    border-color var(--transition-base),
-    background-color var(--transition-base),
-    box-shadow var(--transition-base);
-}
-
-.premium-card:hover {
-  transform: translateY(-4px);
-
-  border-color: rgba(34, 211, 238, 0.22);
-
-  box-shadow:
-    0 18px 48px rgba(0, 0, 0, 0.42),
-    0 0 30px rgba(34, 211, 238, 0.10);
-}
-
-/* =========================================================
-   PREMIUM TEXT GRADIENT
-========================================================= */
 
 .text-gradient-cyan {
-  background:
-    linear-gradient(
-      90deg,
-      #67e8f9,
-      #22d3ee
-    );
-
+  background: linear-gradient(90deg, #67e8f9, #06b6d4);
   -webkit-background-clip: text;
-
   -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 /* =========================================================
-   REDUCED MOTION
+   ACCESSIBILITY
 ========================================================= */
-
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation: none !important;
-    transition: none !important;
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-}
-
-/* =========================================================
-   MOBILE OPTIMIZATION
-========================================================= */
-
-@media (max-width: 768px) {
-  body {
-    background:
-      radial-gradient(
-        circle at top,
-        rgba(34, 211, 238, 0.08),
-        transparent 28%
-      ),
-
-      linear-gradient(
-        180deg,
-        #020617 0%,
-        #06101d 100%
-      );
-  }
-
-  .glass-card {
-    backdrop-filter: blur(10px);
-
-    -webkit-backdrop-filter: blur(10px);
-  }
-
-  .floating-ambient {
-    filter: blur(55px);
-
-    opacity: 0.08;
-  }
-
-  .premium-card:hover {
-    transform: none;
-  }
-}
-
-/* =========================================================
-   GPU OPTIMIZATION
-========================================================= */
-
-.radar-pulse,
-.glass-card,
-.premium-card,
-.floating-ambient {
-  transform: translateZ(0);
-
-  backface-visibility: hidden;
 }
