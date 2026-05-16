@@ -1,13 +1,3 @@
-Compreendido. Você tem toda a razão; o envio anterior sofreu um corte no meio da renderização do JSX, deixando a parte mais importante — o formulário principal — ausente.
-
-Como Engenheiro Sênior, eu reconstruí o bloco {step === 'form' && (...)} completamente. Restaurei todos os estados originais (nome, whatsapp, coleta, entrega, peso, volumes, material, tipoFrete e dataAgendada) e todas as VehicleType.
-
-Para o visual, apliquei o padrão Dark Premium SaaS: inputs com fundo levemente translúcido (bg-white/5), bordas contidas (border-white/10), ícones coloridos para guiar os olhos (Cyan, Yellow, Green) e o glow suave quando o input está em foco (focus:border-cyan-500/50). O formulário está robusto, profissional e com sensação tátil impecável para mobile e desktop.
-
-📦 O CÓDIGO COMPLETO: Cliente.tsx
-Copie todo o conteúdo abaixo e substitua no seu arquivo. Ele vai da primeira à última linha, sem cortes.
-
-TypeScript
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db } from '../firebase';
 import {
@@ -200,7 +190,7 @@ export default function Cliente() {
   const isProcessingPayment = useRef(false);
 
   /* =========================================================
-     MEMO VALUES
+      MEMO VALUES
   ========================================================= */
 
   const validDistancia = useMemo(() => {
@@ -224,7 +214,7 @@ export default function Cliente() {
     qtdVolumes.trim() !== '';
 
   /* =========================================================
-     TOAST
+      TOAST
   ========================================================= */
 
   const showToast = (msg: string, type: 'error' | 'success' | 'warning' = 'error') => {
@@ -233,7 +223,7 @@ export default function Cliente() {
   };
 
   /* =========================================================
-     UX LOADING MESSAGES
+      UX LOADING MESSAGES
   ========================================================= */
 
   useEffect(() => {
@@ -256,7 +246,7 @@ export default function Cliente() {
   }, [step, orderData?.status]);
 
   /* =========================================================
-     LOAD LOCAL STORAGE
+      LOAD LOCAL STORAGE
   ========================================================= */
 
   useEffect(() => {
@@ -288,7 +278,7 @@ export default function Cliente() {
   }, []);
 
   /* =========================================================
-     SAVE FORM
+      SAVE FORM
   ========================================================= */
 
   useEffect(() => {
@@ -310,7 +300,7 @@ export default function Cliente() {
   }, [nome, coleta, entrega, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp]);
 
   /* =========================================================
-     REALTIME LISTENER
+      REALTIME LISTENER
   ========================================================= */
 
   useEffect(() => {
@@ -343,7 +333,7 @@ export default function Cliente() {
   }, [currentOrderId]);
 
   /* =========================================================
-     DISTANCE
+      DISTANCE
   ========================================================= */
 
   const calcularDistanciaReal = async () => {
@@ -393,7 +383,7 @@ export default function Cliente() {
   };
 
   /* =========================================================
-     GEO
+      GEO
   ========================================================= */
 
   const getValidCoords = async (addressStr: string, cepFallback: string): Promise<Coords> => {
@@ -414,7 +404,7 @@ export default function Cliente() {
   };
 
   /* =========================================================
-     CONTRATAR
+      CONTRATAR
   ========================================================= */
 
   const handleContratar = async () => {
@@ -595,13 +585,13 @@ export default function Cliente() {
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <input
-                  className="w-full bg-slate-950/50 border border-white/10 rounded-2xl px-5 py-4 text-white font-medium focus:border-cyan-500/50 focus:bg-slate-900/80 outline-none transition-all placeholder:text-slate-600"
+                  className="w-full p-4 bg-white/5 rounded-xl border border-white/10 text-white font-medium placeholder:text-slate-600 text-sm focus:border-cyan-500/50 outline-none transition-all"
                   placeholder="Seu Nome Completo"
                   value={nome}
                   onChange={(e) => setNome(e.target.value)}
                 />
                 <input
-                  className="w-full bg-slate-950/50 border border-white/10 rounded-2xl px-5 py-4 text-white font-medium focus:border-cyan-500/50 focus:bg-slate-900/80 outline-none transition-all placeholder:text-slate-600"
+                  className="w-full p-4 bg-white/5 rounded-xl border border-white/10 text-white font-medium placeholder:text-slate-600 text-sm focus:border-cyan-500/50 outline-none transition-all"
                   placeholder="WhatsApp (DDD)"
                   value={whatsapp}
                   onChange={(e) => setWhatsapp(e.target.value)}
@@ -619,12 +609,12 @@ export default function Cliente() {
                   <MapPin className="h-4 w-4 text-blue-400" /> Endereço de Coleta
                 </h2>
                 <div className="grid grid-cols-3 gap-3">
-                  <input className="col-span-2 bg-slate-950/50 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:border-blue-500/50 outline-none transition-all placeholder:text-slate-600" placeholder="Rua da Retirada" value={coleta.rua} onChange={e => setColeta({...coleta, rua: e.target.value})} />
-                  <input className="col-span-1 bg-slate-950/50 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:border-blue-500/50 outline-none transition-all placeholder:text-slate-600" placeholder="Nº" value={coleta.num} onChange={e => setColeta({...coleta, num: e.target.value})} />
+                  <input className="col-span-2 p-4 bg-white/5 rounded-xl border border-white/10 text-white font-medium placeholder:text-slate-600 text-sm focus:border-cyan-500/50 outline-none transition-all" placeholder="Rua da Retirada" value={coleta.rua} onChange={e => setColeta({...coleta, rua: e.target.value})} />
+                  <input className="col-span-1 p-4 bg-white/5 rounded-xl border border-white/10 text-white font-medium placeholder:text-slate-600 text-sm focus:border-cyan-500/50 outline-none transition-all" placeholder="Nº" value={coleta.num} onChange={e => setColeta({...coleta, num: e.target.value})} />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <input className="bg-slate-950/50 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:border-blue-500/50 outline-none transition-all placeholder:text-slate-600" placeholder="Bairro" value={coleta.bairro} onChange={e => setColeta({...coleta, bairro: e.target.value})} />
-                  <input className="bg-slate-950/50 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:border-blue-500/50 outline-none transition-all placeholder:text-slate-600" placeholder="CEP" value={coleta.cep} onChange={e => setColeta({...coleta, cep: e.target.value})} />
+                  <input className="p-4 bg-white/5 rounded-xl border border-white/10 text-white font-medium placeholder:text-slate-600 text-sm focus:border-cyan-500/50 outline-none transition-all" placeholder="Bairro" value={coleta.bairro} onChange={e => setColeta({...coleta, bairro: e.target.value})} />
+                  <input className="p-4 bg-white/5 rounded-xl border border-white/10 text-white font-medium placeholder:text-slate-600 text-sm focus:border-cyan-500/50 outline-none transition-all" placeholder="CEP" value={coleta.cep} onChange={e => setColeta({...coleta, cep: e.target.value})} />
                 </div>
               </div>
 
@@ -634,12 +624,12 @@ export default function Cliente() {
                   <Truck className="h-4 w-4 text-green-400" /> Endereço de Destino
                 </h2>
                 <div className="grid grid-cols-3 gap-3">
-                  <input className="col-span-2 bg-slate-950/50 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:border-green-500/50 outline-none transition-all placeholder:text-slate-600" placeholder="Rua da Entrega" value={entrega.rua} onChange={e => setEntrega({...entrega, rua: e.target.value})} />
-                  <input className="col-span-1 bg-slate-950/50 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:border-green-500/50 outline-none transition-all placeholder:text-slate-600" placeholder="Nº" value={entrega.num} onChange={e => setEntrega({...entrega, num: e.target.value})} />
+                  <input className="col-span-2 p-4 bg-white/5 rounded-xl border border-white/10 text-white font-medium placeholder:text-slate-600 text-sm focus:border-cyan-500/50 outline-none transition-all" placeholder="Rua da Entrega" value={entrega.rua} onChange={e => setEntrega({...entrega, rua: e.target.value})} />
+                  <input className="col-span-1 p-4 bg-white/5 rounded-xl border border-white/10 text-white font-medium placeholder:text-slate-600 text-sm focus:border-cyan-500/50 outline-none transition-all" placeholder="Nº" value={entrega.num} onChange={e => setEntrega({...entrega, num: e.target.value})} />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <input className="bg-slate-950/50 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:border-green-500/50 outline-none transition-all placeholder:text-slate-600" placeholder="Bairro" value={entrega.bairro} onChange={e => setEntrega({...entrega, bairro: e.target.value})} />
-                  <input className="bg-slate-950/50 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:border-green-500/50 outline-none transition-all placeholder:text-slate-600" placeholder="CEP" value={entrega.cep} onChange={e => setEntrega({...entrega, cep: e.target.value})} />
+                  <input className="p-4 bg-white/5 rounded-xl border border-white/10 text-white font-medium placeholder:text-slate-600 text-sm focus:border-cyan-500/50 outline-none transition-all" placeholder="Bairro" value={entrega.bairro} onChange={e => setEntrega({...entrega, bairro: e.target.value})} />
+                  <input className="p-4 bg-white/5 rounded-xl border border-white/10 text-white font-medium placeholder:text-slate-600 text-sm focus:border-cyan-500/50 outline-none transition-all" placeholder="CEP" value={entrega.cep} onChange={e => setEntrega({...entrega, cep: e.target.value})} />
                 </div>
               </div>
             </div>
@@ -661,9 +651,9 @@ export default function Cliente() {
                   ))}
                 </select>
 
-                <input className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:border-cyan-500/50 outline-none placeholder:text-slate-600" placeholder="Peso (Ex: 200kg)" value={peso} onChange={e => setPeso(e.target.value)} />
-                <input className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:border-cyan-500/50 outline-none placeholder:text-slate-600" placeholder="Qtd Volumes (Ex: 4 Caixas)" value={qtdVolumes} onChange={e => setQtdVolumes(e.target.value)} />
-                <input className="bg-slate-950 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white focus:border-cyan-500/50 outline-none placeholder:text-slate-600" placeholder="O que é? (Móveis, Caixas)" value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)} />
+                <input className="p-4 bg-white/5 rounded-xl border border-white/10 text-white font-medium placeholder:text-slate-600 text-sm focus:border-cyan-500/50 outline-none transition-all" placeholder="Peso (Ex: 200kg)" value={peso} onChange={e => setPeso(e.target.value)} />
+                <input className="p-4 bg-white/5 rounded-xl border border-white/10 text-white font-medium placeholder:text-slate-600 text-sm focus:border-cyan-500/50 outline-none transition-all" placeholder="Qtd Volumes (Ex: 4 Caixas)" value={qtdVolumes} onChange={e => setQtdVolumes(e.target.value)} />
+                <input className="p-4 bg-white/5 rounded-xl border border-white/10 text-white font-medium placeholder:text-slate-600 text-sm focus:border-cyan-500/50 outline-none transition-all" placeholder="O que é? (Móveis, Caixas)" value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)} />
               </div>
 
               {/* Toggle de Agendamento */}
@@ -736,7 +726,7 @@ export default function Cliente() {
               </div>
             </div>
 
-            {/* SIDEBAR PREVIEW (Caixa) */}
+            {/* SIDEBAR PREVIEW */}
             <div className="glass-card bg-slate-900/90 backdrop-blur-xl border border-cyan-500/30 rounded-[2.5rem] p-8 shadow-[0_0_50px_rgba(6,182,212,0.15)] flex flex-col h-full relative overflow-hidden">
               <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-50"></div>
               
@@ -771,7 +761,7 @@ export default function Cliente() {
                   disabled={loadingPayment || isProcessingPayment.current}
                   className={`flex min-h-[72px] w-full items-center justify-center gap-3 rounded-2xl px-6 py-4 text-sm font-black uppercase tracking-[0.15em] transition-all shadow-xl ${loadingPayment ? 'bg-slate-800 text-slate-500' : 'bg-cyan-500 text-slate-950 hover:bg-cyan-400 hover:scale-[1.02] active:scale-95 shadow-cyan-500/20'}`}
                 >
-                  {loadingPayment ? <><Loader2 className="h-5 w-5 animate-spin" /> Gerando Pagamento...</> : <><Zap className="h-5 w-5" /> Liberar Motorista</>}
+                  {loadingPayment ? <><Loader2 className="h-5 w-5 animate-spin" /> Gerando Pagamento...</> : <><Zap size={5} /> Liberar Motorista</>}
                 </button>
                 <button
                   onClick={() => setStep('form')}
@@ -791,7 +781,6 @@ export default function Cliente() {
         {step === 'busca' && (
           <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1fr_420px] animate-in slide-in-from-bottom-6">
             
-            {/* MAPA E STATUS */}
             <div className="glass-card bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-[2.5rem] p-6 lg:p-8 shadow-2xl relative overflow-hidden">
               
               <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -807,16 +796,13 @@ export default function Cliente() {
                 </div>
               </div>
 
-              {/* MAPA CONTAINER */}
               <div className="h-[350px] lg:h-[450px] overflow-hidden rounded-[2rem] border border-white/10 relative shadow-inner mb-6">
-                 {/* Se estiver só buscando, põe um overlay azul para indicar busca */}
                  {orderData?.status === 'disponivel' && (
                    <div className="absolute inset-0 bg-cyan-500/10 z-10 pointer-events-none mix-blend-overlay animate-pulse"></div>
                  )}
                  <MapaCliente motoristaId={orderData?.motoristaId} />
               </div>
 
-              {/* CHAT SE MOTORISTA ACEITOU */}
               {currentOrderId && orderData?.motoristaNome && (
                 <div className="mt-2 border-t border-white/5 pt-6">
                   <ChatFrete freteId={currentOrderId} tipoUsuario="cliente" nome={nome || "Cliente"} />
@@ -826,11 +812,7 @@ export default function Cliente() {
 
             {/* SIDEBAR OPERACIONAL */}
             <div className="space-y-6">
-              
-              {/* Card de Status */}
               <div className="glass-card bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-[2.5rem] p-8 shadow-xl">
-                
-                {/* Aguardando / Buscando */}
                 {['aguardando_pagamento', 'disponivel', 'agendado'].includes(orderData?.status || '') ? (
                   <div className="text-center py-6">
                     <div className="relative mx-auto w-24 h-24 mb-8">
@@ -849,7 +831,6 @@ export default function Cliente() {
                     </div>
                   </div>
                 ) : (
-                  /* Motorista Encontrado (Timeline) */
                   <div>
                      <div className="text-center mb-8 border-b border-white/5 pb-8">
                        <div className="w-16 h-16 bg-blue-500/10 border border-blue-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -865,21 +846,17 @@ export default function Cliente() {
                            <p className={`text-xs font-black uppercase tracking-widest ${['aceito', 'coleta', 'em_transporte', 'entregue'].includes(orderData!.status) ? 'text-cyan-400' : 'text-slate-500'}`}>Indo para o local</p>
                         </div>
                         <div className="relative pl-6">
-                           {/* Linha conectora */}
                            <div className={`absolute -left-[0px] -top-6 w-0.5 h-6 ${['coleta', 'em_transporte', 'entregue'].includes(orderData!.status) ? 'bg-cyan-400/50' : 'bg-slate-800'}`}></div>
-                           
                            <div className={`absolute -left-[5px] top-1 w-3 h-3 rounded-full border-2 border-slate-900 transition-all ${['coleta', 'em_transporte', 'entregue'].includes(orderData!.status) ? 'bg-blue-400 shadow-[0_0_10px_rgba(96,165,250,0.8)]' : 'bg-slate-700'}`}></div>
                            <p className={`text-xs font-black uppercase tracking-widest ${['coleta', 'em_transporte', 'entregue'].includes(orderData!.status) ? 'text-blue-400' : 'text-slate-500'}`}>Embarcando Carga</p>
                         </div>
                         <div className="relative pl-6">
                            <div className={`absolute -left-[0px] -top-6 w-0.5 h-6 ${['em_transporte', 'entregue'].includes(orderData!.status) ? 'bg-blue-400/50' : 'bg-slate-800'}`}></div>
-                           
                            <div className={`absolute -left-[5px] top-1 w-3 h-3 rounded-full border-2 border-slate-900 transition-all ${['em_transporte', 'entregue'].includes(orderData!.status) ? 'bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.8)]' : 'bg-slate-700'}`}></div>
                            <p className={`text-xs font-black uppercase tracking-widest ${['em_transporte', 'entregue'].includes(orderData!.status) ? 'text-amber-400' : 'text-slate-500'}`}>Em Transporte</p>
                         </div>
                         <div className="relative pl-6">
                            <div className={`absolute -left-[0px] -top-6 w-0.5 h-6 ${['entregue'].includes(orderData!.status) ? 'bg-amber-400/50' : 'bg-slate-800'}`}></div>
-                           
                            <div className={`absolute -left-[5px] top-1 w-3 h-3 rounded-full border-2 border-slate-900 transition-all ${['entregue'].includes(orderData!.status) ? 'bg-green-400 shadow-[0_0_10px_rgba(74,222,128,0.8)]' : 'bg-slate-700'}`}></div>
                            <p className={`text-xs font-black uppercase tracking-widest ${['entregue'].includes(orderData!.status) ? 'text-green-400' : 'text-slate-500'}`}>Entregue</p>
                         </div>
@@ -888,7 +865,6 @@ export default function Cliente() {
                 )}
               </div>
 
-              {/* Botões Ação */}
               <div className="space-y-3">
                 {orderData?.motoristaZap && (
                   <button onClick={handleWhatsAppClick} className="w-full bg-green-500 hover:bg-green-400 text-slate-950 py-5 rounded-2xl font-black text-sm uppercase tracking-widest transition-all shadow-[0_5px_20px_rgba(34,197,94,0.3)] flex items-center justify-center gap-2">
@@ -906,12 +882,36 @@ export default function Cliente() {
                   </button>
                 )}
               </div>
-
             </div>
+
           </div>
         )}
 
       </div>
+
+      {/* TOAST RENDER */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 z-[120] -translate-x-1/2">
+          <div className={`rounded-2xl border px-6 py-4 text-sm font-bold shadow-2xl backdrop-blur-xl ${toast.type === 'success' ? 'border-green-500/20 bg-green-500/10 text-green-200' : toast.type === 'warning' ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-200' : 'border-red-500/20 bg-red-500/10 text-red-200'}`}>
+            {toast.msg}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE CANCELAMENTO */}
+      {showCancelModal && (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm">
+          <div className="glass-card w-full max-w-md border border-white/10 p-8 text-center bg-slate-900 rounded-3xl">
+            <AlertTriangle className="mx-auto mb-5 h-14 w-14 text-red-400" />
+            <h3 className="text-2xl font-black">Cancelar operação?</h3>
+            <p className="mt-4 text-sm leading-relaxed text-slate-400">O radar operacional será encerrado imediatamente.</p>
+            <div className="mt-8 flex gap-4">
+              <button onClick={() => setShowCancelModal(false)} className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-5 py-4 font-bold">Voltar</button>
+              <button onClick={handleCancelarPedido} disabled={isCancelling} className="flex-1 rounded-2xl bg-red-500 px-5 py-4 font-black text-white">{isCancelling ? 'Cancelando...' : 'Cancelar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
