@@ -10,9 +10,6 @@ import ChatFrete from '../components/ChatFrete';
 import { TripState } from '../state/tripStateMachine';
 import { executeDispatch } from '../services/orchestrator';
 
-/* =========================================================
-   TYPES E CONSTANTES
-========================================================= */
 interface AddressData { cep: string; bairro: string; rua: string; num: string; }
 interface Coords { lat: number; lng: number; }
 interface OrderData { status: string; motoristaNome?: string; motoristaZap?: string; rotaInteligente?: boolean; motoristaId?: string; }
@@ -50,9 +47,6 @@ const callWithRetryAndTimeout = async <T,>(callableName: string, payload: unknow
   throw new Error('MAX_RETRIES_EXCEEDED');
 };
 
-/* =========================================================
-   COMPONENTE PRINCIPAL CLIENTE
-========================================================= */
 export default function Cliente() {
   const [step, setStep] = useState<'form' | 'preview' | 'busca'>('form');
   const [loadingRoute, setLoadingRoute] = useState(false);
@@ -61,7 +55,6 @@ export default function Cliente() {
   const [toast, setToast] = useState<{ msg: string; type: 'error' | 'success' | 'warning'; } | null>(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
 
-  // Form State
   const [nome, setNome] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
   const [coleta, setColeta] = useState<AddressData>({ cep: '', bairro: '', rua: '', num: '' });
@@ -121,15 +114,12 @@ export default function Cliente() {
     localStorage.setItem('fretogo_form_backup', JSON.stringify({ nome, coleta, entrega, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp }));
   }, [nome, coleta, entrega, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp]);
 
-  // Listener Master da Corrida
   useEffect(() => {
     if (!currentOrderId) return;
     const unsubscribe = onSnapshot(doc(db, 'fretes', currentOrderId), (snap) => {
       if (!snap.exists()) return;
       const data = snap.data() as OrderData;
       setOrderData(data);
-      
-      // Tratamento de Erros Fatais Logísticos
       if ([TripState.CANCELADO, TripState.EXPIRADO, 'erro_pagamento', 'sem_motorista'].includes(data.status as any)) {
         showToast(data.status === TripState.CANCELADO ? 'Frete cancelado.' : 'Sem motoristas na região.', 'warning');
         localStorage.removeItem('fretogo_current_order'); setCurrentOrderId(null); setStep('form');
@@ -196,7 +186,6 @@ export default function Cliente() {
             body: JSON.stringify({ titulo: `FRETOGO - ${VEHICLE_CONFIG[vehicle].nome}`, idPedido: docRef.id }),
           });
           if (!res.ok) throw new Error('API indisponível');
-          
           const data = await res.json();
           if (data?.url && data.url.startsWith('https://')) {
              window.location.href = data.url; 
@@ -240,22 +229,13 @@ export default function Cliente() {
   };
 
   return (
-    <div className="relative min-h-screen w-full flex flex-col bg-[#020617] text-slate-200 font-sans overflow-x-hidden selection:bg-cyan-500/30">
+    <div className="relative min-h-screen w-full bg-[#020617] text-slate-200 font-sans selection:bg-cyan-500/30 pb-32">
       
-      {/* BACKGROUND PREMIUM */}
+      {/* BACKGROUND */}
       <div className="pointer-events-none fixed inset-0 z-0">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#0f172a] via-[#020617] to-[#020617]"></div>
         <div className="absolute left-[-10%] top-[-5%] h-[40rem] w-[40rem] rounded-full bg-cyan-600/15 blur-[140px] mix-blend-screen" />
         <div className="absolute right-[-10%] top-[10%] h-[35rem] w-[35rem] rounded-full bg-blue-600/15 blur-[160px] mix-blend-screen" />
-        
-        {/* Radar Gigante Seguro */}
-        <div className="absolute inset-0 flex items-center justify-center opacity-30 mix-blend-screen">
-          <div className="relative flex h-[1000px] w-[1000px] lg:h-[1200px] lg:w-[1200px] items-center justify-center">
-            <div className="absolute inset-0 rounded-full border border-cyan-500/30 animate-[ping_6s_cubic-bezier(0,0,0.2,1)_infinite] shadow-[inset_0_0_40px_rgba(6,182,212,0.15)]" />
-            <div className="absolute inset-[15%] rounded-full border border-cyan-400/20 animate-[ping_6s_cubic-bezier(0,0,0.2,1)_infinite] shadow-[inset_0_0_30px_rgba(6,182,212,0.15)]" style={{ animationDelay: '2s' }} />
-            <div className="absolute inset-[30%] rounded-full border border-cyan-300/10 animate-[ping_6s_cubic-bezier(0,0,0.2,1)_infinite] shadow-[inset_0_0_20px_rgba(6,182,212,0.15)]" style={{ animationDelay: '4s' }} />
-          </div>
-        </div>
       </div>
 
       {/* NAVBAR */}
@@ -263,10 +243,7 @@ export default function Cliente() {
         <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
           <div className="flex items-center gap-4">
             <button
-              onClick={() => {
-                if (step === 'form') window.location.href = '/';
-                else resetFlow();
-              }}
+              onClick={() => { if (step === 'form') window.location.href = '/'; else resetFlow(); }}
               className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 transition-all duration-300 hover:bg-white/10 hover:border-white/20 hover:scale-105 active:scale-95"
             >
               <ArrowLeft size={20} className="text-slate-300" />
@@ -276,22 +253,14 @@ export default function Cliente() {
               <span className="text-2xl font-black italic tracking-tighter text-white">FRETOGO</span>
             </div>
           </div>
-          <div className="hidden items-center gap-2 rounded-full border border-cyan-500/20 bg-cyan-500/10 px-5 py-2 md:flex shadow-inner">
-            <Radar className="h-4 w-4 text-cyan-400 animate-[spin_4s_linear_infinite]" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-300">Radar Operacional</span>
-          </div>
         </nav>
       </header>
 
-      {/* MAIN CONTENT WRAPPER - AQUI ESTÁ A CENTRALIZAÇÃO EM TELAS GRANDES */}
-      <main className="relative z-10 mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 py-8 pb-32 sm:px-6 lg:px-8">
+      {/* AQUI ESTÁ A CORREÇÃO: "block" e "mx-auto" sem "flex" que esmaga o layout */}
+      <main className="relative z-10 mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8 block">
         
-        {/* =====================================================
-            STEP 1: FORMULÁRIO COMPLETO
-        ===================================================== */}
         {step === 'form' && (
           <div className="mx-auto w-full max-w-4xl rounded-[2.5rem] border border-white/10 bg-slate-900/60 p-6 md:p-12 shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4">
-            
             <div className="mb-12 text-center md:text-left">
               <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-500/20 bg-cyan-500/10 px-5 py-2">
                 <Sparkles className="h-4 w-4 text-cyan-400" />
@@ -306,16 +275,14 @@ export default function Cliente() {
               <h2 className="mb-4 flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-400">
                 <User className="h-4 w-4 text-cyan-400" /> Contato Responsável
               </h2>
-              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-sm font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="Seu Nome Completo" value={nome} onChange={(e) => setNome(e.target.value)} />
                 <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-sm font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="WhatsApp (DDD)" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
               </div>
             </div>
 
-            <div className="relative mb-10 grid grid-cols-1 gap-10 lg:grid-cols-2">
-              <div className="absolute bottom-4 left-1/2 top-10 hidden w-px -translate-x-1/2 bg-white/10 lg:block"></div>
-              
-              <div className="space-y-5">
+            <div className="mb-10 grid grid-cols-1 gap-10 lg:grid-cols-2">
+              <div className="space-y-4">
                 <h2 className="mb-3 flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-400">
                   <MapPin className="h-4 w-4 text-blue-400" /> Endereço de Coleta
                 </h2>
@@ -329,7 +296,7 @@ export default function Cliente() {
                 </div>
               </div>
 
-              <div className="space-y-5">
+              <div className="space-y-4">
                 <h2 className="mb-3 flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-400">
                   <Truck className="h-4 w-4 text-green-400" /> Endereço de Destino
                 </h2>
@@ -380,11 +347,8 @@ export default function Cliente() {
           </div>
         )}
 
-        {/* =====================================================
-            STEP 2: PREVIEW / RESUMO OPERACIONAL
-        ===================================================== */}
         {step === 'preview' && (
-          <div className="grid w-full grid-cols-1 gap-8 animate-in fade-in zoom-in duration-500 xl:grid-cols-[1fr_420px]">
+          <div className="grid w-full grid-cols-1 gap-8 animate-in fade-in zoom-in duration-500 lg:grid-cols-[1fr_420px]">
             <div className="rounded-[3rem] border border-white/10 bg-slate-900/80 p-6 md:p-10 shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur-xl">
               <div className="mb-10 flex items-center justify-between border-b border-white/5 pb-6">
                 <div><p className="text-[10px] uppercase tracking-[0.25em] text-cyan-400 font-bold">Prévia Operacional</p><h2 className="mt-2 text-3xl md:text-4xl font-black italic tracking-tighter text-white">Trajeto Mapeado</h2></div>
@@ -392,8 +356,8 @@ export default function Cliente() {
               </div>
 
               <div className="mb-10 grid grid-cols-1 gap-6 md:grid-cols-2">
-                <div className="rounded-3xl border border-white/5 bg-slate-950/60 p-6 shadow-inner hover:border-white/10 transition-colors"><MapPin className="mb-4 h-6 w-6 text-blue-400" /><p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Local de Coleta</p><p className="mt-2 text-base font-bold leading-snug text-white">{coleta.rua}, {coleta.num}</p><p className="mt-1 text-sm text-slate-400">{coleta.bairro}</p></div>
-                <div className="rounded-3xl border border-white/5 bg-slate-950/60 p-6 shadow-inner hover:border-white/10 transition-colors"><Truck className="mb-4 h-6 w-6 text-green-400" /><p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Veículo e Carga</p><p className="mt-2 text-base font-bold uppercase italic text-white">{VEHICLE_CONFIG[vehicle].nome}</p><p className="mt-1 text-sm text-slate-400">{peso} • {qtdVolumes} volumes</p></div>
+                <div className="rounded-3xl border border-white/5 bg-slate-950/60 p-6 shadow-inner"><MapPin className="mb-4 h-6 w-6 text-blue-400" /><p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Local de Coleta</p><p className="mt-2 text-base font-bold leading-snug text-white">{coleta.rua}, {coleta.num}</p><p className="mt-1 text-sm text-slate-400">{coleta.bairro}</p></div>
+                <div className="rounded-3xl border border-white/5 bg-slate-950/60 p-6 shadow-inner"><Truck className="mb-4 h-6 w-6 text-green-400" /><p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Veículo e Carga</p><p className="mt-2 text-base font-bold uppercase italic text-white">{VEHICLE_CONFIG[vehicle].nome}</p><p className="mt-1 text-sm text-slate-400">{peso} • {qtdVolumes} volumes</p></div>
               </div>
 
               <div className="h-[350px] md:h-[500px] overflow-hidden rounded-[2.5rem] border border-white/10 bg-slate-950 shadow-[inset_0_0_20px_rgba(0,0,0,0.5)]"><MapaCliente /></div>
@@ -418,11 +382,8 @@ export default function Cliente() {
           </div>
         )}
 
-        {/* =====================================================
-            STEP 3: BUSCA REALTIME (RADAR LOGÍSTICO VIVO)
-        ===================================================== */}
         {step === 'busca' && (
-          <div className="grid w-full grid-cols-1 gap-8 animate-in slide-in-from-bottom-6 duration-500 xl:grid-cols-[1fr_420px]">
+          <div className="grid w-full grid-cols-1 gap-8 animate-in slide-in-from-bottom-6 duration-500 lg:grid-cols-[1fr_420px]">
             <div className="relative overflow-hidden rounded-[3rem] border border-white/10 bg-slate-900/80 p-6 md:p-10 shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur-xl">
               <div className="mb-8 flex flex-col justify-between gap-6 sm:flex-row sm:items-center">
                 <div>
@@ -436,7 +397,6 @@ export default function Cliente() {
               </div>
 
               <div className="relative mb-8 h-[350px] md:h-[500px] overflow-hidden rounded-[2.5rem] border border-white/10 shadow-[inset_0_0_20px_rgba(0,0,0,0.5)]">
-                 {/* PROTEÇÃO ANTI-NULL: A interrogação garante que não vai quebrar */}
                  {orderData?.status === TripState.DISPONIVEL && <div className="pointer-events-none absolute inset-0 z-10 animate-pulse bg-cyan-500/10 mix-blend-overlay"></div>}
                  <MapaCliente motoristaId={orderData?.motoristaId} />
               </div>
@@ -452,7 +412,6 @@ export default function Cliente() {
               <div className="rounded-[3rem] border border-cyan-500/20 bg-slate-900/90 p-8 md:p-10 shadow-[0_20px_50px_rgba(6,182,212,0.1)] backdrop-blur-xl relative overflow-hidden">
                 <div className="absolute left-0 right-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-50"></div>
                 
-                {/* PROTEÇÃO ANTI-NULL: Usando default se orderData não existir momentaneamente */}
                 {(!orderData || [TripState.AGUARDANDO_PAGAMENTO, TripState.DISPONIVEL, TripState.REDISPATCH, 'agendado'].includes(orderData?.status as any)) ? (
                   <div className="py-8 text-center">
                     <div className="relative mx-auto mb-10 h-28 w-28">
@@ -496,7 +455,6 @@ export default function Cliente() {
 
               <div className="space-y-4">
                 {orderData?.motoristaZap && <button onClick={handleWhatsAppClick} className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[1.5rem] bg-green-500 px-6 text-sm font-black uppercase tracking-[0.2em] text-slate-950 shadow-[0_15px_35px_rgba(34,197,94,0.3)] transition-all duration-300 hover:scale-[1.02] hover:bg-green-400 active:scale-95"><MessageCircle size={20} /> Chamar no WhatsApp</button>}
-                {/* PROTEÇÃO ANTI-NULL NO BOTÃO DE CANCELAR */}
                 {(!orderData || ![TripState.ENTREGUE, TripState.CANCELADO].includes(orderData?.status as any)) && (
                   <button onClick={() => setShowCancelModal(true)} disabled={isCancelling} className="flex min-h-[64px] w-full items-center justify-center gap-2 rounded-[1.5rem] border border-white/5 bg-slate-900/80 px-6 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 backdrop-blur-md transition-all hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400"><XCircle size={16} /> Cancelar Operação</button>
                 )}
@@ -515,7 +473,6 @@ export default function Cliente() {
         </div>
       )}
 
-      {/* MODAL DE CANCELAMENTO PREMIUM */}
       {showCancelModal && (
         <div className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/80 p-5 backdrop-blur-md animate-in fade-in duration-200">
           <div className="w-full max-w-md overflow-hidden rounded-[2.5rem] border border-red-500/20 bg-slate-900 p-10 text-center shadow-[0_20px_60px_rgba(239,68,68,0.15)] relative">
