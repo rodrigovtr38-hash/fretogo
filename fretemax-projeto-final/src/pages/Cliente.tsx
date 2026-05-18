@@ -121,12 +121,15 @@ export default function Cliente() {
     localStorage.setItem('fretogo_form_backup', JSON.stringify({ nome, coleta, entrega, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp }));
   }, [nome, coleta, entrega, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp]);
 
+  // Listener Master da Corrida
   useEffect(() => {
     if (!currentOrderId) return;
     const unsubscribe = onSnapshot(doc(db, 'fretes', currentOrderId), (snap) => {
       if (!snap.exists()) return;
       const data = snap.data() as OrderData;
       setOrderData(data);
+      
+      // Tratamento de Erros Fatais Logísticos
       if ([TripState.CANCELADO, TripState.EXPIRADO, 'erro_pagamento', 'sem_motorista'].includes(data.status as any)) {
         showToast(data.status === TripState.CANCELADO ? 'Frete cancelado.' : 'Sem motoristas na região.', 'warning');
         localStorage.removeItem('fretogo_current_order'); setCurrentOrderId(null); setStep('form');
@@ -164,6 +167,7 @@ export default function Cliente() {
     } catch { return getFallbackCoordsByCEP(cepFallback); }
   };
 
+  // Dispatch Integrado ao Orchestrator com Bypass 
   const handleContratar = async () => {
     if (loadingRoute || loadingPayment || isProcessingPayment.current) return;
     isProcessingPayment.current = true; setLoadingPayment(true);
@@ -193,6 +197,7 @@ export default function Cliente() {
             body: JSON.stringify({ titulo: `FRETOGO - ${VEHICLE_CONFIG[vehicle].nome}`, idPedido: docRef.id }),
           });
           if (!res.ok) throw new Error('API indisponível');
+          
           const data = await res.json();
           if (data?.url && data.url.startsWith('https://')) {
              window.location.href = data.url; 
@@ -201,7 +206,7 @@ export default function Cliente() {
              throw new Error('Link inválido');
           }
         } catch (apiError) {
-           console.warn("Bypass ativado: API de Pagamento falhou. Pulando direto para busca logísitica.");
+           console.warn("Bypass ativado: Pulando API de Pagamento diretamente para Dispatch Logístico.");
            await executeDispatch(docRef.id, { categoria: vehicle, origemLat: c1.lat, origemLng: c1.lng, destinoLat: c2.lat, destinoLng: c2.lng });
            setStep('busca');
         }
@@ -228,7 +233,6 @@ export default function Cliente() {
     window.open(`https://wa.me/55${orderData.motoristaZap.replace(/\D/g, '')}`, '_blank');
   };
 
-  // AQUI ESTAVA O ERRO DO NULL. Nós limpamos os dados e garantimos que a UI lide com isso.
   const resetFlow = () => {
     localStorage.removeItem('fretogo_current_order'); 
     setCurrentOrderId(null); 
@@ -283,7 +287,7 @@ export default function Cliente() {
         </nav>
       </header>
 
-      {/* MAIN CONTENT WRAPPER - ISSO GARANTE A CENTRALIZAÇÃO DO LAYOUT */}
+      {/* MAIN CONTENT WRAPPER - AQUI ESTÁ A CENTRALIZAÇÃO EM TELAS GRANDES */}
       <main className="relative z-10 mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 py-8 pb-32 sm:px-6 lg:px-8">
         
         {/* =====================================================
@@ -302,20 +306,20 @@ export default function Cliente() {
               </h1>
             </div>
 
-            <div className="mb-8">
+            <div className="mb-10">
               <h2 className="mb-4 flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-400">
                 <User className="h-4 w-4 text-cyan-400" /> Contato Responsável
               </h2>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
                 <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-sm font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="Seu Nome Completo" value={nome} onChange={(e) => setNome(e.target.value)} />
                 <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-sm font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="WhatsApp (DDD)" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
               </div>
             </div>
 
-            <div className="relative mb-8 grid grid-cols-1 gap-8 lg:grid-cols-2">
+            <div className="relative mb-10 grid grid-cols-1 gap-10 lg:grid-cols-2">
               <div className="absolute bottom-4 left-1/2 top-10 hidden w-px -translate-x-1/2 bg-white/10 lg:block"></div>
               
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <h2 className="mb-3 flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-400">
                   <MapPin className="h-4 w-4 text-blue-400" /> Endereço de Coleta
                 </h2>
@@ -329,7 +333,7 @@ export default function Cliente() {
                 </div>
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <h2 className="mb-3 flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-400">
                   <Truck className="h-4 w-4 text-green-400" /> Endereço de Destino
                 </h2>
@@ -436,7 +440,7 @@ export default function Cliente() {
               </div>
 
               <div className="relative mb-8 h-[350px] md:h-[500px] overflow-hidden rounded-[2.5rem] border border-white/10 shadow-[inset_0_0_20px_rgba(0,0,0,0.5)]">
-                 {/* Proteção contra Null no orderData: adicionado encadeamento seguro */}
+                 {/* PROTEÇÃO ANTI-NULL: A interrogação garante que não vai quebrar */}
                  {orderData?.status === TripState.DISPONIVEL && <div className="pointer-events-none absolute inset-0 z-10 animate-pulse bg-cyan-500/10 mix-blend-overlay"></div>}
                  <MapaCliente motoristaId={orderData?.motoristaId} />
               </div>
@@ -452,7 +456,7 @@ export default function Cliente() {
               <div className="rounded-[3rem] border border-cyan-500/20 bg-slate-900/90 p-8 md:p-10 shadow-[0_20px_50px_rgba(6,182,212,0.1)] backdrop-blur-xl relative overflow-hidden">
                 <div className="absolute left-0 right-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-50"></div>
                 
-                {/* Proteção contra Null no orderData */}
+                {/* PROTEÇÃO ANTI-NULL: Usando default se orderData não existir momentaneamente */}
                 {(!orderData || [TripState.AGUARDANDO_PAGAMENTO, TripState.DISPONIVEL, TripState.REDISPATCH, 'agendado'].includes(orderData?.status as any)) ? (
                   <div className="py-8 text-center">
                     <div className="relative mx-auto mb-10 h-28 w-28">
@@ -496,6 +500,7 @@ export default function Cliente() {
 
               <div className="space-y-4">
                 {orderData?.motoristaZap && <button onClick={handleWhatsAppClick} className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[1.5rem] bg-green-500 px-6 text-sm font-black uppercase tracking-[0.2em] text-slate-950 shadow-[0_15px_35px_rgba(34,197,94,0.3)] transition-all duration-300 hover:scale-[1.02] hover:bg-green-400 active:scale-95"><MessageCircle size={20} /> Chamar no WhatsApp</button>}
+                {/* PROTEÇÃO ANTI-NULL NO BOTÃO DE CANCELAR */}
                 {(!orderData || ![TripState.ENTREGUE, TripState.CANCELADO].includes(orderData?.status as any)) && (
                   <button onClick={() => setShowCancelModal(true)} disabled={isCancelling} className="flex min-h-[64px] w-full items-center justify-center gap-2 rounded-[1.5rem] border border-white/5 bg-slate-900/80 px-6 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 backdrop-blur-md transition-all hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400"><XCircle size={16} /> Cancelar Operação</button>
                 )}
@@ -514,6 +519,7 @@ export default function Cliente() {
         </div>
       )}
 
+      {/* MODAL DE CANCELAMENTO PREMIUM */}
       {showCancelModal && (
         <div className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/80 p-5 backdrop-blur-md animate-in fade-in duration-200">
           <div className="w-full max-w-md overflow-hidden rounded-[2.5rem] border border-red-500/20 bg-slate-900 p-10 text-center shadow-[0_20px_60px_rgba(239,68,68,0.15)] relative">
