@@ -64,7 +64,7 @@ export default function Motorista() {
 
   const initAudio = useCallback(() => {
     if (!audioRef.current) {
-      audioRef.current = new Audio('[https://actions.google.com/sounds/v1/alarms/beep_short.ogg](https://actions.google.com/sounds/v1/alarms/beep_short.ogg)');
+      audioRef.current = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
       audioRef.current.loop = true;
     }
     audioRef.current.play().then(() => { audioRef.current?.pause(); if (audioRef.current) audioRef.current.currentTime = 0; }).catch(() => {});
@@ -269,18 +269,18 @@ export default function Motorista() {
   );
 
   return (
-    <div className="relative min-h-screen w-full bg-[#020617] text-slate-200 font-sans overflow-x-hidden selection:bg-cyan-500/30">
+    <div className="relative min-h-screen w-full bg-[#020617] text-slate-200 font-sans overflow-x-hidden selection:bg-cyan-500/30 pb-32">
       
       {/* BACKGROUND PREMIUM */}
-      <div className="pointer-events-none fixed inset-0 z-0">
+      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#0f172a] via-[#020617] to-[#020617]"></div>
-        <div className="absolute left-[-10%] top-[-5%] h-[40rem] w-[40rem] rounded-full bg-cyan-600/15 blur-[140px] mix-blend-screen" />
-        <div className="absolute right-[-10%] top-[10%] h-[35rem] w-[35rem] rounded-full bg-blue-600/15 blur-[160px] mix-blend-screen" />
+        <div className="absolute left-[-10%] top-[-5%] h-[40rem] w-[40rem] rounded-full bg-cyan-600/15 blur-[150px] mix-blend-screen" />
+        <div className="absolute right-[-10%] top-[10%] h-[35rem] w-[35rem] rounded-full bg-blue-600/15 blur-[150px] mix-blend-screen" />
       </div>
 
       {/* NAVBAR */}
       <header className="relative z-50 w-full border-b border-white/5 bg-slate-950/80 backdrop-blur-xl">
-        <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
+        <nav className="mx-auto flex w-full max-w-[1400px] items-center justify-between px-6 py-4 lg:px-8">
           <div className="flex items-center gap-4">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-500/20 bg-cyan-500/10">
               <Zap className="h-6 w-6 text-cyan-400 fill-cyan-400 drop-shadow-[0_0_12px_rgba(6,182,212,0.6)]" />
@@ -396,7 +396,7 @@ export default function Motorista() {
             </div>
             <h2 className="mb-4 text-3xl font-black uppercase italic tracking-tight text-white">Em Análise</h2>
             <p className="mb-10 text-sm font-medium leading-relaxed text-slate-400">Sua conta está sendo validada pelo time de segurança. Esse processo garante cargas seguras para todos os parceiros na plataforma.</p>
-            <a href="[https://chat.whatsapp.com/IGylgsZPYhsDfMZDKzVjHT](https://chat.whatsapp.com/IGylgsZPYhsDfMZDKzVjHT)" target="_blank" rel="noreferrer" className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[1.5rem] bg-green-500 px-6 py-5 text-[14px] font-black uppercase tracking-[0.2em] text-slate-950 shadow-[0_15px_40px_rgba(34,197,94,0.3)] transition-all hover:scale-[1.02] active:scale-95">
+            <a href="https://chat.whatsapp.com/IGylgsZPYhsDfMZDKzVjHT" target="_blank" rel="noreferrer" className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[1.5rem] bg-green-500 px-6 py-5 text-[14px] font-black uppercase tracking-[0.2em] text-slate-950 shadow-[0_15px_40px_rgba(34,197,94,0.3)] transition-all hover:scale-[1.02] active:scale-95">
               Entrar no Grupo VIP
             </a>
           </div>
