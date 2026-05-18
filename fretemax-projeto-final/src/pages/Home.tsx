@@ -15,36 +15,35 @@ export default function Home() {
 
   const benefits = [
     {
-      icon: <Zap className="h-6 w-6 text-yellow-400 drop-shadow-[0_0_10px_rgba(250,204,21,0.6)]" />,
+      icon: <Zap className="h-7 w-7 text-yellow-400 drop-shadow-[0_0_12px_rgba(250,204,21,0.8)]" />,
       title: 'Agilidade',
       description: 'Match inteligente em menos de 1 minuto.',
     },
     {
-      icon: <ShieldCheck className="h-6 w-6 text-green-400 drop-shadow-[0_0_10px_rgba(74,222,128,0.6)]" />,
+      icon: <ShieldCheck className="h-7 w-7 text-green-400 drop-shadow-[0_0_12px_rgba(74,222,128,0.8)]" />,
       title: 'Segurança',
       description: '100% dos motoristas com CNH validada.',
     },
     {
-      icon: <MapPin className="h-6 w-6 text-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,0.6)]" />,
+      icon: <MapPin className="h-7 w-7 text-cyan-400 drop-shadow-[0_0_12px_rgba(34,211,238,0.8)]" />,
       title: 'Radar Vivo',
       description: 'Rastreamento ponta a ponta realtime.',
     },
     {
-      icon: <Star className="h-6 w-6 text-orange-400 drop-shadow-[0_0_10px_rgba(251,146,60,0.6)]" />,
+      icon: <Star className="h-7 w-7 text-orange-400 drop-shadow-[0_0_12px_rgba(251,146,60,0.8)]" />,
       title: 'Zero Taxa',
       description: 'Plataforma sem mensalidades escondidas.',
     },
   ];
 
   return (
-    <div className="relative w-full min-h-screen bg-[#020617] text-white flex flex-col">
+    <div className="relative w-full min-h-screen bg-[#020617] text-white flex flex-col overflow-x-hidden selection:bg-cyan-500/30">
 
       {/* =====================================================
           BACKGROUND SYSTEM (CINEMATIC)
       ===================================================== */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden z-0">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#0f172a] via-[#020617] to-[#020617]"></div>
-        {/* Glows mais abertos e centralizados para dar profundidade sem borrar */}
         <div className="absolute left-[-15%] top-[-5%] h-[55rem] w-[55rem] rounded-full bg-cyan-600/20 blur-[160px] mix-blend-screen" />
         <div className="absolute right-[-10%] top-[15%] h-[45rem] w-[45rem] rounded-full bg-blue-600/20 blur-[180px] mix-blend-screen" />
         <div className="absolute bottom-[-10%] left-[20%] h-[35rem] w-[65rem] rounded-full bg-cyan-400/10 blur-[140px] mix-blend-screen" />
@@ -96,7 +95,7 @@ export default function Home() {
         className="fixed bottom-6 right-6 z-[100] rounded-full bg-[#25D366] p-4 shadow-[0_10px_35px_rgba(37,211,102,0.4)] hover:bg-[#20bd5a] hover:scale-110 active:scale-95 transition-all duration-300 group"
       >
         <svg viewBox="0 0 24 24" className="h-8 w-8 fill-white group-hover:animate-pulse">
-          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487" />
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207" />
         </svg>
       </a>
 
@@ -160,35 +159,35 @@ export default function Home() {
               </span>
             </p>
 
-            {/* Call To Actions (Mobile Stack / Desktop Row) */}
+            {/* AQUI ESTÁ A CORREÇÃO DOS BOTÕES FEIOS E ESPREMIDOS */}
             <div className="mt-12 flex w-full flex-col gap-5 sm:flex-row sm:flex-wrap">
               <Link
                 to="/contratar"
-                className="group flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[1.25rem] bg-cyan-500 px-10 py-5 text-[15px] font-black uppercase italic tracking-widest text-slate-950 shadow-[0_15px_40px_rgba(6,182,212,0.4)] transition-all duration-300 hover:scale-[1.02] hover:bg-cyan-400 active:scale-95 sm:w-auto"
+                className="group flex w-full min-h-[76px] flex-1 items-center justify-center gap-3 rounded-[1.25rem] bg-cyan-500 px-10 py-5 text-[15px] font-black uppercase italic tracking-widest text-slate-950 shadow-[0_15px_40px_rgba(6,182,212,0.4)] transition-all duration-300 hover:scale-[1.02] hover:bg-cyan-400 active:scale-95 sm:w-auto"
               >
                 Contratar Frete
-                <ChevronRight size={20} className="transition-transform duration-300 group-hover:translate-x-1.5" />
+                <ChevronRight size={22} className="transition-transform duration-300 group-hover:translate-x-1.5" />
               </Link>
 
               <Link
                 to="/parceiros"
-                className="flex min-h-[72px] w-full items-center justify-center rounded-[1.25rem] border border-slate-600 bg-slate-800/60 px-10 py-5 text-[15px] font-black uppercase italic tracking-widest text-white backdrop-blur-md shadow-[0_10px_30px_rgba(0,0,0,0.4)] transition-all duration-300 hover:border-slate-500 hover:bg-slate-700 sm:w-auto"
+                className="flex w-full min-h-[76px] flex-1 items-center justify-center rounded-[1.25rem] border border-slate-600 bg-slate-800/60 px-10 py-5 text-[15px] font-black uppercase italic tracking-widest text-white backdrop-blur-md shadow-[0_10px_30px_rgba(0,0,0,0.4)] transition-all duration-300 hover:border-slate-500 hover:bg-slate-700 sm:w-auto"
               >
                 Ser Motorista
               </Link>
 
               <button
                 onClick={() => setShowModal(true)}
-                className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[1.25rem] bg-yellow-400 px-10 py-5 text-[15px] font-black uppercase italic tracking-widest text-slate-950 shadow-[0_15px_35px_rgba(250,204,21,0.35)] transition-all duration-300 hover:scale-[1.02] hover:bg-yellow-300 active:scale-95 sm:w-auto"
+                className="flex w-full min-h-[76px] items-center justify-center gap-3 rounded-[1.25rem] bg-yellow-400 px-10 py-5 text-[15px] font-black uppercase italic tracking-widest text-slate-950 shadow-[0_15px_35px_rgba(250,204,21,0.35)] transition-all duration-300 hover:scale-[1.02] hover:bg-yellow-300 active:scale-95 sm:w-auto"
               >
-                <Download size={20} />
+                <Download size={22} />
                 Baixar App
               </button>
             </div>
           </div>
 
           {/* =================== RIGHT COLUMN =================== */}
-          <div className="relative flex w-full items-center justify-center lg:justify-self-end mt-8 lg:mt-0">
+          <div className="relative flex w-full items-center justify-center lg:justify-self-end mt-12 lg:mt-0">
             
             {/* Box do Celular */}
             <div className="relative w-full max-w-[320px] lg:max-w-[340px] aspect-[9/16] shrink-0 overflow-hidden rounded-[3rem] border-[6px] border-slate-800/80 bg-slate-950 shadow-[0_30px_80px_rgba(0,0,0,0.9),0_0_50px_rgba(6,182,212,0.2)] backdrop-blur-sm gpu-accelerated">
@@ -236,7 +235,7 @@ export default function Home() {
       </main>
 
       {/* =====================================================
-          BENEFITS SECTION (CORRIGIDO: DISTRIBUIÇÃO E WIDTH)
+          BENEFITS SECTION 
       ===================================================== */}
       <section className="relative z-20 w-full mt-auto">
         <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm pointer-events-none" />
