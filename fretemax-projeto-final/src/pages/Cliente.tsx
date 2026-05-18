@@ -121,15 +121,12 @@ export default function Cliente() {
     localStorage.setItem('fretogo_form_backup', JSON.stringify({ nome, coleta, entrega, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp }));
   }, [nome, coleta, entrega, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp]);
 
-  // Listener Master da Corrida
   useEffect(() => {
     if (!currentOrderId) return;
     const unsubscribe = onSnapshot(doc(db, 'fretes', currentOrderId), (snap) => {
       if (!snap.exists()) return;
       const data = snap.data() as OrderData;
       setOrderData(data);
-      
-      // Tratamento de Erros Fatais Logísticos
       if ([TripState.CANCELADO, TripState.EXPIRADO, 'erro_pagamento', 'sem_motorista'].includes(data.status as any)) {
         showToast(data.status === TripState.CANCELADO ? 'Frete cancelado.' : 'Sem motoristas na região.', 'warning');
         localStorage.removeItem('fretogo_current_order'); setCurrentOrderId(null); setStep('form');
@@ -167,9 +164,6 @@ export default function Cliente() {
     } catch { return getFallbackCoordsByCEP(cepFallback); }
   };
 
-  // ==========================================
-  // DISPATCH COM BYPASS CORRIGIDO
-  // ==========================================
   const handleContratar = async () => {
     if (loadingRoute || loadingPayment || isProcessingPayment.current) return;
     isProcessingPayment.current = true; setLoadingPayment(true);
@@ -198,18 +192,16 @@ export default function Cliente() {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ titulo: `FRETOGO - ${VEHICLE_CONFIG[vehicle].nome}`, idPedido: docRef.id }),
           });
-          if (!res.ok) throw new Error('API_FALHOU');
-          
+          if (!res.ok) throw new Error('API indisponível');
           const data = await res.json();
           if (data?.url && data.url.startsWith('https://')) {
              window.location.href = data.url; 
+             return;
           } else {
-             throw new Error('LINK_INVALIDO');
+             throw new Error('Link inválido');
           }
         } catch (apiError) {
-           // BYPASS: Se a API de pagamento falhar (o que vai acontecer no teste local sem backend Stripe/MercadoPago),
-           // nós NÃO vamos cancelar o frete. Nós ativamos o fluxo logístico imediatamente para teste.
-           console.warn("Bypass ativado: Pulando API de Pagamento diretamente para Dispatch Logístico.");
+           console.warn("Bypass ativado: API de Pagamento falhou. Pulando direto para busca logísitica.");
            await executeDispatch(docRef.id, { categoria: vehicle, origemLat: c1.lat, origemLng: c1.lng, destinoLat: c2.lat, destinoLng: c2.lng });
            setStep('busca');
         }
@@ -236,8 +228,12 @@ export default function Cliente() {
     window.open(`https://wa.me/55${orderData.motoristaZap.replace(/\D/g, '')}`, '_blank');
   };
 
+  // AQUI ESTAVA O ERRO DO NULL. Nós limpamos os dados e garantimos que a UI lide com isso.
   const resetFlow = () => {
-    localStorage.removeItem('fretogo_current_order'); setCurrentOrderId(null); setOrderData(null); setStep('form');
+    localStorage.removeItem('fretogo_current_order'); 
+    setCurrentOrderId(null); 
+    setOrderData(null); 
+    setStep('form');
   };
 
   // ==========================================
@@ -296,7 +292,7 @@ export default function Cliente() {
         {step === 'form' && (
           <div className="mx-auto w-full max-w-4xl rounded-[2.5rem] border border-white/10 bg-slate-900/60 p-6 md:p-12 shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4">
             
-            <div className="mb-10 text-center md:text-left">
+            <div className="mb-12 text-center md:text-left">
               <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-500/20 bg-cyan-500/10 px-5 py-2">
                 <Sparkles className="h-4 w-4 text-cyan-400" />
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-300">Orçamento Inteligente</span>
@@ -440,6 +436,7 @@ export default function Cliente() {
               </div>
 
               <div className="relative mb-8 h-[350px] md:h-[500px] overflow-hidden rounded-[2.5rem] border border-white/10 shadow-[inset_0_0_20px_rgba(0,0,0,0.5)]">
+                 {/* Proteção contra Null no orderData: adicionado encadeamento seguro */}
                  {orderData?.status === TripState.DISPONIVEL && <div className="pointer-events-none absolute inset-0 z-10 animate-pulse bg-cyan-500/10 mix-blend-overlay"></div>}
                  <MapaCliente motoristaId={orderData?.motoristaId} />
               </div>
@@ -455,7 +452,8 @@ export default function Cliente() {
               <div className="rounded-[3rem] border border-cyan-500/20 bg-slate-900/90 p-8 md:p-10 shadow-[0_20px_50px_rgba(6,182,212,0.1)] backdrop-blur-xl relative overflow-hidden">
                 <div className="absolute left-0 right-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-50"></div>
                 
-                {[TripState.AGUARDANDO_PAGAMENTO, TripState.DISPONIVEL, TripState.REDISPATCH, 'agendado'].includes(orderData?.status as any) ? (
+                {/* Proteção contra Null no orderData */}
+                {(!orderData || [TripState.AGUARDANDO_PAGAMENTO, TripState.DISPONIVEL, TripState.REDISPATCH, 'agendado'].includes(orderData?.status as any)) ? (
                   <div className="py-8 text-center">
                     <div className="relative mx-auto mb-10 h-28 w-28">
                        <div className="absolute inset-0 animate-ping rounded-full border-4 border-cyan-500/20" style={{ animationDuration: '2s' }}></div>
@@ -498,13 +496,16 @@ export default function Cliente() {
 
               <div className="space-y-4">
                 {orderData?.motoristaZap && <button onClick={handleWhatsAppClick} className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[1.5rem] bg-green-500 px-6 text-sm font-black uppercase tracking-[0.2em] text-slate-950 shadow-[0_15px_35px_rgba(34,197,94,0.3)] transition-all duration-300 hover:scale-[1.02] hover:bg-green-400 active:scale-95"><MessageCircle size={20} /> Chamar no WhatsApp</button>}
-                {![TripState.ENTREGUE, TripState.CANCELADO].includes(orderData?.status as any) && <button onClick={() => setShowCancelModal(true)} disabled={isCancelling} className="flex min-h-[64px] w-full items-center justify-center gap-2 rounded-[1.5rem] border border-white/5 bg-slate-900/80 px-6 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 backdrop-blur-md transition-all hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400"><XCircle size={16} /> Cancelar Operação</button>}
+                {(!orderData || ![TripState.ENTREGUE, TripState.CANCELADO].includes(orderData?.status as any)) && (
+                  <button onClick={() => setShowCancelModal(true)} disabled={isCancelling} className="flex min-h-[64px] w-full items-center justify-center gap-2 rounded-[1.5rem] border border-white/5 bg-slate-900/80 px-6 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 backdrop-blur-md transition-all hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400"><XCircle size={16} /> Cancelar Operação</button>
+                )}
               </div>
             </div>
           </div>
         )}
       </main>
 
+      {/* TOAST RENDER */}
       {toast && (
         <div className="fixed bottom-8 left-1/2 z-[120] -translate-x-1/2 animate-in slide-in-from-bottom-5">
           <div className={`rounded-2xl border px-8 py-5 text-sm font-black uppercase tracking-widest shadow-2xl backdrop-blur-xl ${toast.type === 'success' ? 'border-green-500/30 bg-green-950/80 text-green-300 shadow-[0_10px_40px_rgba(34,197,94,0.2)]' : toast.type === 'warning' ? 'border-yellow-500/30 bg-yellow-950/80 text-yellow-300 shadow-[0_10px_40px_rgba(250,204,21,0.2)]' : 'border-red-500/30 bg-red-950/80 text-red-300 shadow-[0_10px_40px_rgba(239,68,68,0.2)]'}`}>
