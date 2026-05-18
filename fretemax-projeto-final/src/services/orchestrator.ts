@@ -3,7 +3,6 @@ import { doc, runTransaction, serverTimestamp, updateDoc, arrayRemove, getDoc, c
 import { db } from '../firebase';
 import { TripState } from '../state/tripStateMachine';
 
-// Interfaces de suporte
 export interface MatchCriteria {
   categoria: string;
   origemLat: number;
@@ -47,7 +46,7 @@ export const buildIntelligentQueue = async (criteria: MatchCriteria): Promise<st
       const dist = calcularDistanciaKm(criteria.origemLat, criteria.origemLng, driver.lat, driver.lng);
       if (dist > 50) return; // Hard Limit 50km
 
-      const score = calculateMatchScore(dist, driver.taxaAceite, driver.score);
+      const score = calculateMatchScore(dist, driver.taxaAceite || 1, driver.score || 5);
       scoredDrivers.push({ uid: docSnap.id, score });
     });
 
@@ -56,6 +55,54 @@ export const buildIntelligentQueue = async (criteria: MatchCriteria): Promise<st
   } catch (e) {
     console.error("Match Engine Falhou: ", e);
     return [];
+  }
+};
+
+/**
+ * DISPATCHER AUTOMÁTICO
+ * Acionado quando o cliente paga, ou quando um Redispatch é necessário.
+ */
+export const executeDispatch = async (freteId: string, freteData: MatchCriteria) => {
+  try {
+    // 1. O Engine processa a fila de motoristas inteligentes
+    const newQueue = await buildIntelligentQueue(freteData);
+    
+    const freteRef = doc(db, 'fretes', freteId);
+
+    if (newQueue.length === 0) {
+      // Falha Crítica Logística: Sem parceiros na região
+      await updateDoc(freteRef, {
+        status: TripState.SEM_MOTORISTA,
+        updatedAt: serverTimestamp()
+      });
+      return false;
+    }
+
+    // 2. Transação Segura: Sobrescreve a fila no Firestore e ativa a Oferta
+    await runTransaction(db, async (t) => {
+      const snap = await t.get(freteRef);
+      if (!snap.exists()) throw new Error("Orphaned Order");
+      
+      const currentState = snap.data().status as TripState;
+      
+      // Só podemos dar dispatch se estiver disponivel, aguardando ou no estado efêmero de redispatch
+      if (![TripState.AGUARDANDO_PAGAMENTO, TripState.DISPONIVEL, TripState.REDISPATCH].includes(currentState)) {
+         throw new Error("Lock Operacional: Ordem já está em andamento.");
+      }
+
+      t.update(freteRef, {
+        status: TripState.DISPONIVEL,
+        filaMatching: newQueue,
+        ofertaTimestamp: serverTimestamp(), // Marca o início da corrida de 15 segundos
+        updatedAt: serverTimestamp()
+      });
+    });
+
+    return true;
+
+  } catch (e) {
+    console.error("Dispatcher Flow Error: ", e);
+    return false;
   }
 };
 
