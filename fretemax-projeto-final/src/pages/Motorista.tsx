@@ -295,7 +295,7 @@ export default function Motorista() {
       </header>
 
       {/* MAIN CONTENT WRAPPER - GARANTE A CENTRALIZAÇÃO EM TODOS OS DISPOSITIVOS */}
-      <main className="relative z-10 mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 py-8 pb-32 sm:px-6 lg:px-8">
+      <main className="relative z-10 mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 py-8 pb-32 sm:px-6 lg:px-8">
         
         {/* TOAST RENDER */}
         {toast && (
@@ -429,14 +429,14 @@ export default function Motorista() {
             {activeFrete.id && <div className="mt-8 border-t border-white/5 pt-8"><ChatFrete freteId={activeFrete.id} tipoUsuario="motorista" nome={driverData?.nome || "Motorista"} /></div>}
           </div>
         ) : (
-          <div className="mx-auto mt-10 max-w-md text-center">
+          <div className="mx-auto mt-10 flex w-full max-w-md flex-col items-center text-center">
             <button onClick={toggleStatus} className={`relative mx-auto mb-12 flex h-48 w-48 flex-col items-center justify-center rounded-full border-[6px] transition-all duration-300 hover:scale-[1.02] active:scale-95 ${isOnline ? 'border-cyan-400 bg-slate-950 shadow-[0_0_80px_rgba(6,182,212,0.25)]' : 'border-slate-800 bg-slate-900 shadow-xl'}`}>
               <Power className={`mb-3 h-14 w-14 ${isOnline ? 'text-cyan-400' : 'text-slate-600'}`} />
               <span className={`text-xs font-black uppercase tracking-[0.25em] ${isOnline ? 'text-cyan-400' : 'text-slate-600'}`}>{isOnline ? 'Online' : 'Offline'}</span>
             </button>
 
             {isOnline ? (
-              <div className="animate-in fade-in duration-500">
+              <div className="animate-in fade-in duration-500 w-full">
                 <h2 className="mb-3 text-3xl font-black uppercase italic tracking-tight text-white">Radar Ativo</h2>
                 <p className="mb-10 text-sm font-bold uppercase tracking-widest text-cyan-400 animate-pulse">{loadingMessage}</p>
                 <div className="rounded-[2rem] border border-white/10 bg-slate-900/60 p-8 text-left shadow-xl backdrop-blur-md">
