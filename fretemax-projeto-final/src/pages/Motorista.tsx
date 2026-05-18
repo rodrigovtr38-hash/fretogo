@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { auth, provider, db, storage } from '../firebase'; 
 import { signInWithPopup, signOut } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'; 
-import { collection, query, where, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp, updateDoc, runTransaction } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp, updateDoc, runTransaction, getDoc } from 'firebase/firestore';
 import { getMessaging, getToken } from 'firebase/messaging'; 
 import { Loader2, Truck, CheckCircle, Navigation, MapPin, AlertTriangle, ShieldCheck, Camera, Zap, Power, XCircle, Package, Download, Radar, DollarSign, Clock, MessageCircle, UserPlus } from 'lucide-react';
 import ChatFrete from '../components/ChatFrete';
@@ -13,7 +13,7 @@ import { triggerRedispatch } from '../services/orchestrator';
 
 interface Coords { lat: number; lng: number; }
 interface OrderData { id?: string; status: string; distancia?: number; veiculo: string; valorTotal?: number; valorMotorista?: number; enderecoColetaTexto?: string; enderecoEntregaTexto?: string; peso?: string; qtdVolumes?: string; tipoMaterial?: string; motoristaId?: string | null; motoristaNome?: string; motoristaZap?: string; filaMatching?: string[]; }
-interface DriverData { id?: string; nome: string; whatsapp: string; placa: string; categoria: string; status: 'pendente' | 'aprovado' | 'rejeitado'; score?: number; taxaAceite?: number; totalCorridas?: number; }
+interface DriverData { id?: string; nome?: string; whatsapp?: string; placa?: string; categoria?: string; status?: 'pendente' | 'aprovado' | 'rejeitado'; score?: number; taxaAceite?: number; totalCorridas?: number; }
 type VehicleType = 'moto' | 'carro_pequeno' | 'utilitario' | 'toco' | 'truck' | 'carreta_ls' | 'bi_trem_cegonha';
 
 const VEHICLE_CONFIG: Record<string, { nome: string; fator: number }> = {
@@ -205,14 +205,19 @@ export default function Motorista() {
     finally { setUploadingDocs(false); }
   };
 
+  // CORREÇÃO DA LÓGICA DE LOGIN: Só vai pro Radar se o documento tiver status válido
   useEffect(() => {
     let unsubCad: any; let unsubFretes: any;
     const unsubscribeAuth = auth.onAuthStateChanged((u) => {
       if (u) {
         setUser({ uid: u.uid, email: u.email });
         unsubCad = onSnapshot(doc(db, 'motoristas_cadastros', u.uid), (docSnap) => {
-          if (docSnap.exists()) { setDriverData({ id: docSnap.id, ...docSnap.data() } as DriverData); setFormStep(false); } 
-          else { setFormStep(true); }
+          if (docSnap.exists() && docSnap.data().status) { 
+            setDriverData({ id: docSnap.id, ...docSnap.data() } as DriverData); 
+            setFormStep(false); 
+          } else { 
+            setFormStep(true); 
+          }
           setCheckingDriver(false);
         });
         unsubFretes = onSnapshot(query(collection(db, 'fretes'), where('motoristaId', '==', u.uid)), (s) => {
@@ -268,7 +273,7 @@ export default function Motorista() {
   );
 
   return (
-    <div className="relative min-h-screen w-full overflow-x-hidden bg-[#020617] text-slate-200 font-sans selection:bg-cyan-500/30">
+    <div className="relative min-h-screen w-full bg-[#020617] text-slate-200 font-sans selection:bg-cyan-500/30 pb-32">
       
       {/* BACKGROUND PREMIUM */}
       <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
@@ -279,7 +284,7 @@ export default function Motorista() {
 
       {/* NAVBAR */}
       <header className="relative z-50 w-full border-b border-white/5 bg-slate-950/80 backdrop-blur-xl">
-        <nav className="mx-auto flex w-full max-w-[1400px] items-center justify-between px-6 py-4 lg:px-8">
+        <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
           <div className="flex items-center gap-4">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-500/20 bg-cyan-500/10">
               <Zap className="h-6 w-6 text-cyan-400 fill-cyan-400 drop-shadow-[0_0_12px_rgba(6,182,212,0.6)]" />
@@ -294,8 +299,8 @@ export default function Motorista() {
         </nav>
       </header>
 
-      {/* MAIN CONTENT WRAPPER - GARANTE A CENTRALIZAÇÃO EM TODOS OS DISPOSITIVOS */}
-      <main className="relative z-10 mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 py-8 pb-32 sm:px-6 lg:px-8">
+      {/* AQUI ESTÁ A CORREÇÃO: "block" e "mx-auto" sem "flex" que esmaga o layout */}
+      <main className="relative z-10 mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8 block">
         
         {/* TOAST RENDER */}
         {toast && (
@@ -429,14 +434,14 @@ export default function Motorista() {
             {activeFrete.id && <div className="mt-8 border-t border-white/5 pt-8"><ChatFrete freteId={activeFrete.id} tipoUsuario="motorista" nome={driverData?.nome || "Motorista"} /></div>}
           </div>
         ) : (
-          <div className="mx-auto mt-10 flex w-full max-w-md flex-col items-center text-center">
+          <div className="mx-auto mt-10 max-w-md text-center">
             <button onClick={toggleStatus} className={`relative mx-auto mb-12 flex h-48 w-48 flex-col items-center justify-center rounded-full border-[6px] transition-all duration-300 hover:scale-[1.02] active:scale-95 ${isOnline ? 'border-cyan-400 bg-slate-950 shadow-[0_0_80px_rgba(6,182,212,0.25)]' : 'border-slate-800 bg-slate-900 shadow-xl'}`}>
               <Power className={`mb-3 h-14 w-14 ${isOnline ? 'text-cyan-400' : 'text-slate-600'}`} />
               <span className={`text-xs font-black uppercase tracking-[0.25em] ${isOnline ? 'text-cyan-400' : 'text-slate-600'}`}>{isOnline ? 'Online' : 'Offline'}</span>
             </button>
 
             {isOnline ? (
-              <div className="animate-in fade-in duration-500 w-full">
+              <div className="animate-in fade-in duration-500">
                 <h2 className="mb-3 text-3xl font-black uppercase italic tracking-tight text-white">Radar Ativo</h2>
                 <p className="mb-10 text-sm font-bold uppercase tracking-widest text-cyan-400 animate-pulse">{loadingMessage}</p>
                 <div className="rounded-[2rem] border border-white/10 bg-slate-900/60 p-8 text-left shadow-xl backdrop-blur-md">
