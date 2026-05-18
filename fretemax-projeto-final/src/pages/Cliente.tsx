@@ -167,7 +167,6 @@ export default function Cliente() {
     } catch { return getFallbackCoordsByCEP(cepFallback); }
   };
 
-  // Dispatch Integrado ao Orchestrator com Bypass 
   const handleContratar = async () => {
     if (loadingRoute || loadingPayment || isProcessingPayment.current) return;
     isProcessingPayment.current = true; setLoadingPayment(true);
@@ -240,9 +239,6 @@ export default function Cliente() {
     setStep('form');
   };
 
-  // ==========================================
-  // UI RENDER (ENTERPRISE COCKPIT CENTRADO)
-  // ==========================================
   return (
     <div className="relative min-h-screen w-full flex flex-col bg-[#020617] text-slate-200 font-sans overflow-x-hidden selection:bg-cyan-500/30">
       
