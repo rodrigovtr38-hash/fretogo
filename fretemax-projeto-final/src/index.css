@@ -71,12 +71,7 @@ body {
 /* =========================================================
    TYPOGRAPHY
 ========================================================= */
-h1,
-h2,
-h3,
-h4,
-h5,
-h6 {
+h1, h2, h3, h4, h5, h6 {
   letter-spacing: -0.03em;
 }
 
@@ -89,18 +84,9 @@ p {
 ========================================================= */
 button,
 a {
-  transition-property:
-    transform,
-    opacity,
-    background-color,
-    border-color,
-    box-shadow;
-
+  transition-property: transform, opacity, background-color, border-color, box-shadow;
   transition-duration: 250ms;
-
-  transition-timing-function:
-    cubic-bezier(0.22, 1, 0.36, 1);
-
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform;
 }
 
@@ -114,9 +100,7 @@ a:active {
 ========================================================= */
 .gpu-accelerated {
   transform: translateZ(0);
-
   backface-visibility: hidden;
-
   perspective: 1000px;
 }
 
@@ -124,126 +108,63 @@ a:active {
    RADAR PULSE
 ========================================================= */
 @keyframes radarPulse {
-  0% {
-    transform: scale(0.92);
-    opacity: 0.45;
-  }
-
-  70% {
-    transform: scale(1.08);
-    opacity: 0;
-  }
-
-  100% {
-    transform: scale(1.12);
-    opacity: 0;
-  }
+  0% { transform: scale(0.92); opacity: 0.45; }
+  70% { transform: scale(1.08); opacity: 0; }
+  100% { transform: scale(1.12); opacity: 0; }
 }
 
 .radar-pulse {
-  animation:
-    radarPulse 2.8s
-    cubic-bezier(0.22, 1, 0.36, 1)
-    infinite;
+  animation: radarPulse 2.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
 }
 
 /* =========================================================
    SCROLLBAR SYSTEM
 ========================================================= */
-::-webkit-scrollbar {
-  width: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: #020617;
-}
-
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: #020617; }
 ::-webkit-scrollbar-thumb {
-  background:
-    rgba(34, 211, 238, 0.2);
-
+  background: rgba(34, 211, 238, 0.2);
   border-radius: 9999px;
-
   border: 2px solid #020617;
 }
-
-::-webkit-scrollbar-thumb:hover {
-  background:
-    rgba(34, 211, 238, 0.4);
-}
+::-webkit-scrollbar-thumb:hover { background: rgba(34, 211, 238, 0.4); }
 
 /* =========================================================
    GLASS CARD SYSTEM
 ========================================================= */
 .glass-card {
-  background:
-    linear-gradient(
-      180deg,
-      rgba(15, 23, 42, 0.82),
-      rgba(2, 6, 23, 0.92)
-    );
-
-  border:
-    1px solid
-    rgba(255, 255, 255, 0.08);
-
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.82), rgba(2, 6, 23, 0.92));
+  border: 1px solid rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-
   border-radius: 24px;
-
-  box-shadow:
-    0 20px 40px
-    rgba(0, 0, 0, 0.4);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
 }
 
 /* =========================================================
    TEXT GRADIENT
 ========================================================= */
 .text-gradient-cyan {
-  background:
-    linear-gradient(
-      90deg,
-      #67e8f9,
-      #06b6d4
-    );
-
+  background: linear-gradient(90deg, #67e8f9, #06b6d4);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-
   background-clip: text;
 }
 
 /* =========================================================
    SAFE AREA IOS
 ========================================================= */
-.safe-bottom {
-  padding-bottom:
-    env(safe-area-inset-bottom);
-}
-
-.safe-top {
-  padding-top:
-    env(safe-area-inset-top);
-}
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+.safe-top { padding-top: env(safe-area-inset-top); }
 
 /* =========================================================
    REDUCED MOTION
 ========================================================= */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration:
-      0.01ms !important;
-
-    animation-iteration-count:
-      1 !important;
-
-    transition-duration:
-      0.01ms !important;
-
-    scroll-behavior:
-      auto !important;
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
