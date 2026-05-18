@@ -229,8 +229,9 @@ export default function Cliente() {
   };
 
   return (
-    <div className="relative min-h-screen w-full flex flex-col bg-[#020617] text-slate-200 font-sans overflow-x-hidden selection:bg-cyan-500/30">
+    <div className="relative min-h-screen w-full bg-[#020617] text-slate-200 font-sans overflow-x-hidden selection:bg-cyan-500/30">
       
+      {/* BACKGROUND PREMIUM */}
       <div className="pointer-events-none fixed inset-0 z-0">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#0f172a] via-[#020617] to-[#020617]"></div>
         <div className="absolute left-[-10%] top-[-5%] h-[40rem] w-[40rem] rounded-full bg-cyan-600/15 blur-[140px] mix-blend-screen" />
@@ -245,14 +246,12 @@ export default function Cliente() {
         </div>
       </div>
 
+      {/* NAVBAR */}
       <header className="relative z-50 w-full border-b border-white/5 bg-slate-950/80 backdrop-blur-xl">
         <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
           <div className="flex items-center gap-4">
             <button
-              onClick={() => {
-                if (step === 'form') window.location.href = '/';
-                else resetFlow();
-              }}
+              onClick={() => { if (step === 'form') window.location.href = '/'; else resetFlow(); }}
               className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 transition-all duration-300 hover:bg-white/10 hover:border-white/20 hover:scale-105 active:scale-95"
             >
               <ArrowLeft size={20} className="text-slate-300" />
@@ -269,9 +268,13 @@ export default function Cliente() {
         </nav>
       </header>
 
+      {/* MAIN CONTENT WRAPPER - AQUI ESTÁ A CENTRALIZAÇÃO EM TELAS GRANDES */}
       <main className="relative z-10 w-full grid place-items-center px-4 py-8 pb-32 sm:px-6 lg:px-8">
         <div className="w-full max-w-7xl">
         
+          {/* =====================================================
+              STEP 1: FORMULÁRIO COMPLETO
+          ===================================================== */}
           {step === 'form' && (
             <div className="mx-auto w-full max-w-4xl rounded-[2.5rem] border border-white/10 bg-slate-900/60 p-6 md:p-12 shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4">
               
@@ -363,6 +366,9 @@ export default function Cliente() {
             </div>
           )}
 
+          {/* =====================================================
+              STEP 2: PREVIEW / RESUMO OPERACIONAL
+          ===================================================== */}
           {step === 'preview' && (
             <div className="grid w-full grid-cols-1 gap-8 animate-in fade-in zoom-in duration-500 xl:grid-cols-[1fr_420px]">
               <div className="rounded-[3rem] border border-white/10 bg-slate-900/80 p-6 md:p-10 shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur-xl">
@@ -398,6 +404,9 @@ export default function Cliente() {
             </div>
           )}
 
+          {/* =====================================================
+              STEP 3: BUSCA REALTIME (RADAR LOGÍSTICO VIVO)
+          ===================================================== */}
           {step === 'busca' && (
             <div className="grid w-full grid-cols-1 gap-8 animate-in slide-in-from-bottom-6 duration-500 xl:grid-cols-[1fr_420px]">
               <div className="relative overflow-hidden rounded-[3rem] border border-white/10 bg-slate-900/80 p-6 md:p-10 shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur-xl">
@@ -478,6 +487,7 @@ export default function Cliente() {
               </div>
             </div>
           )}
+
         </div>
       </main>
 
