@@ -78,7 +78,7 @@ export default function Home() {
 
       {/* NAVBAR */}
       <header className="relative z-30 w-full">
-        <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-6 lg:px-8">
+        <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
           <div className="flex items-center gap-3">
             <Zap className="h-8 w-8 fill-cyan-400 text-cyan-400 drop-shadow-[0_0_15px_rgba(6,182,212,0.6)]" />
             <span className="text-2xl font-black italic tracking-tighter text-white">FRETOGO</span>
@@ -92,11 +92,12 @@ export default function Home() {
 
       {/* HERO MAIN */}
       <main className="relative z-20 flex w-full flex-1 items-center justify-center">
-        <section className="mx-auto grid w-full max-w-7xl grid-cols-1 items-center justify-items-center gap-16 px-6 py-12 lg:grid-cols-[1.1fr_0.9fr] lg:gap-8 lg:py-24">
+        {/* Reduzi o padding vertical (py-8 em vez de py-12) para puxar tudo sutilmente para cima e dar espaço aos cards inferiores */}
+        <section className="mx-auto grid w-full max-w-7xl grid-cols-1 items-center justify-items-center gap-12 px-6 py-8 lg:grid-cols-[1.1fr_0.9fr] lg:gap-8 lg:py-16">
 
           {/* LEFT COLUMN */}
           <div className="flex w-full max-w-[620px] flex-col justify-center lg:justify-self-start">
-            <div className="mb-8 inline-flex w-fit items-center gap-3 rounded-full border border-cyan-500/20 bg-cyan-950/40 px-5 py-2.5 backdrop-blur-md shadow-[0_4px_25px_rgba(6,182,212,0.15)]">
+            <div className="mb-6 inline-flex w-fit items-center gap-3 rounded-full border border-cyan-500/20 bg-cyan-950/40 px-5 py-2.5 backdrop-blur-md shadow-[0_4px_25px_rgba(6,182,212,0.15)]">
               <span className="relative flex h-2.5 w-2.5">
                 <span className="absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75 animate-ping" />
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,1)]" />
@@ -109,18 +110,19 @@ export default function Home() {
               O MOTORISTA NA <span className="italic text-yellow-400 drop-shadow-[0_0_30px_rgba(250,204,21,0.5)]">PORTA</span>.
             </h1>
 
-            <p className="mt-8 max-w-[560px] text-lg font-medium leading-relaxed text-slate-300 drop-shadow-sm md:text-xl">
+            <p className="mt-6 max-w-[560px] text-lg font-medium leading-relaxed text-slate-300 drop-shadow-sm md:text-xl">
               A primeira plataforma de fretes autônoma com matching inteligente. Contrate em segundos e acompanhe tudo em tempo real.
-              <span className="mt-4 block text-xl font-bold text-white drop-shadow-md">Sem mensalidade. Sem burocracia.</span>
+              <span className="mt-3 block text-xl font-bold text-white drop-shadow-md">Sem mensalidade. Sem burocracia.</span>
             </p>
 
-            <div className="mt-12 flex w-full flex-col gap-4 sm:flex-row sm:flex-wrap">
+            <div className="mt-10 flex w-full flex-col gap-4 sm:flex-row sm:flex-wrap">
               <Link to="/contratar" className="group flex w-full min-h-[64px] sm:min-h-[72px] flex-1 items-center justify-center gap-2 sm:gap-3 rounded-[1.25rem] bg-cyan-500 px-4 sm:px-8 py-4 sm:py-5 text-sm sm:text-[15px] font-black uppercase italic tracking-widest text-slate-950 shadow-[0_15px_40px_rgba(6,182,212,0.4)] transition-all duration-300 hover:scale-[1.02] hover:bg-cyan-400 active:scale-95">
                 Contratar Frete
                 <ChevronRight size={20} className="transition-transform duration-300 group-hover:translate-x-1.5" />
               </Link>
 
-              <Link to="/parceiros" className="flex w-full min-h-[64px] sm:min-h-[72px] flex-1 items-center justify-center rounded-[1.25rem] border border-slate-600 bg-slate-800/60 px-4 sm:px-8 py-4 sm:py-5 text-sm sm:text-[15px] font-black uppercase italic tracking-widest text-white backdrop-blur-md shadow-[0_10px_30px_rgba(0,0,0,0.4)] transition-all duration-300 hover:border-slate-500 hover:bg-slate-700">
+              {/* BOTÃO MOTORISTA AGORA É CIANO TAMBÉM */}
+              <Link to="/parceiros" className="flex w-full min-h-[64px] sm:min-h-[72px] flex-1 items-center justify-center rounded-[1.25rem] bg-cyan-500 px-4 sm:px-8 py-4 sm:py-5 text-sm sm:text-[15px] font-black uppercase italic tracking-widest text-slate-950 shadow-[0_15px_40px_rgba(6,182,212,0.4)] transition-all duration-300 hover:scale-[1.02] hover:bg-cyan-400 active:scale-95">
                 Ser Motorista
               </Link>
 
@@ -165,18 +167,18 @@ export default function Home() {
         </section>
       </main>
 
-      {/* BENEFITS SECTION */}
+      {/* BENEFITS SECTION - Reduzi os py para ficar mais integrado e visível */}
       <section className="relative z-20 w-full mt-auto">
         <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm pointer-events-none" />
-        <div className="relative border-t border-white/10 px-6 py-16 w-full flex flex-col items-center">
+        <div className="relative border-t border-white/10 px-6 py-10 w-full flex flex-col items-center">
           <div className="w-full max-w-7xl grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8 mx-auto">
             {benefits.map((item, index) => (
-              <div key={index} className="group flex flex-col items-center sm:items-start gap-5 rounded-[2rem] border border-white/5 bg-slate-900/40 p-8 shadow-[0_15px_40px_rgba(0,0,0,0.3)] backdrop-blur-md transition-all duration-300 hover:border-cyan-500/40 hover:bg-slate-900/80 hover:shadow-[0_15px_50px_rgba(6,182,212,0.15)] text-center sm:text-left w-full">
+              <div key={index} className="group flex flex-col items-center sm:items-start gap-4 rounded-[2rem] border border-white/5 bg-slate-900/40 p-6 shadow-[0_15px_40px_rgba(0,0,0,0.3)] backdrop-blur-md transition-all duration-300 hover:border-cyan-500/40 hover:bg-slate-900/80 hover:shadow-[0_15px_50px_rgba(6,182,212,0.15)] text-center sm:text-left w-full">
                 <div className="shrink-0 rounded-2xl border border-white/10 bg-slate-950 p-4 shadow-inner transition-transform duration-300 group-hover:scale-110">
                   {item.icon}
                 </div>
                 <div className="flex flex-col">
-                  <h3 className="mb-2 text-lg font-black uppercase italic tracking-wide text-white transition-colors group-hover:text-cyan-50">{item.title}</h3>
+                  <h3 className="mb-1 text-lg font-black uppercase italic tracking-wide text-white transition-colors group-hover:text-cyan-50">{item.title}</h3>
                   <p className="text-sm font-medium leading-relaxed text-slate-400">{item.description}</p>
                 </div>
               </div>
