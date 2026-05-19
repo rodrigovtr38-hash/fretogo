@@ -56,14 +56,14 @@ export default function Home() {
         </div>
       </div>
 
-      {/* MODAL */}
+      {/* MODAL PWA */}
       {showModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/80 p-5 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="glass-card relative w-full max-w-sm overflow-hidden p-10 text-center shadow-[0_0_60px_rgba(250,204,21,0.15)] border-yellow-400/20">
-            <div className="absolute left-0 top-0 h-[2px] w-full bg-gradient-to-r from-transparent via-yellow-400 to-transparent" />
-            <Download className="mx-auto mb-6 h-16 w-16 text-yellow-400 drop-shadow-[0_0_15px_rgba(250,204,21,0.5)]" />
+          <div className="glass-card relative w-full max-w-sm overflow-hidden p-10 text-center shadow-[0_0_60px_rgba(255,255,255,0.1)] border-white/20">
+            <div className="absolute left-0 top-0 h-[2px] w-full bg-gradient-to-r from-transparent via-white to-transparent" />
+            <Download className="mx-auto mb-6 h-16 w-16 text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]" />
             <h3 className="mb-3 text-2xl font-black uppercase italic tracking-tight text-white">App Em Breve</h3>
-            <p className="mb-8 text-sm leading-relaxed text-slate-300 font-medium">O aplicativo oficial da FRETOGO está sendo publicado nas lojas. Enquanto isso, você já pode usar o sistema completo pelo navegador.</p>
+            <p className="mb-8 text-sm leading-relaxed text-slate-300 font-medium">O aplicativo oficial da FRETOGO está sendo publicado nas lojas. Se o seu navegador permitir, a opção de instalar já deve estar aparecendo na tela.</p>
             <button onClick={() => setShowModal(false)} className="w-full rounded-[1.25rem] bg-cyan-500 px-6 py-4 text-sm font-black uppercase tracking-widest text-slate-950 shadow-[0_0_25px_rgba(6,182,212,0.35)] hover:bg-cyan-400 hover:scale-[1.02] active:scale-95 transition-all">Entendi</button>
           </div>
         </div>
@@ -114,7 +114,6 @@ export default function Home() {
               <span className="mt-4 block text-xl font-bold text-white drop-shadow-md">Sem mensalidade. Sem burocracia.</span>
             </p>
 
-            {/* BOTÕES AJUSTADOS: Menos padding (px-4) no mobile, mais espaço no desktop (sm:px-8) */}
             <div className="mt-12 flex w-full flex-col gap-4 sm:flex-row sm:flex-wrap">
               <Link to="/contratar" className="group flex w-full min-h-[64px] sm:min-h-[72px] flex-1 items-center justify-center gap-2 sm:gap-3 rounded-[1.25rem] bg-cyan-500 px-4 sm:px-8 py-4 sm:py-5 text-sm sm:text-[15px] font-black uppercase italic tracking-widest text-slate-950 shadow-[0_15px_40px_rgba(6,182,212,0.4)] transition-all duration-300 hover:scale-[1.02] hover:bg-cyan-400 active:scale-95">
                 Contratar Frete
@@ -125,8 +124,9 @@ export default function Home() {
                 Ser Motorista
               </Link>
 
-              <button onClick={() => setShowModal(true)} className="flex w-full min-h-[64px] sm:min-h-[72px] items-center justify-center gap-2 sm:gap-3 rounded-[1.25rem] bg-yellow-400 px-4 sm:px-8 py-4 sm:py-5 text-sm sm:text-[15px] font-black uppercase italic tracking-widest text-slate-950 shadow-[0_15px_35px_rgba(250,204,21,0.35)] transition-all duration-300 hover:scale-[1.02] hover:bg-yellow-300 active:scale-95">
-                <Download size={20} />
+              {/* BOTÃO PWA BRANCO */}
+              <button onClick={() => setShowModal(true)} className="flex w-full min-h-[64px] sm:min-h-[72px] items-center justify-center gap-2 sm:gap-3 rounded-[1.25rem] bg-white px-4 sm:px-8 py-4 sm:py-5 text-sm sm:text-[15px] font-black uppercase italic tracking-widest text-black shadow-[0_15px_35px_rgba(255,255,255,0.2)] transition-all duration-300 hover:scale-[1.02] hover:bg-slate-200 active:scale-95">
+                <Download size={20} className="text-black" />
                 Baixar App
               </button>
             </div>
