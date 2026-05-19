@@ -47,12 +47,12 @@ export default function Home() {
         <div className="absolute bottom-[-10%] left-[20%] h-[35rem] w-[65rem] rounded-full bg-cyan-400/10 blur-[140px] mix-blend-screen" />
       </div>
 
-      {/* RADAR SYSTEM */}
+      {/* RADAR SYSTEM - CORRIGIDO O BUG DA ANIMAÇÃO TRAVADA NO TAILWIND V4 */}
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden z-0 opacity-60 mix-blend-screen">
         <div className="relative flex h-[1000px] w-[1000px] md:h-[1200px] md:w-[1200px] items-center justify-center gpu-accelerated overflow-hidden">
-          <div className="absolute inset-0 rounded-full border border-cyan-500/30 animate-[ping_6s_cubic-bezier(0,0,0.2,1)_infinite] shadow-[inset_0_0_40px_rgba(6,182,212,0.2),0_0_20px_rgba(6,182,212,0.1)] bg-cyan-500/5" />
-          <div className="absolute inset-[15%] rounded-full border border-cyan-400/25 animate-[ping_6s_cubic-bezier(0,0,0.2,1)_infinite] shadow-[inset_0_0_30px_rgba(6,182,212,0.2),0_0_15px_rgba(6,182,212,0.1)] bg-cyan-400/5" style={{ animationDelay: '1.5s' }} />
-          <div className="absolute inset-[30%] rounded-full border border-cyan-300/20 animate-[ping_6s_cubic-bezier(0,0,0.2,1)_infinite] shadow-[inset_0_0_20px_rgba(6,182,212,0.2),0_0_10px_rgba(6,182,212,0.1)] bg-cyan-300/5" style={{ animationDelay: '3s' }} />
+          <div className="absolute inset-0 rounded-full border border-cyan-500/30 animate-ping shadow-[inset_0_0_40px_rgba(6,182,212,0.2),0_0_20px_rgba(6,182,212,0.1)] bg-cyan-500/5" style={{ animationDuration: '6s' }} />
+          <div className="absolute inset-[15%] rounded-full border border-cyan-400/25 animate-ping shadow-[inset_0_0_30px_rgba(6,182,212,0.2),0_0_15px_rgba(6,182,212,0.1)] bg-cyan-400/5" style={{ animationDuration: '6s', animationDelay: '1.5s' }} />
+          <div className="absolute inset-[30%] rounded-full border border-cyan-300/20 animate-ping shadow-[inset_0_0_20px_rgba(6,182,212,0.2),0_0_10px_rgba(6,182,212,0.1)] bg-cyan-300/5" style={{ animationDuration: '6s', animationDelay: '3s' }} />
         </div>
       </div>
 
@@ -78,7 +78,7 @@ export default function Home() {
 
       {/* NAVBAR */}
       <header className="relative z-30 w-full">
-        <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
+        <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-6 lg:px-8">
           <div className="flex items-center gap-3">
             <Zap className="h-8 w-8 fill-cyan-400 text-cyan-400 drop-shadow-[0_0_15px_rgba(6,182,212,0.6)]" />
             <span className="text-2xl font-black italic tracking-tighter text-white">FRETOGO</span>
@@ -90,10 +90,9 @@ export default function Home() {
         </nav>
       </header>
 
-      {/* HERO MAIN */}
-      <main className="relative z-20 flex w-full flex-1 items-center justify-center">
-        {/* Reduzi o padding vertical (py-8 em vez de py-12) para puxar tudo sutilmente para cima e dar espaço aos cards inferiores */}
-        <section className="mx-auto grid w-full max-w-7xl grid-cols-1 items-center justify-items-center gap-12 px-6 py-8 lg:grid-cols-[1.1fr_0.9fr] lg:gap-8 lg:py-16">
+      {/* HERO MAIN - REMOVIDO "items-center" PARA NÃO CORTAR O RODAPÉ NO CELULAR */}
+      <main className="relative z-20 flex w-full flex-1 flex-col justify-center">
+        <section className="mx-auto grid w-full max-w-7xl grid-cols-1 items-center justify-items-center gap-12 px-6 py-10 lg:grid-cols-[1.1fr_0.9fr] lg:gap-8 lg:py-16">
 
           {/* LEFT COLUMN */}
           <div className="flex w-full max-w-[620px] flex-col justify-center lg:justify-self-start">
@@ -121,12 +120,12 @@ export default function Home() {
                 <ChevronRight size={20} className="transition-transform duration-300 group-hover:translate-x-1.5" />
               </Link>
 
-              {/* BOTÃO MOTORISTA AGORA É CIANO TAMBÉM */}
-              <Link to="/parceiros" className="flex w-full min-h-[64px] sm:min-h-[72px] flex-1 items-center justify-center rounded-[1.25rem] bg-cyan-500 px-4 sm:px-8 py-4 sm:py-5 text-sm sm:text-[15px] font-black uppercase italic tracking-widest text-slate-950 shadow-[0_15px_40px_rgba(6,182,212,0.4)] transition-all duration-300 hover:scale-[1.02] hover:bg-cyan-400 active:scale-95">
+              {/* BOTÃO MOTORISTA AGORA CIANO E NO MESMO TAMANHO */}
+              <Link to="/parceiros" className="flex w-full min-h-[64px] sm:min-h-[72px] flex-1 items-center justify-center gap-2 sm:gap-3 rounded-[1.25rem] bg-cyan-500 px-4 sm:px-8 py-4 sm:py-5 text-sm sm:text-[15px] font-black uppercase italic tracking-widest text-slate-950 shadow-[0_15px_40px_rgba(6,182,212,0.4)] transition-all duration-300 hover:scale-[1.02] hover:bg-cyan-400 active:scale-95">
                 Ser Motorista
               </Link>
 
-              {/* BOTÃO PWA BRANCO */}
+              {/* BOTÃO PWA TOTALMENTE BRANCO, TEXTO PRETO */}
               <button onClick={() => setShowModal(true)} className="flex w-full min-h-[64px] sm:min-h-[72px] items-center justify-center gap-2 sm:gap-3 rounded-[1.25rem] bg-white px-4 sm:px-8 py-4 sm:py-5 text-sm sm:text-[15px] font-black uppercase italic tracking-widest text-black shadow-[0_15px_35px_rgba(255,255,255,0.2)] transition-all duration-300 hover:scale-[1.02] hover:bg-slate-200 active:scale-95">
                 <Download size={20} className="text-black" />
                 Baixar App
@@ -140,8 +139,8 @@ export default function Home() {
               <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 via-transparent to-blue-500/10" />
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="relative h-48 w-48">
-                  <div className="absolute inset-0 rounded-full bg-cyan-500/15 animate-[ping_3s_cubic-bezier(0,0,0.2,1)_infinite]" />
-                  <div className="absolute inset-4 rounded-full bg-cyan-400/15 animate-[ping_3s_cubic-bezier(0,0,0.2,1)_infinite]" style={{ animationDelay: '0.8s' }} />
+                  <div className="absolute inset-0 rounded-full bg-cyan-500/15 animate-ping" style={{ animationDuration: '3s' }} />
+                  <div className="absolute inset-4 rounded-full bg-cyan-400/15 animate-ping" style={{ animationDuration: '3s', animationDelay: '0.8s' }} />
                 </div>
               </div>
               <div className="absolute left-1/2 top-1/2 z-20 w-[85%] -translate-x-1/2 -translate-y-1/2">
@@ -167,10 +166,10 @@ export default function Home() {
         </section>
       </main>
 
-      {/* BENEFITS SECTION - Reduzi os py para ficar mais integrado e visível */}
-      <section className="relative z-20 w-full mt-auto">
+      {/* BENEFITS SECTION - mt-auto garante que vá pro fundo da tela sem cortar */}
+      <section className="relative z-20 w-full mt-auto pb-10">
         <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm pointer-events-none" />
-        <div className="relative border-t border-white/10 px-6 py-10 w-full flex flex-col items-center">
+        <div className="relative border-t border-white/10 px-6 pt-12 pb-8 w-full flex flex-col items-center">
           <div className="w-full max-w-7xl grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8 mx-auto">
             {benefits.map((item, index) => (
               <div key={index} className="group flex flex-col items-center sm:items-start gap-4 rounded-[2rem] border border-white/5 bg-slate-900/40 p-6 shadow-[0_15px_40px_rgba(0,0,0,0.3)] backdrop-blur-md transition-all duration-300 hover:border-cyan-500/40 hover:bg-slate-900/80 hover:shadow-[0_15px_50px_rgba(6,182,212,0.15)] text-center sm:text-left w-full">
