@@ -36,7 +36,7 @@ export default function Motorista() {
   const [checkingDriver, setCheckingDriver] = useState(true);
   const [isOnline, setIsOnline] = useState(false); 
   const [backhaulDestino, setBackhaulDestino] = useState(''); 
-  const [showBackhaulInput, setShowBackhaulInput] = useState(false); // Lógica do filtro de destino
+  const [showBackhaulInput, setShowBackhaulInput] = useState(false); 
   const [comprovante, setComprovante] = useState<File | null>(null);
 
   const [form, setForm] = useState({ nome: '', whatsapp: '', placa: '', categoria: 'carro_pequeno' as VehicleType, cnh: '', renavam: '', cpf: '', cidadeEstado: '' });
@@ -191,7 +191,6 @@ export default function Motorista() {
   };
 
   const handleCadastro = async () => {
-    // VALIDAÇÃO CORRIGIDA: Agora checa form.renavam porque nós adicionamos o campo no HTML abaixo!
     if (!form.nome || !form.cpf || !form.cnh || !form.placa || !form.renavam || !form.whatsapp || !form.cidadeEstado || !docFile) {
       showToast("Preencha todos os campos e anexe a Selfie.", "warning"); return;
     }
@@ -297,7 +296,7 @@ export default function Motorista() {
         </nav>
       </header>
 
-      {/* CONTAINER PRINCIPAL CENTRALIZADO SEM FLEX QUEBRADO */}
+      {/* MAIN CONTAINER DA TELA DO MOTORISTA */}
       <main className="relative z-10 flex-1 mx-auto flex w-full max-w-7xl flex-col justify-center px-4 py-8 pb-32 sm:px-6 lg:px-8">
         
         {/* TOAST RENDER */}
@@ -360,7 +359,7 @@ export default function Motorista() {
             </div>
           </div>
         ) : formStep ? (
-          <div className="mx-auto w-full max-w-lg rounded-[2.5rem] border border-white/10 bg-slate-900/60 p-8 shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur-md">
+          <div className="mx-auto w-full max-w-xl rounded-[2.5rem] border border-white/10 bg-slate-900/60 p-8 shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur-md">
             <div className="mb-8 flex items-center justify-center gap-4 border-b border-slate-800 pb-6">
               <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/20 p-3">
                  <UserPlus className="h-8 w-8 text-cyan-400" />
@@ -373,7 +372,6 @@ export default function Motorista() {
               <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-base font-bold text-white outline-none transition-all placeholder:text-slate-600 focus:border-cyan-500/50" placeholder="Cidade/Estado" onChange={e => setForm({...form, cidadeEstado: e.target.value})} />
               <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-base font-bold text-white outline-none transition-all placeholder:text-slate-600 focus:border-cyan-500/50" placeholder="WhatsApp" onChange={e => setForm({...form, whatsapp: e.target.value})} />
               <div className="grid grid-cols-3 gap-4">
-                {/* CAMPO DE RENAVAM ADICIONADO PARA DESTRAVAR A VALIDAÇÃO DO FIREBASE */}
                 <input className="col-span-1 w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-base font-bold uppercase text-white outline-none transition-all placeholder:text-slate-600 focus:border-cyan-500/50" placeholder="Placa" onChange={e => setForm({...form, placa: e.target.value})} />
                 <input className="col-span-1 w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-base font-bold text-white outline-none transition-all placeholder:text-slate-600 focus:border-cyan-500/50" placeholder="RENAVAM" onChange={e => setForm({...form, renavam: e.target.value})} />
                 <input className="col-span-1 w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-base font-bold text-white outline-none transition-all placeholder:text-slate-600 focus:border-cyan-500/50" placeholder="CNH" onChange={e => setForm({...form, cnh: e.target.value})} />
