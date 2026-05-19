@@ -1,59 +1,19 @@
-import {
-  StrictMode,
-  Suspense,
-} from 'react';
-
-import {
-  createRoot,
-} from 'react-dom/client';
-
+import React from 'react';
+import ReactDOM from 'react-dom/client';
 import App from './App.tsx';
-
 import './index.css';
 
-import {
-  AlertTriangle,
-  Loader2,
-} from 'lucide-react';
-
-import {
-  Component,
-  type ReactNode,
-} from 'react';
-
-interface ErrorBoundaryProps {
-  children: ReactNode;
+// Registro do Service Worker para o PWA
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then((reg) => console.log('FRETOGO SW registrado:', reg.scope))
+      .catch((err) => console.log('FRETOGO SW falhou:', err));
+  });
 }
 
-interface ErrorBoundaryState {
-  hasError: boolean;
-}
-
-class ErrorBoundary extends Component<
-  ErrorBoundaryProps,
-  ErrorBoundaryState
-> {
-  constructor(
-    props: ErrorBoundaryProps,
-  ) {
-    super(props);
-
-    this.state = {
-      hasError: false,
-    };
-  }
-
-  static getDerivedStateFromError() {
-    return {
-      hasError: true,
-    };
-  }
-
-  componentDidCatch(
-    error: Error,
-    info: any,
-  ) {
-    console.error(
-      'FRETOGO_RUNTIME_ERROR',
-      error,
-}
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
