@@ -237,11 +237,12 @@ export default function Cliente() {
         <div className="absolute left-[-10%] top-[-5%] h-[40rem] w-[40rem] rounded-full bg-cyan-600/15 blur-[140px] mix-blend-screen" />
         <div className="absolute right-[-10%] top-[10%] h-[35rem] w-[35rem] rounded-full bg-blue-600/15 blur-[160px] mix-blend-screen" />
         
+        {/* Radar com animação fixada para Tailwind V4 */}
         <div className="absolute inset-0 flex items-center justify-center opacity-30 mix-blend-screen">
           <div className="relative flex h-[1000px] w-[1000px] lg:h-[1200px] lg:w-[1200px] items-center justify-center">
-            <div className="absolute inset-0 rounded-full border border-cyan-500/30 animate-[ping_6s_cubic-bezier(0,0,0.2,1)_infinite] shadow-[inset_0_0_40px_rgba(6,182,212,0.15)]" />
-            <div className="absolute inset-[15%] rounded-full border border-cyan-400/20 animate-[ping_6s_cubic-bezier(0,0,0.2,1)_infinite] shadow-[inset_0_0_30px_rgba(6,182,212,0.15)]" style={{ animationDelay: '2s' }} />
-            <div className="absolute inset-[30%] rounded-full border border-cyan-300/10 animate-[ping_6s_cubic-bezier(0,0,0.2,1)_infinite] shadow-[inset_0_0_20px_rgba(6,182,212,0.15)]" style={{ animationDelay: '4s' }} />
+            <div className="absolute inset-0 rounded-full border border-cyan-500/30 animate-ping shadow-[inset_0_0_40px_rgba(6,182,212,0.15)]" style={{ animationDuration: '6s' }} />
+            <div className="absolute inset-[15%] rounded-full border border-cyan-400/20 animate-ping shadow-[inset_0_0_30px_rgba(6,182,212,0.15)]" style={{ animationDuration: '6s', animationDelay: '2s' }} />
+            <div className="absolute inset-[30%] rounded-full border border-cyan-300/10 animate-ping shadow-[inset_0_0_20px_rgba(6,182,212,0.15)]" style={{ animationDuration: '6s', animationDelay: '4s' }} />
           </div>
         </div>
       </div>
@@ -265,15 +266,11 @@ export default function Cliente() {
         </nav>
       </header>
 
-      {/* ALINHAMENTO VERTICAL DEFINITIVO: 
-          min-h-[85vh] + content-center obriga as caixas a descerem para o MEIO vertical da tela,
-          evitando que fiquem coladas no topo. 
-      */}
-      <main className="relative z-10 mx-auto w-full max-w-7xl flex flex-col min-h-[85vh] justify-center px-4 py-8 pb-16 sm:px-6 lg:px-8">
+      {/* ALINHAMENTO HORIZONTAL CORRIGIDO: items-center GARANTE O CENTRO. */}
+      <main className="relative z-10 mx-auto flex w-full max-w-7xl flex-col items-center min-h-[85vh] justify-center px-4 py-8 pb-16 sm:px-6 lg:px-8">
         
         {step === 'form' && (
-          /* CAIXA AUMENTADA DE 4XL PARA 5XL PARA EVITAR O EFEITO "ESPREMIDO" NO DESKTOP E PADDINGS MAIORES */
-          <div className="mx-auto w-full max-w-5xl rounded-[2.5rem] border border-white/10 bg-slate-900/60 p-8 md:p-14 shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4">
+          <div className="w-full max-w-5xl rounded-[2.5rem] border border-white/10 bg-slate-900/60 p-8 md:p-14 shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4">
             <div className="mb-12 text-center md:text-left">
               <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-500/20 bg-cyan-500/10 px-5 py-2">
                 <Sparkles className="h-4 w-4 text-cyan-400" />
@@ -285,13 +282,12 @@ export default function Cliente() {
             </div>
 
             <div className="mb-10">
-              <h2 className="mb-4 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-400">
+              <h2 className="mb-4 flex items-center gap-2 text-[13px] font-black uppercase tracking-widest text-slate-400">
                 <User className="h-4 w-4 text-cyan-400" /> Contato Responsável
               </h2>
               <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-                {/* TEXTOS AUMENTADOS DE text-sm PARA text-base, E PADDINGS DE p-5 PARA p-6 */}
-                <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-6 text-base font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="Seu Nome Completo" value={nome} onChange={(e) => setNome(e.target.value)} />
-                <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-6 text-base font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="WhatsApp (DDD)" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
+                <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-[16px] font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="Seu Nome Completo" value={nome} onChange={(e) => setNome(e.target.value)} />
+                <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-[16px] font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="WhatsApp (DDD)" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
               </div>
             </div>
 
@@ -299,65 +295,66 @@ export default function Cliente() {
               <div className="absolute bottom-4 left-1/2 top-10 hidden w-px -translate-x-1/2 bg-white/10 lg:block"></div>
               
               <div className="space-y-5">
-                <h2 className="mb-3 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-400">
+                <h2 className="mb-3 flex items-center gap-2 text-[13px] font-black uppercase tracking-widest text-slate-400">
                   <MapPin className="h-4 w-4 text-blue-400" /> Endereço de Coleta
                 </h2>
                 <div className="grid grid-cols-3 gap-4">
-                  <input className="col-span-2 rounded-2xl border border-white/10 bg-slate-950/50 p-6 text-base font-bold text-white transition-all placeholder:text-slate-600 focus:border-blue-500/50 outline-none" placeholder="Rua da Retirada" value={coleta.rua} onChange={e => setColeta({...coleta, rua: e.target.value})} />
-                  <input className="col-span-1 rounded-2xl border border-white/10 bg-slate-950/50 p-6 text-base font-bold text-white transition-all placeholder:text-slate-600 focus:border-blue-500/50 outline-none" placeholder="Nº" value={coleta.num} onChange={e => setColeta({...coleta, num: e.target.value})} />
+                  <input className="col-span-2 rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-[16px] font-bold text-white transition-all placeholder:text-slate-600 focus:border-blue-500/50 outline-none" placeholder="Rua da Retirada" value={coleta.rua} onChange={e => setColeta({...coleta, rua: e.target.value})} />
+                  <input className="col-span-1 rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-[16px] font-bold text-white transition-all placeholder:text-slate-600 focus:border-blue-500/50 outline-none" placeholder="Nº" value={coleta.num} onChange={e => setColeta({...coleta, num: e.target.value})} />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <input className="rounded-2xl border border-white/10 bg-slate-950/50 p-6 text-base font-bold text-white transition-all placeholder:text-slate-600 focus:border-blue-500/50 outline-none" placeholder="Bairro" value={coleta.bairro} onChange={e => setColeta({...coleta, bairro: e.target.value})} />
-                  <input className="rounded-2xl border border-white/10 bg-slate-950/50 p-6 text-base font-bold text-white transition-all placeholder:text-slate-600 focus:border-blue-500/50 outline-none" placeholder="CEP" value={coleta.cep} onChange={e => setColeta({...coleta, cep: e.target.value})} />
+                  <input className="rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-[16px] font-bold text-white transition-all placeholder:text-slate-600 focus:border-blue-500/50 outline-none" placeholder="Bairro" value={coleta.bairro} onChange={e => setColeta({...coleta, bairro: e.target.value})} />
+                  <input className="rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-[16px] font-bold text-white transition-all placeholder:text-slate-600 focus:border-blue-500/50 outline-none" placeholder="CEP" value={coleta.cep} onChange={e => setColeta({...coleta, cep: e.target.value})} />
                 </div>
               </div>
 
               <div className="space-y-5">
-                <h2 className="mb-3 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-400">
+                <h2 className="mb-3 flex items-center gap-2 text-[13px] font-black uppercase tracking-widest text-slate-400">
                   <Truck className="h-4 w-4 text-green-400" /> Endereço de Destino
                 </h2>
                 <div className="grid grid-cols-3 gap-4">
-                  <input className="col-span-2 rounded-2xl border border-white/10 bg-slate-950/50 p-6 text-base font-bold text-white transition-all placeholder:text-slate-600 focus:border-green-500/50 outline-none" placeholder="Rua da Entrega" value={entrega.rua} onChange={e => setEntrega({...entrega, rua: e.target.value})} />
-                  <input className="col-span-1 rounded-2xl border border-white/10 bg-slate-950/50 p-6 text-base font-bold text-white transition-all placeholder:text-slate-600 focus:border-green-500/50 outline-none" placeholder="Nº" value={entrega.num} onChange={e => setEntrega({...entrega, num: e.target.value})} />
+                  <input className="col-span-2 rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-[16px] font-bold text-white transition-all placeholder:text-slate-600 focus:border-green-500/50 outline-none" placeholder="Rua da Entrega" value={entrega.rua} onChange={e => setEntrega({...entrega, rua: e.target.value})} />
+                  <input className="col-span-1 rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-[16px] font-bold text-white transition-all placeholder:text-slate-600 focus:border-green-500/50 outline-none" placeholder="Nº" value={entrega.num} onChange={e => setEntrega({...entrega, num: e.target.value})} />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <input className="rounded-2xl border border-white/10 bg-slate-950/50 p-6 text-base font-bold text-white transition-all placeholder:text-slate-600 focus:border-green-500/50 outline-none" placeholder="Bairro" value={entrega.bairro} onChange={e => setEntrega({...entrega, bairro: e.target.value})} />
-                  <input className="rounded-2xl border border-white/10 bg-slate-950/50 p-6 text-base font-bold text-white transition-all placeholder:text-slate-600 focus:border-green-500/50 outline-none" placeholder="CEP" value={entrega.cep} onChange={e => setEntrega({...entrega, cep: e.target.value})} />
+                  <input className="rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-[16px] font-bold text-white transition-all placeholder:text-slate-600 focus:border-green-500/50 outline-none" placeholder="Bairro" value={entrega.bairro} onChange={e => setEntrega({...entrega, bairro: e.target.value})} />
+                  <input className="rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-[16px] font-bold text-white transition-all placeholder:text-slate-600 focus:border-green-500/50 outline-none" placeholder="CEP" value={entrega.cep} onChange={e => setEntrega({...entrega, cep: e.target.value})} />
                 </div>
               </div>
             </div>
 
             <div className="mb-10 rounded-[2rem] border border-white/5 bg-slate-950/40 p-8 md:p-10 shadow-inner">
-              <h2 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-400">
+              <h2 className="mb-6 flex items-center gap-2 text-[13px] font-black uppercase tracking-widest text-slate-400">
                 <Package className="h-4 w-4 text-yellow-400" /> Especificações da Carga
               </h2>
               <div className="mb-8 grid grid-cols-1 gap-5 md:grid-cols-3">
-                <select className="col-span-1 cursor-pointer appearance-none rounded-2xl border border-white/10 bg-slate-950 p-6 text-base font-bold text-white outline-none focus:border-cyan-500/50 md:col-span-3 transition-colors" value={vehicle} onChange={e => setVehicle(e.target.value as VehicleType)}>
+                <select className="col-span-1 cursor-pointer appearance-none rounded-2xl border border-white/10 bg-slate-950 p-5 text-[16px] font-bold text-white outline-none focus:border-cyan-500/50 md:col-span-3 transition-colors" value={vehicle} onChange={e => setVehicle(e.target.value as VehicleType)}>
                   {Object.entries(VEHICLE_CONFIG).map(([key, conf]) => (<option key={key} value={key}>{conf.nome}</option>))}
                 </select>
-                <input className="rounded-2xl border border-white/10 bg-white/5 p-6 text-base font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="Peso (Ex: 200kg)" value={peso} onChange={e => setPeso(e.target.value)} />
-                <input className="rounded-2xl border border-white/10 bg-white/5 p-6 text-base font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="Qtd Volumes (Ex: 4 Cx)" value={qtdVolumes} onChange={e => setQtdVolumes(e.target.value)} />
-                <input className="rounded-2xl border border-white/10 bg-white/5 p-6 text-base font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="O que é? (Móveis)" value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)} />
+                <input className="rounded-2xl border border-white/10 bg-white/5 p-5 text-[16px] font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="Peso (Ex: 200kg)" value={peso} onChange={e => setPeso(e.target.value)} />
+                <input className="rounded-2xl border border-white/10 bg-white/5 p-5 text-[16px] font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="Qtd Volumes (Ex: 4 Cx)" value={qtdVolumes} onChange={e => setQtdVolumes(e.target.value)} />
+                <input className="rounded-2xl border border-white/10 bg-white/5 p-5 text-[16px] font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="O que é? (Móveis)" value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)} />
               </div>
               <div className="border-t border-white/5 pt-8">
                 <div className="mb-4 flex items-center gap-2"><CalendarDays className="h-4 w-4 text-purple-400" /><p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Horário da Coleta</p></div>
                 <div className="flex w-full max-w-md rounded-2xl border border-white/10 bg-slate-950 p-1.5 shadow-inner">
-                  <button onClick={() => setTipoFrete('imediato')} className={`flex-1 rounded-xl py-4 text-sm font-black uppercase tracking-wider transition-all ${tipoFrete === 'imediato' ? 'bg-cyan-500/20 text-cyan-400 shadow-sm' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>Imediato</button>
-                  <button onClick={() => setTipoFrete('agendado')} className={`flex-1 rounded-xl py-4 text-sm font-black uppercase tracking-wider transition-all ${tipoFrete === 'agendado' ? 'bg-purple-500/20 text-purple-400 shadow-sm' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>Agendar</button>
+                  <button onClick={() => setTipoFrete('imediato')} className={`flex-1 rounded-xl py-4 text-[14px] font-black uppercase tracking-wider transition-all ${tipoFrete === 'imediato' ? 'bg-cyan-500/20 text-cyan-400 shadow-sm' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>Imediato</button>
+                  <button onClick={() => setTipoFrete('agendado')} className={`flex-1 rounded-xl py-4 text-[14px] font-black uppercase tracking-wider transition-all ${tipoFrete === 'agendado' ? 'bg-purple-500/20 text-purple-400 shadow-sm' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>Agendar</button>
                 </div>
-                {tipoFrete === 'agendado' && <input type="datetime-local" className="mt-5 w-full max-w-md rounded-2xl border border-white/10 bg-slate-950 p-6 text-base font-bold text-white outline-none focus:border-purple-500/50 transition-colors" value={dataAgendada} onChange={(e) => setDataAgendada(e.target.value)} />}
+                {tipoFrete === 'agendado' && <input type="datetime-local" className="mt-5 w-full max-w-md rounded-2xl border border-white/10 bg-slate-950 p-5 text-[16px] font-bold text-white outline-none focus:border-purple-500/50 transition-colors" value={dataAgendada} onChange={(e) => setDataAgendada(e.target.value)} />}
               </div>
             </div>
 
             {!isFormValid && (
               <div className="mb-8 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-5 text-center shadow-inner">
-                <p className="flex items-center justify-center gap-2 text-xs font-black uppercase tracking-widest text-amber-400">
+                <p className="flex items-center justify-center gap-2 text-[13px] font-black uppercase tracking-widest text-amber-400">
                   <AlertTriangle size={18}/> Preencha todos os campos para prosseguir
                 </p>
               </div>
             )}
 
-            <button onClick={calcularDistanciaReal} disabled={loadingRoute || loadingPayment || !isFormValid} className={`flex w-full min-h-[80px] items-center justify-center gap-3 rounded-[1.5rem] text-[16px] font-black uppercase italic tracking-[0.2em] transition-all duration-300 ${!isFormValid ? 'cursor-not-allowed bg-slate-800 text-slate-600' : 'bg-cyan-500 text-slate-950 shadow-[0_15px_40px_rgba(6,182,212,0.35)] hover:scale-[1.02] hover:bg-cyan-400 active:scale-95'}`}>
+            {/* BOTÃO REDUZIDO PARA UMA ALTURA PROFISSIONAL */}
+            <button onClick={calcularDistanciaReal} disabled={loadingRoute || loadingPayment || !isFormValid} className={`flex w-full min-h-[64px] items-center justify-center gap-3 rounded-[1.25rem] py-4 text-[15px] font-black uppercase italic tracking-[0.2em] transition-all duration-300 ${!isFormValid ? 'cursor-not-allowed bg-slate-800 text-slate-600' : 'bg-cyan-500 text-slate-950 shadow-[0_15px_40px_rgba(6,182,212,0.35)] hover:scale-[1.02] hover:bg-cyan-400 active:scale-95'}`}>
               {loadingRoute ? <><Loader2 className="h-6 w-6 animate-spin"/> Mapeando Rota Segura...</> : <><Zap size={22}/> Calcular Frete</>}
             </button>
           </div>
@@ -391,8 +388,8 @@ export default function Cliente() {
               </div>
 
               <div className="mt-auto space-y-4">
-                <button onClick={handleContratar} disabled={loadingPayment || isProcessingPayment.current} className={`flex min-h-[76px] w-full items-center justify-center gap-3 rounded-[1.5rem] px-8 py-5 text-[14px] font-black uppercase tracking-[0.2em] shadow-[0_15px_40px_rgba(6,182,212,0.3)] transition-all duration-300 ${loadingPayment ? 'bg-slate-800 text-slate-500' : 'bg-cyan-500 text-slate-950 hover:scale-[1.02] hover:bg-cyan-400 active:scale-95'}`}>{loadingPayment ? <><Loader2 className="h-6 w-6 animate-spin" /> Gerando Pagamento...</> : <><Zap size={20} /> Liberar Motorista</>}</button>
-                <button onClick={() => setStep('form')} className="flex min-h-[64px] w-full items-center justify-center rounded-[1.5rem] border border-white/10 bg-transparent px-8 py-4 text-xs font-black uppercase tracking-[0.2em] text-slate-400 transition-colors hover:bg-white/5 hover:text-white">Voltar e Editar</button>
+                <button onClick={handleContratar} disabled={loadingPayment || isProcessingPayment.current} className={`flex min-h-[64px] w-full items-center justify-center gap-3 rounded-[1.25rem] px-8 py-4 text-[14px] font-black uppercase tracking-[0.2em] shadow-[0_15px_40px_rgba(6,182,212,0.3)] transition-all duration-300 ${loadingPayment ? 'bg-slate-800 text-slate-500' : 'bg-cyan-500 text-slate-950 hover:scale-[1.02] hover:bg-cyan-400 active:scale-95'}`}>{loadingPayment ? <><Loader2 className="h-6 w-6 animate-spin" /> Gerando Pagamento...</> : <><Zap size={20} /> Liberar Motorista</>}</button>
+                <button onClick={() => setStep('form')} className="flex min-h-[64px] w-full items-center justify-center rounded-[1.25rem] border border-white/10 bg-transparent px-8 py-4 text-xs font-black uppercase tracking-[0.2em] text-slate-400 transition-colors hover:bg-white/5 hover:text-white">Voltar e Editar</button>
               </div>
             </div>
           </div>
