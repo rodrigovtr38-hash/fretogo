@@ -4,7 +4,7 @@ import { signInWithPopup, signOut } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'; 
 import { collection, query, where, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp, updateDoc, runTransaction } from 'firebase/firestore';
 import { getMessaging, getToken } from 'firebase/messaging'; 
-import { Loader2, Truck, CheckCircle, Navigation, MapPin, AlertTriangle, ShieldCheck, Camera, Zap, Power, XCircle, Package, Download, Radar, DollarSign, Clock, MessageCircle, UserPlus } from 'lucide-react';
+import { Loader2, Truck, CheckCircle, Navigation, MapPin, AlertTriangle, ShieldCheck, Camera, Zap, Power, XCircle, Package, Download, Radar, DollarSign, Clock, MessageCircle, UserPlus, Search } from 'lucide-react';
 import ChatFrete from '../components/ChatFrete';
 
 // IMPORTS DA NOVA ARQUITETURA
@@ -36,6 +36,7 @@ export default function Motorista() {
   const [checkingDriver, setCheckingDriver] = useState(true);
   const [isOnline, setIsOnline] = useState(false); 
   const [backhaulDestino, setBackhaulDestino] = useState(''); 
+  const [showBackhaulInput, setShowBackhaulInput] = useState(false); // Lógica do filtro de destino
   const [comprovante, setComprovante] = useState<File | null>(null);
 
   const [form, setForm] = useState({ nome: '', whatsapp: '', placa: '', categoria: 'carro_pequeno' as VehicleType, cnh: '', renavam: '', cpf: '', cidadeEstado: '' });
@@ -190,6 +191,7 @@ export default function Motorista() {
   };
 
   const handleCadastro = async () => {
+    // VALIDAÇÃO CORRIGIDA: Agora checa form.renavam porque nós adicionamos o campo no HTML abaixo!
     if (!form.nome || !form.cpf || !form.cnh || !form.placa || !form.renavam || !form.whatsapp || !form.cidadeEstado || !docFile) {
       showToast("Preencha todos os campos e anexe a Selfie.", "warning"); return;
     }
@@ -260,19 +262,19 @@ export default function Motorista() {
   const openMaps = (lat: number, lng: number) => { window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank'); };
 
   if (loading || checkingDriver) return (
-    <div className="h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
-      <div className="w-24 h-24 bg-blue-600 rounded-[2rem] flex items-center justify-center animate-pulse shadow-[0_0_40px_rgba(37,99,235,0.4)]">
-        <Truck className="text-white w-12 h-12" />
+    <div className="flex h-screen flex-col items-center justify-center gap-4 bg-slate-950">
+      <div className="flex h-24 w-24 animate-pulse items-center justify-center rounded-[2rem] bg-blue-600 shadow-[0_0_40px_rgba(37,99,235,0.4)]">
+        <Truck className="h-12 w-12 text-white" />
       </div>
-      <Loader2 className="animate-spin text-cyan-500 w-8 h-8 mt-4" />
+      <Loader2 className="mt-4 h-8 w-8 animate-spin text-cyan-500" />
     </div>
   );
 
   return (
-    <div className="relative min-h-screen w-full bg-[#020617] text-slate-200 font-sans overflow-x-hidden selection:bg-cyan-500/30 pb-32">
+    <div className="relative flex min-h-screen w-full flex-col overflow-x-hidden bg-[#020617] text-slate-200 font-sans selection:bg-cyan-500/30">
       
       {/* BACKGROUND PREMIUM */}
-      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
+      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#0f172a] via-[#020617] to-[#020617]"></div>
         <div className="absolute left-[-10%] top-[-5%] h-[40rem] w-[40rem] rounded-full bg-cyan-600/15 blur-[150px] mix-blend-screen" />
         <div className="absolute right-[-10%] top-[10%] h-[35rem] w-[35rem] rounded-full bg-blue-600/15 blur-[150px] mix-blend-screen" />
@@ -283,7 +285,7 @@ export default function Motorista() {
         <nav className="mx-auto flex w-full max-w-[1400px] items-center justify-between px-6 py-4 lg:px-8">
           <div className="flex items-center gap-4">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-500/20 bg-cyan-500/10">
-              <Zap className="h-6 w-6 text-cyan-400 fill-cyan-400 drop-shadow-[0_0_12px_rgba(6,182,212,0.6)]" />
+              <Zap className="h-6 w-6 fill-cyan-400 text-cyan-400 drop-shadow-[0_0_12px_rgba(6,182,212,0.6)]" />
             </div>
             <span className="text-2xl font-black italic tracking-tighter text-white">FRETOGO</span>
           </div>
@@ -295,9 +297,8 @@ export default function Motorista() {
         </nav>
       </header>
 
-      {/* A CAIXA FORTE DO TAILWIND V4 */}
-      <main className="relative z-10 w-full grid place-items-center px-4 py-8 pb-32 sm:px-6 lg:px-8">
-        <div className="w-full max-w-7xl">
+      {/* CONTAINER PRINCIPAL CENTRALIZADO SEM FLEX QUEBRADO */}
+      <main className="relative z-10 flex-1 mx-auto flex w-full max-w-7xl flex-col justify-center px-4 py-8 pb-32 sm:px-6 lg:px-8">
         
         {/* TOAST RENDER */}
         {toast && (
@@ -311,29 +312,29 @@ export default function Motorista() {
         {/* MODAL OFERTA */}
         {exibindoOferta && ofertaFrete && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 p-5 backdrop-blur-md animate-in zoom-in-95 duration-200">
-            <div className="w-full max-w-md overflow-hidden rounded-[2.5rem] border border-green-500/30 bg-slate-900 p-8 text-center shadow-[0_20px_60px_rgba(34,197,94,0.2)] relative">
+            <div className="relative w-full max-w-md overflow-hidden rounded-[2.5rem] border border-green-500/30 bg-slate-900 p-8 text-center shadow-[0_20px_60px_rgba(34,197,94,0.2)]">
               <div className="absolute left-0 top-0 h-1.5 bg-green-500 transition-all duration-1000" style={{ width: `${(tempoRestante / 15) * 100}%` }}></div>
               <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-[1.5rem] border border-green-500/20 bg-green-500/10">
                 <Zap className="h-10 w-10 text-green-400 drop-shadow-[0_0_15px_rgba(34,197,94,0.5)]" />
               </div>
               <h2 className="mb-2 text-3xl font-black uppercase italic tracking-tight text-white">Carga no Radar!</h2>
-              <p className="mb-6 flex justify-center items-center gap-2 text-sm font-black text-green-400 animate-pulse"><Clock size={16} /> 00:{tempoRestante.toString().padStart(2, '0')}</p>
+              <p className="mb-6 flex items-center justify-center gap-2 text-sm font-black text-green-400 animate-pulse"><Clock size={16} /> 00:{tempoRestante.toString().padStart(2, '0')}</p>
               
               <div className="mb-6 rounded-3xl border border-white/5 bg-slate-950/60 p-6 text-left shadow-inner">
                 <div className="mb-4">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Local de Coleta</p>
+                  <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-slate-500">Local de Coleta</p>
                   <p className="text-sm font-bold text-white">{ofertaFrete.enderecoColetaTexto}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Local de Entrega</p>
+                  <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-slate-500">Local de Entrega</p>
                   <p className="text-sm font-bold text-white">{ofertaFrete.enderecoEntregaTexto}</p>
                 </div>
               </div>
               
               <div className="mb-8 rounded-3xl border border-white/5 bg-slate-950/60 p-6">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Ganhos Operacionais</p>
+                <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">Ganhos Operacionais</p>
                 <h3 className="text-5xl font-black tracking-tighter text-green-400 drop-shadow-md">R$ {ofertaFrete.valorMotorista?.toFixed(2).replace('.', ',')}</h3>
-                <p className="mt-3 text-xs font-bold text-slate-400 uppercase tracking-widest">{ofertaFrete.distancia?.toFixed(1)} km percorridos</p>
+                <p className="mt-3 text-xs font-bold uppercase tracking-widest text-slate-400">{ofertaFrete.distancia?.toFixed(1)} km percorridos</p>
               </div>
               
               <div className="flex gap-4">
@@ -346,45 +347,47 @@ export default function Motorista() {
 
         {/* FLUXO AUTH / CADASTRO / RADAR / CORRIDA */}
         {!user ? (
-          <div className="mx-auto flex w-full max-w-md flex-col items-center justify-center min-h-[60vh] mt-10">
+          <div className="mx-auto mt-10 flex min-h-[60vh] w-full max-w-md flex-col items-center justify-center">
             <div className="w-full rounded-[3rem] border border-white/10 bg-slate-900/60 p-10 text-center shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur-xl">
               <div className="mx-auto mb-8 flex h-28 w-28 items-center justify-center rounded-full border border-cyan-500/20 bg-cyan-500/10 shadow-inner">
                 <Truck className="h-12 w-12 text-cyan-400" />
               </div>
               <p className="text-[10px] font-black uppercase tracking-[0.3em] text-cyan-300">Acesso Restrito</p>
-              <h1 className="mt-4 mb-8 text-4xl font-black italic tracking-tight text-white">Painel do Parceiro</h1>
-              <button onClick={() => signInWithPopup(auth, provider)} className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[1.5rem] bg-cyan-500 px-8 py-5 text-[15px] font-black uppercase italic tracking-[0.2em] text-slate-950 shadow-[0_15px_40px_rgba(6,182,212,0.35)] transition-all hover:scale-[1.02] active:scale-95 hover:bg-cyan-400">
+              <h1 className="mb-8 mt-4 text-4xl font-black italic tracking-tight text-white">Painel do Parceiro</h1>
+              <button onClick={() => signInWithPopup(auth, provider)} className="flex w-full min-h-[72px] items-center justify-center gap-3 rounded-[1.5rem] bg-cyan-500 px-8 py-5 text-[15px] font-black uppercase italic tracking-[0.2em] text-slate-950 shadow-[0_15px_40px_rgba(6,182,212,0.35)] transition-all hover:scale-[1.02] hover:bg-cyan-400 active:scale-95">
                 <Truck size={20}/> Entrar no Radar
               </button>
             </div>
           </div>
         ) : formStep ? (
-          <div className="mx-auto w-full max-w-md rounded-[2.5rem] border border-white/10 bg-slate-900/60 p-8 shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur-md">
-            <div className="flex items-center justify-center gap-4 mb-8 pb-6 border-b border-slate-800">
-              <div className="bg-cyan-500/20 p-3 rounded-2xl border border-cyan-500/30">
-                 <UserPlus className="text-cyan-400 w-8 h-8" />
+          <div className="mx-auto w-full max-w-lg rounded-[2.5rem] border border-white/10 bg-slate-900/60 p-8 shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur-md">
+            <div className="mb-8 flex items-center justify-center gap-4 border-b border-slate-800 pb-6">
+              <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/20 p-3">
+                 <UserPlus className="h-8 w-8 text-cyan-400" />
               </div>
-              <h2 className="text-2xl font-black uppercase italic tracking-tight leading-none text-white">Seu Veículo,<br/><span className="text-cyan-400">Seu Dinheiro.</span></h2>
+              <h2 className="leading-none text-2xl font-black uppercase italic tracking-tight text-white">Seu Veículo,<br/><span className="text-cyan-400">Seu Dinheiro.</span></h2>
             </div>
             <div className="space-y-4">
-              <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-sm font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="Nome Completo" onChange={e => setForm({...form, nome: e.target.value})} />
-              <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-sm font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="CPF" onChange={e => setForm({...form, cpf: e.target.value})} />
-              <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-sm font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="Cidade/Estado" onChange={e => setForm({...form, cidadeEstado: e.target.value})} />
-              <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-sm font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="WhatsApp" onChange={e => setForm({...form, whatsapp: e.target.value})} />
-              <div className="grid grid-cols-2 gap-4">
-                <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-sm font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none uppercase" placeholder="Placa" onChange={e => setForm({...form, placa: e.target.value})} />
-                <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-sm font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="CNH" onChange={e => setForm({...form, cnh: e.target.value})} />
+              <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-base font-bold text-white outline-none transition-all placeholder:text-slate-600 focus:border-cyan-500/50" placeholder="Nome Completo" onChange={e => setForm({...form, nome: e.target.value})} />
+              <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-base font-bold text-white outline-none transition-all placeholder:text-slate-600 focus:border-cyan-500/50" placeholder="CPF" onChange={e => setForm({...form, cpf: e.target.value})} />
+              <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-base font-bold text-white outline-none transition-all placeholder:text-slate-600 focus:border-cyan-500/50" placeholder="Cidade/Estado" onChange={e => setForm({...form, cidadeEstado: e.target.value})} />
+              <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-base font-bold text-white outline-none transition-all placeholder:text-slate-600 focus:border-cyan-500/50" placeholder="WhatsApp" onChange={e => setForm({...form, whatsapp: e.target.value})} />
+              <div className="grid grid-cols-3 gap-4">
+                {/* CAMPO DE RENAVAM ADICIONADO PARA DESTRAVAR A VALIDAÇÃO DO FIREBASE */}
+                <input className="col-span-1 w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-base font-bold uppercase text-white outline-none transition-all placeholder:text-slate-600 focus:border-cyan-500/50" placeholder="Placa" onChange={e => setForm({...form, placa: e.target.value})} />
+                <input className="col-span-1 w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-base font-bold text-white outline-none transition-all placeholder:text-slate-600 focus:border-cyan-500/50" placeholder="RENAVAM" onChange={e => setForm({...form, renavam: e.target.value})} />
+                <input className="col-span-1 w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-base font-bold text-white outline-none transition-all placeholder:text-slate-600 focus:border-cyan-500/50" placeholder="CNH" onChange={e => setForm({...form, cnh: e.target.value})} />
               </div>
-              <select className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-slate-950 p-5 text-sm font-bold text-white outline-none focus:border-cyan-500/50 transition-colors" onChange={e => setForm({...form, categoria: e.target.value as VehicleType})}>
+              <select className="w-full rounded-2xl border border-white/10 bg-slate-950 p-5 text-base font-bold text-white outline-none transition-colors focus:border-cyan-500/50" onChange={e => setForm({...form, categoria: e.target.value as VehicleType})}>
                 {Object.entries(VEHICLE_CONFIG).map(([key, conf]) => (<option key={key} value={key}>{conf.nome}</option>))}
               </select>
-              <label className="mt-4 flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-white/20 p-8 transition-colors hover:border-cyan-500/50 bg-slate-950/30">
+              <label className="mt-4 flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-white/20 bg-slate-950/30 p-8 transition-colors hover:border-cyan-500/50">
                 <Camera size={32} className="mb-3 text-cyan-400"/>
-                <span className="text-xs font-black uppercase tracking-widest text-slate-300 mb-1">{docFile ? 'Foto Anexada' : 'Tirar Selfie com CNH'}</span>
-                <span className="text-[10px] text-slate-500 font-medium">O documento deve estar legível ao lado do rosto.</span>
+                <span className="mb-1 text-xs font-black uppercase tracking-widest text-slate-300">{docFile ? 'Foto Anexada' : 'Tirar Selfie com CNH'}</span>
+                <span className="text-[10px] font-medium text-slate-500">O documento deve estar legível ao lado do rosto.</span>
                 <input type="file" hidden accept="image/jpeg,image/png,image/webp" capture="user" onChange={(e) => handleFileChange(e, setDocFile)} />
               </label>
-              <button onClick={handleCadastro} disabled={uploadingDocs} className="mt-8 flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[1.5rem] bg-cyan-500 px-6 py-5 text-[15px] font-black uppercase italic tracking-[0.2em] text-slate-950 shadow-[0_15px_40px_rgba(6,182,212,0.35)] transition-all hover:scale-[1.02] active:scale-95 disabled:bg-slate-800 disabled:text-slate-600">
+              <button onClick={handleCadastro} disabled={uploadingDocs} className="mt-8 flex w-full min-h-[72px] items-center justify-center gap-3 rounded-[1.5rem] bg-cyan-500 px-6 py-5 text-[15px] font-black uppercase italic tracking-[0.2em] text-slate-950 shadow-[0_15px_40px_rgba(6,182,212,0.35)] transition-all hover:scale-[1.02] active:scale-95 disabled:bg-slate-800 disabled:text-slate-600">
                 {uploadingDocs ? <Loader2 className="h-6 w-6 animate-spin" /> : 'Enviar Cadastro'}
               </button>
             </div>
@@ -396,7 +399,7 @@ export default function Motorista() {
             </div>
             <h2 className="mb-4 text-3xl font-black uppercase italic tracking-tight text-white">Em Análise</h2>
             <p className="mb-10 text-sm font-medium leading-relaxed text-slate-400">Sua conta está sendo validada pelo time de segurança. Esse processo garante cargas seguras para todos os parceiros na plataforma.</p>
-            <a href="https://chat.whatsapp.com/IGylgsZPYhsDfMZDKzVjHT" target="_blank" rel="noreferrer" className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[1.5rem] bg-green-500 px-6 py-5 text-[14px] font-black uppercase tracking-[0.2em] text-slate-950 shadow-[0_15px_40px_rgba(34,197,94,0.3)] transition-all hover:scale-[1.02] active:scale-95">
+            <a href="https://chat.whatsapp.com/IGylgsZPYhsDfMZDKzVjHT" target="_blank" rel="noreferrer" className="flex w-full min-h-[72px] items-center justify-center gap-3 rounded-[1.5rem] bg-green-500 px-6 py-5 text-[14px] font-black uppercase tracking-[0.2em] text-slate-950 shadow-[0_15px_40px_rgba(34,197,94,0.3)] transition-all hover:scale-[1.02] active:scale-95">
               Entrar no Grupo VIP
             </a>
           </div>
@@ -412,39 +415,53 @@ export default function Motorista() {
             </div>
             
             <div className="space-y-4">
-              <button onClick={() => openMaps(activeFrete.status === TripState.ACEITO ? activeFrete.origemLat! : activeFrete.destinoLat!, activeFrete.status === TripState.ACEITO ? activeFrete.origemLng! : activeFrete.destinoLng!)} className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[1.5rem] border border-white/10 bg-slate-950 px-6 py-5 text-sm font-black uppercase tracking-[0.2em] text-white shadow-inner transition-colors hover:bg-slate-900">
+              <button onClick={() => openMaps(activeFrete.status === TripState.ACEITO ? activeFrete.origemLat! : activeFrete.destinoLat!, activeFrete.status === TripState.ACEITO ? activeFrete.origemLng! : activeFrete.destinoLng!)} className="flex w-full min-h-[72px] items-center justify-center gap-3 rounded-[1.5rem] border border-white/10 bg-slate-950 px-6 py-5 text-sm font-black uppercase tracking-[0.2em] text-white shadow-inner transition-colors hover:bg-slate-900">
                 <Navigation size={20}/> Abrir no GPS
               </button>
               
-              {activeFrete.status === TripState.ACEITO && <button onClick={() => updateStatusFrete(TripState.COLETANDO)} className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[1.5rem] bg-cyan-500 px-6 py-5 text-[15px] font-black uppercase italic tracking-[0.2em] text-slate-950 shadow-[0_15px_40px_rgba(6,182,212,0.35)] transition-all hover:scale-[1.02] active:scale-95"><MapPin className="h-6 w-6"/> Cheguei na Coleta</button>}
-              {activeFrete.status === TripState.COLETANDO && <button onClick={() => updateStatusFrete(TripState.EM_TRANSPORTE)} className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[1.5rem] bg-yellow-400 px-6 py-5 text-[15px] font-black uppercase italic tracking-[0.2em] text-slate-950 shadow-[0_15px_40px_rgba(250,204,21,0.35)] transition-all hover:scale-[1.02] active:scale-95"><Truck className="h-6 w-6"/> Carga Embarcada</button>}
+              {activeFrete.status === TripState.ACEITO && <button onClick={() => updateStatusFrete(TripState.COLETANDO)} className="flex w-full min-h-[72px] items-center justify-center gap-3 rounded-[1.5rem] bg-cyan-500 px-6 py-5 text-[15px] font-black uppercase italic tracking-[0.2em] text-slate-950 shadow-[0_15px_40px_rgba(6,182,212,0.35)] transition-all hover:scale-[1.02] active:scale-95"><MapPin className="h-6 w-6"/> Cheguei na Coleta</button>}
+              {activeFrete.status === TripState.COLETANDO && <button onClick={() => updateStatusFrete(TripState.EM_TRANSPORTE)} className="flex w-full min-h-[72px] items-center justify-center gap-3 rounded-[1.5rem] bg-yellow-400 px-6 py-5 text-[15px] font-black uppercase italic tracking-[0.2em] text-slate-950 shadow-[0_15px_40px_rgba(250,204,21,0.35)] transition-all hover:scale-[1.02] active:scale-95"><Truck className="h-6 w-6"/> Carga Embarcada</button>}
               {activeFrete.status === TripState.EM_TRANSPORTE && (
-                <div className="rounded-[2rem] border border-white/5 bg-slate-950/60 p-6 shadow-inner mt-6">
+                <div className="mt-6 rounded-[2rem] border border-white/5 bg-slate-950/60 p-6 shadow-inner">
                   <input type="file" id="foto" hidden capture="environment" onChange={(e) => handleFileChange(e, setComprovante)} />
                   <label htmlFor="foto" className={`mb-6 flex cursor-pointer items-center justify-center gap-3 rounded-[1.5rem] border-2 border-dashed py-6 text-xs font-black uppercase tracking-[0.2em] transition-colors ${comprovante ? 'border-cyan-500 bg-cyan-500/10 text-cyan-300' : 'border-white/20 text-slate-400 hover:border-cyan-500/50'}`}>
                     <Camera size={20}/> {comprovante ? "FOTO ANEXADA" : "FOTOGRAFAR CANHOTO"}
                   </label>
-                  <button onClick={() => updateStatusFrete(TripState.ENTREGUE)} className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[1.5rem] bg-green-500 px-6 py-5 text-[15px] font-black uppercase italic tracking-[0.2em] text-slate-950 shadow-[0_15px_40px_rgba(34,197,94,0.35)] transition-all hover:scale-[1.02] active:scale-95"><CheckCircle className="h-6 w-6"/> Finalizar Corrida</button>
+                  <button onClick={() => updateStatusFrete(TripState.ENTREGUE)} className="flex w-full min-h-[72px] items-center justify-center gap-3 rounded-[1.5rem] bg-green-500 px-6 py-5 text-[15px] font-black uppercase italic tracking-[0.2em] text-slate-950 shadow-[0_15px_40px_rgba(34,197,94,0.35)] transition-all hover:scale-[1.02] active:scale-95"><CheckCircle className="h-6 w-6"/> Finalizar Corrida</button>
                 </div>
               )}
             </div>
             {activeFrete.id && <div className="mt-8 border-t border-white/5 pt-8"><ChatFrete freteId={activeFrete.id} tipoUsuario="motorista" nome={driverData?.nome || "Motorista"} /></div>}
           </div>
         ) : (
-          <div className="mx-auto mt-10 max-w-md text-center">
+          <div className="mx-auto mt-10 flex w-full max-w-md flex-col items-center text-center">
+            
             <button onClick={toggleStatus} className={`relative mx-auto mb-12 flex h-48 w-48 flex-col items-center justify-center rounded-full border-[6px] transition-all duration-300 hover:scale-[1.02] active:scale-95 ${isOnline ? 'border-cyan-400 bg-slate-950 shadow-[0_0_80px_rgba(6,182,212,0.25)]' : 'border-slate-800 bg-slate-900 shadow-xl'}`}>
               <Power className={`mb-3 h-14 w-14 ${isOnline ? 'text-cyan-400' : 'text-slate-600'}`} />
               <span className={`text-xs font-black uppercase tracking-[0.25em] ${isOnline ? 'text-cyan-400' : 'text-slate-600'}`}>{isOnline ? 'Online' : 'Offline'}</span>
             </button>
 
             {isOnline ? (
-              <div className="animate-in fade-in duration-500">
+              <div className="w-full animate-in fade-in duration-500">
                 <h2 className="mb-3 text-3xl font-black uppercase italic tracking-tight text-white">Radar Ativo</h2>
                 <p className="mb-10 text-sm font-bold uppercase tracking-widest text-cyan-400 animate-pulse">{loadingMessage}</p>
-                <div className="rounded-[2rem] border border-white/10 bg-slate-900/60 p-8 text-left shadow-xl backdrop-blur-md">
-                  <p className="mb-4 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400"><MapPin size={16} className="text-blue-400"/> Rota de Retorno</p>
-                  <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-sm font-bold text-white outline-none transition-all placeholder:text-slate-600 focus:border-cyan-500/50" placeholder="Ex: Campinas" value={backhaulDestino} onChange={e => setBackhaulDestino(e.target.value)} />
-                  <p className="mt-4 text-center text-xs font-medium leading-relaxed text-slate-500">Vamos buscar cargas que voltem para essa região.</p>
+                
+                {/* BOTÃO DO FILTRO DE DESTINO OCULTO (Abre ao clicar) */}
+                <div className="w-full flex flex-col items-center">
+                  {!showBackhaulInput ? (
+                    <button onClick={() => setShowBackhaulInput(true)} className="flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-5 py-3 text-xs font-bold uppercase tracking-widest text-cyan-400 transition-colors hover:bg-cyan-500/20">
+                      <Search size={16} /> Definir Rota de Retorno
+                    </button>
+                  ) : (
+                    <div className="w-full rounded-[2rem] border border-white/10 bg-slate-900/60 p-6 text-left shadow-xl backdrop-blur-md animate-in slide-in-from-top-2">
+                      <div className="mb-4 flex items-center justify-between">
+                        <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400"><MapPin size={16} className="text-blue-400"/> Rota de Retorno</p>
+                        <button onClick={() => setShowBackhaulInput(false)} className="text-slate-500 hover:text-white"><XCircle size={18} /></button>
+                      </div>
+                      <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-base font-bold text-white outline-none transition-all placeholder:text-slate-600 focus:border-cyan-500/50" placeholder="Ex: Campinas" value={backhaulDestino} onChange={e => setBackhaulDestino(e.target.value)} />
+                      <p className="mt-4 text-center text-xs font-medium leading-relaxed text-slate-500">O sistema buscará cargas que voltem para essa região.</p>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
@@ -459,7 +476,6 @@ export default function Motorista() {
           </div>
         )}
         
-        </div>
       </main>
     </div>
   );
