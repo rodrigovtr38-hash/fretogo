@@ -1,17 +1,19 @@
 @import "tailwindcss";
 
 /* =========================================================
-   RESET
+   RESET GLOBAL
 ========================================================= */
 
-* {
+*,
+*::before,
+*::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
 /* =========================================================
-   ROOT
+   ROOT SYSTEM
 ========================================================= */
 
 html,
@@ -19,7 +21,16 @@ body,
 #root {
   width: 100%;
   min-height: 100vh;
-  background: #020617;
+
+  overflow-x: hidden;
+}
+
+/* =========================================================
+   HTML
+========================================================= */
+
+html {
+  scroll-behavior: smooth;
 }
 
 /* =========================================================
@@ -27,7 +38,8 @@ body,
 ========================================================= */
 
 body {
-  overflow-x: hidden;
+  position: relative;
+
   font-family:
     Inter,
     system-ui,
@@ -43,25 +55,32 @@ body {
 
   color: white;
 
+  overflow-x: hidden;
+
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
 /* =========================================================
-   SCROLLBAR
+   APP ROOT
 ========================================================= */
 
-::-webkit-scrollbar {
-  width: 8px;
+#root {
+  display: flex;
+  flex-direction: column;
 }
 
-::-webkit-scrollbar-track {
-  background: #020617;
-}
+/* =========================================================
+   IMAGES
+========================================================= */
 
-::-webkit-scrollbar-thumb {
-  background: rgba(34, 211, 238, 0.3);
-  border-radius: 999px;
+img,
+picture,
+video,
+canvas,
+svg {
+  display: block;
+  max-width: 100%;
 }
 
 /* =========================================================
@@ -86,15 +105,6 @@ button {
 }
 
 /* =========================================================
-   IMAGES
-========================================================= */
-
-img {
-  max-width: 100%;
-  display: block;
-}
-
-/* =========================================================
    LINKS
 ========================================================= */
 
@@ -104,7 +114,24 @@ a {
 }
 
 /* =========================================================
-   ANIMATIONS
+   SCROLLBAR
+========================================================= */
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #020617;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(34, 211, 238, 0.3);
+  border-radius: 999px;
+}
+
+/* =========================================================
+   RADAR PULSE
 ========================================================= */
 
 @keyframes radarPulse {
@@ -125,16 +152,44 @@ a {
 }
 
 .radar-pulse {
-  animation:
-    radarPulse 2.5s infinite;
+  animation: radarPulse 2.5s infinite;
 }
 
 /* =========================================================
-   SAFE MOBILE
+   GLOBAL CONTAINER SYSTEM
+========================================================= */
+
+.app-container {
+  width: 100%;
+  max-width: 1440px;
+
+  margin-inline: auto;
+
+  padding-inline: 16px;
+}
+
+@media (min-width: 768px) {
+  .app-container {
+    padding-inline: 24px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .app-container {
+    padding-inline: 32px;
+  }
+}
+
+/* =========================================================
+   MOBILE SAFE FIX
 ========================================================= */
 
 @media (max-width: 768px) {
   body {
     overflow-x: hidden;
+  }
+
+  * {
+    max-width: 100%;
   }
 }
