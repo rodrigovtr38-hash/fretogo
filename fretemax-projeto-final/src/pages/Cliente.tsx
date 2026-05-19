@@ -229,7 +229,7 @@ export default function Cliente() {
   };
 
   return (
-    <div className="relative min-h-screen w-full flex flex-col bg-[#020617] text-slate-200 font-sans selection:bg-cyan-500/30">
+    <div className="relative min-h-screen w-full flex flex-col bg-[#020617] text-slate-200 font-sans overflow-x-hidden selection:bg-cyan-500/30">
       
       {/* BACKGROUND PREMIUM */}
       <div className="pointer-events-none fixed inset-0 z-0">
@@ -283,7 +283,6 @@ export default function Cliente() {
               <h2 className="mb-4 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-400">
                 <User className="h-4 w-4 text-cyan-400" /> Contato Responsável
               </h2>
-              {/* TEXTOS E CAMPOS AUMENTADOS */}
               <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
                 <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-base md:text-lg font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="Seu Nome Completo" value={nome} onChange={(e) => setNome(e.target.value)} />
                 <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-base md:text-lg font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="WhatsApp (DDD)" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
@@ -327,8 +326,7 @@ export default function Cliente() {
                 <Package className="h-4 w-4 text-yellow-400" /> Especificações da Carga
               </h2>
               <div className="mb-6 grid grid-cols-1 gap-5 md:grid-cols-3">
-                {/* SELECT SEM appearance-none PARA MOSTRAR A SETINHA PADRÃO */}
-                <select className="col-span-1 w-full cursor-pointer rounded-2xl border border-white/10 bg-slate-950 p-5 text-base font-bold text-white outline-none focus:border-cyan-500/50 md:col-span-3 transition-colors" value={vehicle} onChange={e => setVehicle(e.target.value as VehicleType)}>
+                <select className="col-span-1 w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-slate-950 p-5 text-base font-bold text-white outline-none focus:border-cyan-500/50 md:col-span-3 transition-colors" value={vehicle} onChange={e => setVehicle(e.target.value as VehicleType)}>
                   {Object.entries(VEHICLE_CONFIG).map(([key, conf]) => (<option key={key} value={key}>{conf.nome}</option>))}
                 </select>
                 <input className="w-full rounded-2xl border border-white/10 bg-white/5 p-5 text-base font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="Peso (Ex: 200kg)" value={peso} onChange={e => setPeso(e.target.value)} />
@@ -372,8 +370,7 @@ export default function Cliente() {
                 <div className="rounded-3xl border border-white/5 bg-slate-950/60 p-6 shadow-inner"><Truck className="mb-4 h-6 w-6 text-green-400" /><p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Veículo e Carga</p><p className="mt-2 text-base font-bold uppercase italic text-white">{VEHICLE_CONFIG[vehicle].nome}</p><p className="mt-1 text-sm text-slate-400">{peso} • {qtdVolumes} volumes</p></div>
               </div>
 
-              {/* MAPA COM ALTURA CORRIGIDA NO CELULAR (h-[220px]) */}
-              <div className="h-[220px] md:h-[400px] w-full overflow-hidden rounded-[2.5rem] border border-white/10 bg-slate-950 shadow-[inset_0_0_20px_rgba(0,0,0,0.5)]"><MapaCliente /></div>
+              <div className="h-[350px] md:h-[500px] overflow-hidden rounded-[2.5rem] border border-white/10 bg-slate-950 shadow-[inset_0_0_20px_rgba(0,0,0,0.5)]"><MapaCliente /></div>
             </div>
 
             <div className="relative flex h-full flex-col overflow-hidden rounded-[3rem] border border-cyan-500/20 bg-slate-900/90 p-8 lg:p-10 shadow-[0_20px_60px_rgba(6,182,212,0.15)] backdrop-blur-xl">
@@ -388,8 +385,8 @@ export default function Cliente() {
               </div>
 
               <div className="mt-auto space-y-4">
-                <button onClick={handleContratar} disabled={loadingPayment || isProcessingPayment.current} className={`flex min-h-[64px] w-full items-center justify-center gap-3 rounded-[1.25rem] px-8 py-4 text-[14px] font-black uppercase tracking-[0.2em] shadow-[0_15px_40px_rgba(6,182,212,0.3)] transition-all duration-300 ${loadingPayment ? 'bg-slate-800 text-slate-500' : 'bg-cyan-500 text-slate-950 hover:scale-[1.02] hover:bg-cyan-400 active:scale-95'}`}>{loadingPayment ? <><Loader2 className="h-6 w-6 animate-spin" /> Gerando Pagamento...</> : <><Zap size={20} /> Liberar Motorista</>}</button>
-                <button onClick={() => setStep('form')} className="flex min-h-[64px] w-full items-center justify-center rounded-[1.25rem] border border-white/10 bg-transparent px-8 py-4 text-xs font-black uppercase tracking-[0.2em] text-slate-400 transition-colors hover:bg-white/5 hover:text-white">Voltar e Editar</button>
+                <button onClick={handleContratar} disabled={loadingPayment || isProcessingPayment.current} className={`flex min-h-[76px] w-full items-center justify-center gap-3 rounded-[1.5rem] px-8 py-5 text-[14px] font-black uppercase tracking-[0.2em] shadow-[0_15px_40px_rgba(6,182,212,0.3)] transition-all duration-300 ${loadingPayment ? 'bg-slate-800 text-slate-500' : 'bg-cyan-500 text-slate-950 hover:scale-[1.02] hover:bg-cyan-400 active:scale-95'}`}>{loadingPayment ? <><Loader2 className="h-6 w-6 animate-spin" /> Gerando Pagamento...</> : <><Zap size={20} /> Liberar Motorista</>}</button>
+                <button onClick={() => setStep('form')} className="flex min-h-[64px] w-full items-center justify-center rounded-[1.5rem] border border-white/10 bg-transparent px-8 py-4 text-xs font-black uppercase tracking-[0.2em] text-slate-400 transition-colors hover:bg-white/5 hover:text-white">Voltar e Editar</button>
               </div>
             </div>
           </div>
