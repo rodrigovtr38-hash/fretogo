@@ -1,5 +1,3 @@
-// src/state/driverStateMachine.ts
-
 export enum DriverState {
   OFFLINE = 'offline',
   ONLINE = 'online',
@@ -8,7 +6,8 @@ export enum DriverState {
   INDO_COLETA = 'indo_coleta',
   COLETANDO = 'coletando',
   EM_TRANSPORTE = 'em_transporte',
-  FINALIZANDO = 'finalizando'
+  FINALIZANDO = 'finalizando',
+  OCUPADO = 'ocupado'
 }
 
 export const DRIVER_ALLOWED_TRANSITIONS: Record<string, string[]> = {
@@ -19,20 +18,10 @@ export const DRIVER_ALLOWED_TRANSITIONS: Record<string, string[]> = {
   [DriverState.INDO_COLETA]: [DriverState.COLETANDO, DriverState.ONLINE],
   [DriverState.COLETANDO]: [DriverState.EM_TRANSPORTE],
   [DriverState.EM_TRANSPORTE]: [DriverState.FINALIZANDO],
-  [DriverState.FINALIZANDO]: [DriverState.ONLINE]
+  [DriverState.FINALIZANDO]: [DriverState.ONLINE],
+  [DriverState.OCUPADO]: [DriverState.ONLINE, DriverState.OFFLINE]
 };
 
 export const canDriverTransition = (current: string, next: string): boolean => {
   return DRIVER_ALLOWED_TRANSITIONS[current]?.includes(next) ?? false;
-};
-
-export const isBusyState = (status: string): boolean => {
-  return [
-    DriverState.ACEITOU, 
-    DriverState.INDO_COLETA, 
-    DriverState.COLETANDO, 
-    DriverState.EM_TRANSPORTE, 
-    DriverState.FINALIZANDO,
-    DriverState.RECEBENDO_OFERTA
-  ].includes(status as DriverState);
 };
