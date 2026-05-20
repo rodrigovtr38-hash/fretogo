@@ -1,7 +1,8 @@
 // src/services/orchestrator.ts
-import { doc, runTransaction, serverTimestamp, updateDoc, arrayRemove, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, runTransaction, serverTimestamp, arrayRemove, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { TripState } from '../state/tripStateMachine';
+import { AppTripState, canTransition } from '../state/tripStateMachine';
+import { httpsCallable, getFunctions } from 'firebase/functions';
 
 export interface MatchCriteria {
   categoria: string;
@@ -31,24 +32,16 @@ const calculateMatchScore = (distanciaKm: number, taxaAceite: number = 1, reputa
 
 export const buildIntelligentQueue = async (criteria: MatchCriteria): Promise<string[]> => {
   try {
-    const onlineRef = collection(db, 'motoristas_online');
-    const q = query(onlineRef, where('status', '==', 'disponivel'), where('categoria', '==', criteria.categoria));
-    
-    const snapshot = await getDocs(q);
-    const scoredDrivers: { uid: string, score: number }[] = [];
-    const now = Date.now();
+    // Busca motoristas em raio de 50km
+    const functions = getFunctions();
+    const findDrivers = httpsCallable(functions, 'findAvailableDrivers');
+    const result = await findDrivers(criteria);
+    const drivers = (result.data as any).drivers || [];
 
-    snapshot.forEach(docSnap => {
-      const driver = docSnap.data();
-      const lastSeen = driver.lastSeen?.toMillis ? driver.lastSeen.toMillis() : 0;
-      if (now - lastSeen > 120000) return; // Heartbeat check
-
-      const dist = calcularDistanciaKm(criteria.origemLat, criteria.origemLng, driver.lat, driver.lng);
-      if (dist > 50) return; // Hard Limit 50km
-
-      const score = calculateMatchScore(dist, driver.taxaAceite || 1, driver.score || 5);
-      scoredDrivers.push({ uid: docSnap.id, score });
-    });
+    const scoredDrivers = drivers.map((d: any) => ({
+      uid: d.id,
+      score: calculateMatchScore(d.dist, d.taxaAceite || 1, d.score || 5)
+    }));
 
     scoredDrivers.sort((a, b) => b.score - a.score);
     return scoredDrivers.map(d => d.uid);
@@ -58,48 +51,35 @@ export const buildIntelligentQueue = async (criteria: MatchCriteria): Promise<st
   }
 };
 
-/**
- * DISPATCHER AUTOMÁTICO
- * Acionado quando o cliente paga, ou quando um Redispatch é necessário.
- */
 export const executeDispatch = async (freteId: string, freteData: MatchCriteria) => {
   try {
-    // 1. O Engine processa a fila de motoristas inteligentes
     const newQueue = await buildIntelligentQueue(freteData);
-    
     const freteRef = doc(db, 'fretes', freteId);
 
     if (newQueue.length === 0) {
-      // Falha Crítica Logística: Sem parceiros na região
-      await updateDoc(freteRef, {
-        status: TripState.SEM_MOTORISTA,
-        updatedAt: serverTimestamp()
-      });
+      await updateDoc(freteRef, { status: AppTripState.SEM_MOTORISTA, updatedAt: serverTimestamp() });
       return false;
     }
 
-    // 2. Transação Segura: Sobrescreve a fila no Firestore e ativa a Oferta
     await runTransaction(db, async (t) => {
       const snap = await t.get(freteRef);
-      if (!snap.exists()) throw new Error("Orphaned Order");
+      if (!snap.exists()) throw new Error("Order not found");
       
-      const currentState = snap.data().status as TripState;
+      const currentStatus = snap.data().status as AppTripState;
       
-      // Só podemos dar dispatch se estiver disponivel, aguardando ou no estado efêmero de redispatch
-      if (![TripState.AGUARDANDO_PAGAMENTO, TripState.DISPONIVEL, TripState.REDISPATCH].includes(currentState)) {
-         throw new Error("Lock Operacional: Ordem já está em andamento.");
+      // Guard de transição
+      if (!canTransition(currentStatus, AppTripState.DISPONIVEL)) {
+        throw new Error("Invalid operational state for dispatch");
       }
 
       t.update(freteRef, {
-        status: TripState.DISPONIVEL,
+        status: AppTripState.DISPONIVEL,
         filaMatching: newQueue,
-        ofertaTimestamp: serverTimestamp(), // Marca o início da corrida de 15 segundos
+        ofertaTimestamp: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
     });
-
     return true;
-
   } catch (e) {
     console.error("Dispatcher Flow Error: ", e);
     return false;
@@ -115,18 +95,15 @@ export const triggerRedispatch = async (freteId: string, motoristaIdFalho: strin
       if (!snap.exists()) return;
       
       const data = snap.data();
-      if (data.status === TripState.ACEITO || data.motoristaId) return; 
+      if (!canTransition(data.status, AppTripState.REDISPATCH)) return; 
 
       t.update(freteRef, {
+        status: AppTripState.REDISPATCH,
         filaMatching: arrayRemove(motoristaIdFalho),
         ofertaTimestamp: serverTimestamp(),
+        updatedAt: serverTimestamp()
       });
     });
-
-    const checkSnap = await getDoc(freteRef);
-    if (checkSnap.exists() && checkSnap.data().filaMatching?.length === 0) {
-       await updateDoc(freteRef, { status: TripState.SEM_MOTORISTA });
-    }
     return true;
   } catch (e) {
     console.error("Redispatch Failed: ", e);
