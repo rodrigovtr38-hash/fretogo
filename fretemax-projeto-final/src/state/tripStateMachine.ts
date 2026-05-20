@@ -1,41 +1,43 @@
 // src/state/tripStateMachine.ts
 
-export enum TripState {
+export enum AppTripState {
   AGUARDANDO_PAGAMENTO = 'aguardando_pagamento',
-  DISPONIVEL = 'disponivel', // No radar
-  OFERTANDO = 'ofertando',   // Lock de 15s para um motorista específico
-  ACEITO = 'aceito',         // Motorista aceitou, indo pra coleta
+  DISPONIVEL = 'disponivel',
+  OFERTANDO = 'ofertando',
+  ACEITO = 'aceito',
   INDO_COLETA = 'indo_coleta',
-  COLETANDO = 'coletando',   // Motorista no local de coleta
-  EM_TRANSPORTE = 'em_transporte', // Carga no caminhão
-  FINALIZANDO = 'finalizando', // Aguardando upload do canhoto/comprovante
-  ENTREGUE = 'entregue',     // Operação logística concluída
+  COLETANDO = 'coletando',
+  EM_TRANSPORTE = 'em_transporte',
+  FINALIZANDO = 'finalizando',
+  ENTREGUE = 'entregue',
   CANCELADO = 'cancelado',
   EXPIRADO = 'expirado',
-  REDISPATCH = 'redispatch'  // Estado efêmero para forçar nova busca
+  REDISPATCH = 'redispatch'
 }
 
-// Mapa de Transições Seguras (Guards)
-export const ALLOWED_TRANSITIONS: Record<TripState, TripState[]> = {
-  [TripState.AGUARDANDO_PAGAMENTO]: [TripState.DISPONIVEL, TripState.CANCELADO],
-  [TripState.DISPONIVEL]: [TripState.OFERTANDO, TripState.CANCELADO, TripState.EXPIRADO],
-  [TripState.OFERTANDO]: [TripState.ACEITO, TripState.REDISPATCH, TripState.CANCELADO],
-  [TripState.ACEITO]: [TripState.INDO_COLETA, TripState.REDISPATCH, TripState.CANCELADO],
-  [TripState.INDO_COLETA]: [TripState.COLETANDO, TripState.REDISPATCH, TripState.CANCELADO],
-  [TripState.COLETANDO]: [TripState.EM_TRANSPORTE, TripState.REDISPATCH], 
-  [TripState.EM_TRANSPORTE]: [TripState.FINALIZANDO, TripState.REDISPATCH], 
-  [TripState.FINALIZANDO]: [TripState.ENTREGUE],
-  [TripState.ENTREGUE]: [], 
-  [TripState.CANCELADO]: [], 
-  [TripState.EXPIRADO]: [], 
-  [TripState.REDISPATCH]: [TripState.DISPONIVEL, TripState.CANCELADO] 
+export const ALLOWED_TRANSITIONS: Record<AppTripState, AppTripState[]> = {
+  [AppTripState.AGUARDANDO_PAGAMENTO]: [AppTripState.DISPONIVEL, AppTripState.CANCELADO],
+  [AppTripState.DISPONIVEL]: [AppTripState.OFERTANDO, AppTripState.CANCELADO, AppTripState.EXPIRADO],
+  [AppTripState.OFERTANDO]: [AppTripState.ACEITO, AppTripState.REDISPATCH, AppTripState.CANCELADO],
+  [AppTripState.ACEITO]: [AppTripState.INDO_COLETA, AppTripState.REDISPATCH, AppTripState.CANCELADO],
+  [AppTripState.INDO_COLETA]: [AppTripState.COLETANDO, AppTripState.REDISPATCH, AppTripState.CANCELADO],
+  [AppTripState.COLETANDO]: [AppTripState.EM_TRANSPORTE, AppTripState.REDISPATCH], 
+  [AppTripState.EM_TRANSPORTE]: [AppTripState.FINALIZANDO, AppTripState.REDISPATCH], 
+  [AppTripState.FINALIZANDO]: [AppTripState.ENTREGUE],
+  [AppTripState.ENTREGUE]: [], 
+  [AppTripState.CANCELADO]: [], 
+  [AppTripState.EXPIRADO]: [], 
+  [AppTripState.REDISPATCH]: [AppTripState.DISPONIVEL, AppTripState.CANCELADO] 
 };
 
-/**
- * Valida se a transição de estado é permitida pela arquitetura.
- */
-export const isValidTransition = (currentStatus: TripState, nextStatus: TripState): boolean => {
-  const allowed = ALLOWED_TRANSITIONS[currentStatus];
-  if (!allowed) return false;
-  return allowed.includes(nextStatus);
+export const canTransition = (current: string, next: string): boolean => {
+  return ALLOWED_TRANSITIONS[current as AppTripState]?.includes(next as AppTripState) ?? false;
+};
+
+export const isFinalState = (status: string): boolean => {
+  return [AppTripState.ENTREGUE, AppTripState.CANCELADO, AppTripState.EXPIRADO].includes(status as AppTripState);
+};
+
+export const isActiveState = (status: string): boolean => {
+  return [AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE, AppTripState.FINALIZANDO].includes(status as AppTripState);
 };
