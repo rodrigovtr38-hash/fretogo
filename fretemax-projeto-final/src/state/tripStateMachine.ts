@@ -1,3 +1,5 @@
+// src/state/tripStateMachine.ts
+
 export enum AppTripState {
   AGUARDANDO_PAGAMENTO = 'aguardando_pagamento',
   DISPONIVEL = 'disponivel',
@@ -16,8 +18,12 @@ export enum AppTripState {
   SEM_MOTORISTA = 'sem_motorista'
 }
 
+// Isso resolve o erro de "TripState is not exported"
+export { AppTripState as TripState };
+
 export const VALID_TRANSITIONS: Record<string, string[]> = {
   [AppTripState.AGUARDANDO_PAGAMENTO]: [AppTripState.DISPONIVEL, AppTripState.ERRO_PAGAMENTO, AppTripState.CANCELADO],
+  [AppTripState.AGENDADO]: [AppTripState.DISPONIVEL, AppTripState.CANCELADO],
   [AppTripState.DISPONIVEL]: [AppTripState.OFERTANDO, AppTripState.CANCELADO, AppTripState.EXPIRADO, AppTripState.SEM_MOTORISTA],
   [AppTripState.OFERTANDO]: [AppTripState.ACEITO, AppTripState.REDISPATCH, AppTripState.CANCELADO],
   [AppTripState.ACEITO]: [AppTripState.INDO_COLETA, AppTripState.REDISPATCH, AppTripState.CANCELADO],
