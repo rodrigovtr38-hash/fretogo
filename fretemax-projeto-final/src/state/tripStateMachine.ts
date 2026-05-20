@@ -15,23 +15,23 @@ export enum AppTripState {
   REDISPATCH = 'redispatch'
 }
 
-export const ALLOWED_TRANSITIONS: Record<AppTripState, AppTripState[]> = {
+// ALIAS para não quebrar os imports antigos
+export { AppTripState as TripState };
+
+export const VALID_TRANSITIONS: Record<string, string[]> = {
   [AppTripState.AGUARDANDO_PAGAMENTO]: [AppTripState.DISPONIVEL, AppTripState.CANCELADO],
   [AppTripState.DISPONIVEL]: [AppTripState.OFERTANDO, AppTripState.CANCELADO, AppTripState.EXPIRADO],
   [AppTripState.OFERTANDO]: [AppTripState.ACEITO, AppTripState.REDISPATCH, AppTripState.CANCELADO],
   [AppTripState.ACEITO]: [AppTripState.INDO_COLETA, AppTripState.REDISPATCH, AppTripState.CANCELADO],
   [AppTripState.INDO_COLETA]: [AppTripState.COLETANDO, AppTripState.REDISPATCH, AppTripState.CANCELADO],
-  [AppTripState.COLETANDO]: [AppTripState.EM_TRANSPORTE, AppTripState.REDISPATCH], 
-  [AppTripState.EM_TRANSPORTE]: [AppTripState.FINALIZANDO, AppTripState.REDISPATCH], 
+  [AppTripState.COLETANDO]: [AppTripState.EM_TRANSPORTE, AppTripState.REDISPATCH],
+  [AppTripState.EM_TRANSPORTE]: [AppTripState.FINALIZANDO, AppTripState.REDISPATCH],
   [AppTripState.FINALIZANDO]: [AppTripState.ENTREGUE],
-  [AppTripState.ENTREGUE]: [], 
-  [AppTripState.CANCELADO]: [], 
-  [AppTripState.EXPIRADO]: [], 
-  [AppTripState.REDISPATCH]: [AppTripState.DISPONIVEL, AppTripState.CANCELADO] 
+  [AppTripState.REDISPATCH]: [AppTripState.DISPONIVEL, AppTripState.CANCELADO]
 };
 
 export const canTransition = (current: string, next: string): boolean => {
-  return ALLOWED_TRANSITIONS[current as AppTripState]?.includes(next as AppTripState) ?? false;
+  return VALID_TRANSITIONS[current]?.includes(next) ?? false;
 };
 
 export const isFinalState = (status: string): boolean => {
