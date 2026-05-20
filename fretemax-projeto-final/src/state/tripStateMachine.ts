@@ -1,5 +1,3 @@
-// src/state/tripStateMachine.ts
-
 export enum AppTripState {
   AGUARDANDO_PAGAMENTO = 'aguardando_pagamento',
   DISPONIVEL = 'disponivel',
@@ -12,15 +10,15 @@ export enum AppTripState {
   ENTREGUE = 'entregue',
   CANCELADO = 'cancelado',
   EXPIRADO = 'expirado',
-  REDISPATCH = 'redispatch'
+  REDISPATCH = 'redispatch',
+  AGENDADO = 'agendado',
+  ERRO_PAGAMENTO = 'erro_pagamento',
+  SEM_MOTORISTA = 'sem_motorista'
 }
 
-// ALIAS para não quebrar os imports antigos
-export { AppTripState as TripState };
-
 export const VALID_TRANSITIONS: Record<string, string[]> = {
-  [AppTripState.AGUARDANDO_PAGAMENTO]: [AppTripState.DISPONIVEL, AppTripState.CANCELADO],
-  [AppTripState.DISPONIVEL]: [AppTripState.OFERTANDO, AppTripState.CANCELADO, AppTripState.EXPIRADO],
+  [AppTripState.AGUARDANDO_PAGAMENTO]: [AppTripState.DISPONIVEL, AppTripState.ERRO_PAGAMENTO, AppTripState.CANCELADO],
+  [AppTripState.DISPONIVEL]: [AppTripState.OFERTANDO, AppTripState.CANCELADO, AppTripState.EXPIRADO, AppTripState.SEM_MOTORISTA],
   [AppTripState.OFERTANDO]: [AppTripState.ACEITO, AppTripState.REDISPATCH, AppTripState.CANCELADO],
   [AppTripState.ACEITO]: [AppTripState.INDO_COLETA, AppTripState.REDISPATCH, AppTripState.CANCELADO],
   [AppTripState.INDO_COLETA]: [AppTripState.COLETANDO, AppTripState.REDISPATCH, AppTripState.CANCELADO],
@@ -35,7 +33,7 @@ export const canTransition = (current: string, next: string): boolean => {
 };
 
 export const isFinalState = (status: string): boolean => {
-  return [AppTripState.ENTREGUE, AppTripState.CANCELADO, AppTripState.EXPIRADO].includes(status as AppTripState);
+  return [AppTripState.ENTREGUE, AppTripState.CANCELADO, AppTripState.EXPIRADO, AppTripState.SEM_MOTORISTA, AppTripState.ERRO_PAGAMENTO].includes(status as AppTripState);
 };
 
 export const isActiveState = (status: string): boolean => {
