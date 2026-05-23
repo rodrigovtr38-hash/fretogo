@@ -1,51 +1,66 @@
 import {
   BrowserRouter,
-  Routes,
-  Route,
   Navigate,
+  Route,
+  Routes,
 } from 'react-router-dom';
+
+import ErrorBoundary from './components/ErrorBoundary';
+
+import AppShell from './layouts/AppShell';
 
 import Home from './pages/Home';
 import Cliente from './pages/Cliente';
 import Motorista from './pages/Motorista';
 import Admin from './pages/Admin';
 
-import ErrorBoundary from './components/ErrorBoundary';
-
-import AppLayout from './layouts/AppLayout';
-
 export default function App() {
   return (
     <BrowserRouter>
       <ErrorBoundary>
-        <AppLayout>
+        <AppShell>
           <Routes>
 
-            {/* HOME */}
+            {/* ======================================================
+                HOME
+            ====================================================== */}
+
             <Route
               path="/"
               element={<Home />}
             />
 
-            {/* CLIENTE */}
+            {/* ======================================================
+                CLIENTE
+            ====================================================== */}
+
             <Route
               path="/cliente"
               element={<Cliente />}
             />
 
-            {/* MOTORISTA */}
+            {/* ======================================================
+                MOTORISTA
+            ====================================================== */}
+
             <Route
               path="/motorista"
               element={<Motorista />}
             />
 
-            {/* ADMIN */}
+            {/* ======================================================
+                ADMIN
+            ====================================================== */}
+
             <Route
               path="/admin"
               element={<Admin />}
             />
 
-            {/* REDIRECTS */}
+            {/* ======================================================
+                REDIRECTS SEO / ADS / LANDINGS
+            ====================================================== */}
+
             <Route
               path="/contratar"
               element={
@@ -67,7 +82,37 @@ export default function App() {
             />
 
             <Route
+              path="/frete"
+              element={
+                <Navigate
+                  to="/cliente"
+                  replace
+                />
+              }
+            />
+
+            <Route
+              path="/cargas"
+              element={
+                <Navigate
+                  to="/cliente"
+                  replace
+                />
+              }
+            />
+
+            <Route
               path="/parceiros"
+              element={
+                <Navigate
+                  to="/motorista"
+                  replace
+                />
+              }
+            />
+
+            <Route
+              path="/motoristas"
               element={
                 <Navigate
                   to="/motorista"
@@ -86,7 +131,10 @@ export default function App() {
               }
             />
 
-            {/* FALLBACK */}
+            {/* ======================================================
+                FALLBACK
+            ====================================================== */}
+
             <Route
               path="*"
               element={
@@ -98,7 +146,7 @@ export default function App() {
             />
 
           </Routes>
-        </AppLayout>
+        </AppShell>
       </ErrorBoundary>
     </BrowserRouter>
   );
