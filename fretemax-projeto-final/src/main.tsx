@@ -1,19 +1,77 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+
 import App from './App.tsx';
+
 import './index.css';
 
-// Registro do Service Worker para o PWA
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js')
-      .then((reg) => console.log('FRETOGO SW registrado:', reg.scope))
-      .catch((err) => console.log('FRETOGO SW falhou:', err));
-  });
+/* =========================================================
+   ROOT
+========================================================= */
+
+const rootElement =
+  document.getElementById('root');
+
+if (!rootElement) {
+  throw new Error(
+    'Root element não encontrado.',
+  );
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+/* =========================================================
+   SERVICE WORKER
+========================================================= */
+
+async function registerServiceWorker() {
+  if (
+    'serviceWorker' in navigator &&
+    import.meta.env.PROD
+  ) {
+    try {
+      const registration =
+        await navigator.serviceWorker.register(
+          '/sw.js',
+        );
+
+      console.log(
+        '✅ FRETOGO SW registrado:',
+        registration.scope,
+      );
+
+      /* ===============================================
+         FORCE UPDATE
+      =============================================== */
+
+      registration.addEventListener(
+        'updatefound',
+        () => {
+          console.log(
+            '♻️ Nova versão encontrada.',
+          );
+        },
+      );
+    } catch (error) {
+      console.error(
+        '❌ Erro ao registrar SW:',
+        error,
+      );
+    }
+  }
+}
+
+window.addEventListener(
+  'load',
+  registerServiceWorker,
+);
+
+/* =========================================================
+   RENDER
+========================================================= */
+
+ReactDOM.createRoot(
+  rootElement,
+).render(
   <React.StrictMode>
     <App />
-  </React.StrictMode>
+  </React.StrictMode>,
 );
