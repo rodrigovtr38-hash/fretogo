@@ -1,32 +1,33 @@
 import { useEffect } from 'react';
 
-import { realtimeOrchestrator }
-  from '../services/realtimeOrchestrator';
+import {
+  realtimeOrchestrator,
+} from '../services/realtimeOrchestrator';
 
-import { driverRealtimeListener }
-  from '../services/driverRealtimeListener';
+import {
+  driverRealtimeListener,
+} from '../services/driverRealtimeListener';
 
-import { tripRealtimeListener }
-  from '../services/tripRealtimeListener';
+import {
+  tripRealtimeListener,
+} from '../services/tripRealtimeListener';
 
-export const useRealtimeSystem = () => {
+export const useRealtimeSystem = (
+  driverId?: string,
+  tripId?: string
+) => {
   useEffect(() => {
-    console.log(
-      'Initializing Realtime System...'
+    realtimeOrchestrator.initialize(
+      driverId,
+      tripId
     );
-
-    realtimeOrchestrator.initialize();
 
     driverRealtimeListener.initialize();
 
     tripRealtimeListener.initialize();
 
     return () => {
-      console.log(
-        'Destroying Realtime System...'
-      );
-
       realtimeOrchestrator.destroy();
     };
-  }, []);
+  }, [driverId, tripId]);
 };
