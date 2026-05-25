@@ -6,29 +6,258 @@ import {
   DriverState,
 } from '../state/driverStateMachine';
 
+import {
+  AppTripState,
+} from '../state/tripStateMachine';
+
 class DispatchRealtimeService {
   async setDriverOnline(
-    driverId: string
+    driverId: string,
   ) {
-    await firebaseRealtimeService.updateDriverRealtime(
-      driverId,
-      {
-        online: true,
-        state: DriverState.ONLINE,
-      }
-    );
+    try {
+      await firebaseRealtimeService.updateDriverRealtime(
+        driverId,
+        {
+          online: true,
+
+          disponivel: true,
+
+          state:
+            DriverState.ONLINE,
+
+          atualizadoEm:
+            Date.now(),
+        },
+      );
+    } catch (error) {
+      console.error(
+        'ERRO DRIVER ONLINE:',
+        error,
+      );
+    }
   }
 
   async setDriverOffline(
-    driverId: string
+    driverId: string,
   ) {
-    await firebaseRealtimeService.updateDriverRealtime(
-      driverId,
-      {
-        online: false,
-        state: DriverState.OFFLINE,
-      }
-    );
+    try {
+      await firebaseRealtimeService.updateDriverRealtime(
+        driverId,
+        {
+          online: false,
+
+          disponivel: false,
+
+          state:
+            DriverState.OFFLINE,
+
+          atualizadoEm:
+            Date.now(),
+        },
+      );
+    } catch (error) {
+      console.error(
+        'ERRO DRIVER OFFLINE:',
+        error,
+      );
+    }
+  }
+
+  async enviarOfertaRealtime(
+    driverId: string,
+    payload: any,
+  ) {
+    try {
+      await firebaseRealtimeService.updateDriverRealtime(
+        driverId,
+        {
+          novaOferta: {
+            ...payload,
+
+            status:
+              'pendente',
+
+            criadaEm:
+              Date.now(),
+          },
+
+          state:
+            DriverState.RECEBENDO_OFERTA,
+
+          atualizadoEm:
+            Date.now(),
+        },
+      );
+    } catch (error) {
+      console.error(
+        'ERRO OFERTA REALTIME:',
+        error,
+      );
+    }
+  }
+
+  async aceitarCorrida(
+    driverId: string,
+    freteId: string,
+  ) {
+    try {
+      await firebaseRealtimeService.updateDriverRealtime(
+        driverId,
+        {
+          state:
+            DriverState.ACEITOU,
+
+          freteAtualId:
+            freteId,
+
+          disponivel: false,
+
+          atualizadoEm:
+            Date.now(),
+        },
+      );
+    } catch (error) {
+      console.error(
+        'ERRO ACEITE:',
+        error,
+      );
+    }
+  }
+
+  async iniciarColeta(
+    driverId: string,
+  ) {
+    try {
+      await firebaseRealtimeService.updateDriverRealtime(
+        driverId,
+        {
+          state:
+            DriverState.INDO_COLETA,
+
+          atualizadoEm:
+            Date.now(),
+        },
+      );
+    } catch (error) {
+      console.error(
+        'ERRO INICIAR COLETA:',
+        error,
+      );
+    }
+  }
+
+  async chegouColeta(
+    driverId: string,
+  ) {
+    try {
+      await firebaseRealtimeService.updateDriverRealtime(
+        driverId,
+        {
+          state:
+            DriverState.COLETANDO,
+
+          atualizadoEm:
+            Date.now(),
+        },
+      );
+    } catch (error) {
+      console.error(
+        'ERRO CHEGADA COLETA:',
+        error,
+      );
+    }
+  }
+
+  async iniciarTransporte(
+    driverId: string,
+  ) {
+    try {
+      await firebaseRealtimeService.updateDriverRealtime(
+        driverId,
+        {
+          state:
+            DriverState.EM_TRANSPORTE,
+
+          atualizadoEm:
+            Date.now(),
+        },
+      );
+    } catch (error) {
+      console.error(
+        'ERRO TRANSPORTE:',
+        error,
+      );
+    }
+  }
+
+  async finalizarEntrega(
+    driverId: string,
+  ) {
+    try {
+      await firebaseRealtimeService.updateDriverRealtime(
+        driverId,
+        {
+          state:
+            DriverState.FINALIZANDO,
+
+          disponivel: true,
+
+          freteAtualId: null,
+
+          atualizadoEm:
+            Date.now(),
+        },
+      );
+    } catch (error) {
+      console.error(
+        'ERRO FINALIZAÇÃO:',
+        error,
+      );
+    }
+  }
+
+  async atualizarTripRealtime(
+    tripId: string,
+    payload: any,
+  ) {
+    try {
+      await firebaseRealtimeService.updateTripRealtime(
+        tripId,
+        {
+          ...payload,
+
+          atualizadoEm:
+            Date.now(),
+        },
+      );
+    } catch (error) {
+      console.error(
+        'ERRO TRIP REALTIME:',
+        error,
+      );
+    }
+  }
+
+  async atualizarStatusTrip(
+    tripId: string,
+    status: AppTripState,
+  ) {
+    try {
+      await firebaseRealtimeService.updateTripRealtime(
+        tripId,
+        {
+          status,
+
+          atualizadoEm:
+            Date.now(),
+        },
+      );
+    } catch (error) {
+      console.error(
+        'ERRO STATUS TRIP:',
+        error,
+      );
+    }
   }
 }
 
