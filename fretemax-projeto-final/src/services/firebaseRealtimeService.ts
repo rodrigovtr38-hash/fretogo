@@ -12,18 +12,27 @@ import {
   AppEvents,
 } from './eventBusService';
 
-export class FirebaseRealtimeService {
+class FirebaseRealtimeService {
   private unsubscribers: (() => void)[] = [];
 
   listenDriver(driverId: string) {
-    const driverRef = doc(db, 'drivers', driverId);
+    if (!driverId) return;
+
+    const driverRef = doc(
+      db,
+      'motoristas',
+      driverId
+    );
 
     const unsubscribe = onSnapshot(
       driverRef,
       snapshot => {
         if (!snapshot.exists()) return;
 
-        const data = snapshot.data();
+        const data = {
+          id: snapshot.id,
+          ...snapshot.data(),
+        };
 
         eventBusService.emit(
           AppEvents.DRIVER_STATUS_CHANGED,
@@ -46,14 +55,23 @@ export class FirebaseRealtimeService {
   }
 
   listenTrip(tripId: string) {
-    const tripRef = doc(db, 'trips', tripId);
+    if (!tripId) return;
+
+    const tripRef = doc(
+      db,
+      'fretes',
+      tripId
+    );
 
     const unsubscribe = onSnapshot(
       tripRef,
       snapshot => {
         if (!snapshot.exists()) return;
 
-        const data = snapshot.data();
+        const data = {
+          id: snapshot.id,
+          ...snapshot.data(),
+        };
 
         eventBusService.emit(
           AppEvents.TRIP_STATUS_CHANGED,
@@ -79,7 +97,13 @@ export class FirebaseRealtimeService {
     driverId: string,
     payload: Record<string, any>
   ) {
-    const driverRef = doc(db, 'drivers', driverId);
+    if (!driverId) return;
+
+    const driverRef = doc(
+      db,
+      'motoristas',
+      driverId
+    );
 
     await updateDoc(driverRef, {
       ...payload,
@@ -91,7 +115,13 @@ export class FirebaseRealtimeService {
     tripId: string,
     payload: Record<string, any>
   ) {
-    const tripRef = doc(db, 'trips', tripId);
+    if (!tripId) return;
+
+    const tripRef = doc(
+      db,
+      'fretes',
+      tripId
+    );
 
     await updateDoc(tripRef, {
       ...payload,
@@ -100,8 +130,8 @@ export class FirebaseRealtimeService {
   }
 
   disconnectAll() {
-    this.unsubscribers.forEach(unsubscribe =>
-      unsubscribe()
+    this.unsubscribers.forEach(
+      unsubscribe => unsubscribe()
     );
 
     this.unsubscribers = [];
