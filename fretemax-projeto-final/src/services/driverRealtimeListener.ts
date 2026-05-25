@@ -10,7 +10,16 @@ import {
 
 type DriverRealtimePayload = {
   id: string;
+
   state: DriverState;
+
+  freteAtualId?: string;
+
+  online?: boolean;
+
+  disponivel?: boolean;
+
+  novaOferta?: any;
 };
 
 class DriverRealtimeListener {
@@ -20,74 +29,281 @@ class DriverRealtimeListener {
   initialize() {
     eventBusService.on(
       AppEvents.DRIVER_STATUS_CHANGED,
-      this.handleDriverUpdate.bind(this)
+      this.handleDriverUpdate.bind(this),
     );
   }
 
   private handleDriverUpdate(
-    payload: DriverRealtimePayload
+    payload: DriverRealtimePayload,
   ) {
-    if (!payload?.state) return;
+    try {
+      if (
+        !payload?.state
+      ) {
+        return;
+      }
 
-    const nextState = payload.state;
+      const nextState =
+        payload.state;
 
-    if (
-      this.currentState === nextState
-    ) {
-      return;
-    }
+      /*
+      ===================================
+      IGNORA DUPLICADO
+      ===================================
+      */
 
-    const valid =
-      canDriverTransition(
-        this.currentState,
+      if (
+        this.currentState ===
         nextState
+      ) {
+        return;
+      }
+
+      /*
+      ===================================
+      VALIDAÇÃO STATE MACHINE
+      ===================================
+      */
+
+      const valid =
+        canDriverTransition(
+          this.currentState,
+          nextState,
+        );
+
+      if (!valid) {
+        console.warn(
+          `INVALID DRIVER TRANSITION: ${this.currentState} -> ${nextState}`,
+        );
+
+        eventBusService.emit(
+          AppEvents.SYSTEM_ERROR,
+          {
+            origem:
+              'driverRealtimeListener',
+
+            currentState:
+              this.currentState,
+
+            nextState,
+          },
+        );
+
+        return;
+      }
+
+      /*
+      ===================================
+      LOG TRANSITION
+      ===================================
+      */
+
+      console.log(
+        `DRIVER STATE: ${this.currentState} -> ${nextState}`,
       );
 
-    if (!valid) {
-      console.warn(
-        `Invalid Driver Transition: ${this.currentState} -> ${nextState}`
+      this.currentState =
+        nextState;
+
+      /*
+      ===================================
+      EVENTS
+      ===================================
+      */
+
+      switch (nextState) {
+
+        /*
+        ================================
+        ONLINE
+        ================================
+        */
+
+        case DriverState.ONLINE:
+
+          eventBusService.emit(
+            AppEvents.DRIVER_ONLINE,
+            payload,
+          );
+
+          break;
+
+        /*
+        ================================
+        OFFLINE
+        ================================
+        */
+
+        case DriverState.OFFLINE:
+
+          eventBusService.emit(
+            AppEvents.DRIVER_OFFLINE,
+            payload,
+          );
+
+          break;
+
+        /*
+        ================================
+        RECEBENDO OFERTA
+        ================================
+        */
+
+        case DriverState.RECEBENDO_OFERTA:
+
+          eventBusService.emit(
+            AppEvents.NEW_TRIP_REQUEST,
+            payload,
+          );
+
+          break;
+
+        /*
+        ================================
+        ACEITOU
+        ================================
+        */
+
+        case DriverState.ACEITOU:
+
+          eventBusService.emit(
+            AppEvents.DRIVER_ACCEPTED_TRIP,
+            payload,
+          );
+
+          eventBusService.emit(
+            AppEvents.TRIP_ACCEPTED,
+            payload,
+          );
+
+          break;
+
+        /*
+        ================================
+        REJEITOU
+        ================================
+        */
+
+        case DriverState.REJEITOU_OFERTA:
+
+          eventBusService.emit(
+            AppEvents.DRIVER_REJECTED_TRIP,
+            payload,
+          );
+
+          break;
+
+        /*
+        ================================
+        TIMEOUT
+        ================================
+        */
+
+        case DriverState.TIMEOUT:
+
+          eventBusService.emit(
+            AppEvents.DISPATCH_TIMEOUT,
+            payload,
+          );
+
+          break;
+
+        /*
+        ================================
+        REDISPATCH
+        ================================
+        */
+
+        case DriverState.REDISPATCH:
+
+          eventBusService.emit(
+            AppEvents.REDISPATCH_STARTED,
+            payload,
+          );
+
+          break;
+
+        /*
+        ================================
+        COLETA
+        ================================
+        */
+
+        case DriverState.COLETANDO:
+
+          eventBusService.emit(
+            AppEvents.TRIP_COLLECTED,
+            payload,
+          );
+
+          break;
+
+        /*
+        ================================
+        TRANSPORTE
+        ================================
+        */
+
+        case DriverState.EM_TRANSPORTE:
+
+          eventBusService.emit(
+            AppEvents.TRIP_IN_PROGRESS,
+            payload,
+          );
+
+          eventBusService.emit(
+            AppEvents.TRIP_STARTED,
+            payload,
+          );
+
+          break;
+
+        /*
+        ================================
+        FINALIZAÇÃO
+        ================================
+        */
+
+        case DriverState.FINALIZANDO:
+
+          eventBusService.emit(
+            AppEvents.TRIP_FINISHED,
+            payload,
+          );
+
+          break;
+
+        /*
+        ================================
+        CANCELADO
+        ================================
+        */
+
+        case DriverState.CANCELADO:
+
+          eventBusService.emit(
+            AppEvents.TRIP_CANCELLED,
+            payload,
+          );
+
+          break;
+      }
+    } catch (error) {
+
+      console.error(
+        'DRIVER REALTIME LISTENER ERROR:',
+        error,
       );
 
-      return;
-    }
+      eventBusService.emit(
+        AppEvents.SYSTEM_ERROR,
+        {
+          origem:
+            'driverRealtimeListener',
 
-    this.currentState = nextState;
-
-    switch (nextState) {
-      case DriverState.ONLINE:
-        eventBusService.emit(
-          AppEvents.DRIVER_ONLINE,
-          payload
-        );
-        break;
-
-      case DriverState.OFFLINE:
-        eventBusService.emit(
-          AppEvents.DRIVER_OFFLINE,
-          payload
-        );
-        break;
-
-      case DriverState.ACEITOU:
-        eventBusService.emit(
-          AppEvents.TRIP_ACCEPTED,
-          payload
-        );
-        break;
-
-      case DriverState.EM_TRANSPORTE:
-        eventBusService.emit(
-          AppEvents.TRIP_STARTED,
-          payload
-        );
-        break;
-
-      case DriverState.FINALIZANDO:
-        eventBusService.emit(
-          AppEvents.TRIP_FINISHED,
-          payload
-        );
-        break;
+          error,
+        },
+      );
     }
   }
 }
