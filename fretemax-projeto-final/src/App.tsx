@@ -14,7 +14,13 @@ import Cliente from './pages/Cliente';
 import Motorista from './pages/Motorista';
 import Admin from './pages/Admin';
 
+import { useRealtimeSystem }
+  from './hooks/useRealtimeSystem';
+
 export default function App() {
+
+  useRealtimeSystem();
+
   return (
     <BrowserRouter>
       <ErrorBoundary>
