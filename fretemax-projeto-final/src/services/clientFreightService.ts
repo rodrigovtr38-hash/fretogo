@@ -24,6 +24,11 @@ import {
   executeDispatch,
 } from './orchestrator';
 
+import {
+  eventBusService,
+  AppEvents,
+} from './eventBusService';
+
 type CreateFreightPayload = {
   clienteId: string;
   origem: any;
@@ -62,7 +67,24 @@ class ClientFreightService {
           }
         );
 
+      /*
+      ==========================
+      PAGAMENTO NEGADO
+      ==========================
+      */
+
       if (!pagamento.success) {
+        eventBusService.emit(
+          AppEvents.PAYMENT_FAILED,
+          {
+            clienteId:
+              payload.clienteId,
+
+            error:
+              pagamento.error,
+          }
+        );
+
         return {
           success: false,
           error:
@@ -105,6 +127,9 @@ class ClientFreightService {
             transactionId:
               pagamento.transactionId,
 
+            paymentStatus:
+              'approved',
+
             status:
               AppTripState.DISPONIVEL,
 
@@ -115,6 +140,23 @@ class ClientFreightService {
               serverTimestamp(),
           }
         );
+
+      /*
+      ==========================
+      PAYMENT EVENT
+      ==========================
+      */
+
+      eventBusService.emit(
+        AppEvents.PAYMENT_APPROVED,
+        {
+          freteId:
+            freteRef.id,
+
+          transactionId:
+            pagamento.transactionId,
+        }
+      );
 
       /*
       ==========================
@@ -144,6 +186,20 @@ class ClientFreightService {
           payload.valorTotal,
       });
 
+      /*
+      ==========================
+      FREIGHT EVENT
+      ==========================
+      */
+
+      eventBusService.emit(
+        AppEvents.NEW_TRIP_REQUEST,
+        {
+          freteId:
+            freteRef.id,
+        }
+      );
+
       return {
         success: true,
         freteId:
@@ -153,6 +209,13 @@ class ClientFreightService {
       console.error(
         'ERRO CRIAR FRETE:',
         error
+      );
+
+      eventBusService.emit(
+        AppEvents.PAYMENT_FAILED,
+        {
+          error,
+        }
       );
 
       return {
@@ -181,6 +244,19 @@ class ClientFreightService {
 
           atualizadoEm:
             serverTimestamp(),
+        }
+      );
+
+      /*
+      ==========================
+      EVENT
+      ==========================
+      */
+
+      eventBusService.emit(
+        AppEvents.TRIP_CANCELLED,
+        {
+          freteId,
         }
       );
 
@@ -296,6 +372,19 @@ class ClientFreightService {
                 serverTimestamp(),
             }
           );
+        }
+      );
+
+      /*
+      ==========================
+      EVENT
+      ==========================
+      */
+
+      eventBusService.emit(
+        AppEvents.TRIP_FINISHED,
+        {
+          freteId,
         }
       );
 
