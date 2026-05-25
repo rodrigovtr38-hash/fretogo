@@ -1,165 +1,82 @@
 import {
-  CheckCircle,
-  Clock3,
+  Radar,
   Truck,
-  XCircle,
+  User,
+  Package,
 } from 'lucide-react';
 
-import {
-  AppTripState,
-} from '../../state/tripStateMachine';
-
-type ClientStatusCardProps = {
+interface ClientStatusCardProps {
   status?: string;
-  motoristaNome?: string | null;
-};
+  loadingMessage?: string;
+  motoristaNome?: string;
+  veiculo?: string;
+  distancia?: number;
+  valorTotal?: number;
+}
 
 export default function ClientStatusCard({
   status,
+  loadingMessage,
   motoristaNome,
+  veiculo,
+  distancia,
+  valorTotal,
 }: ClientStatusCardProps) {
-  const getStatusData = () => {
-    switch (status) {
-      case AppTripState.DISPONIVEL:
-        return {
-          icon: (
-            <Clock3 className="h-7 w-7 text-yellow-400" />
-          ),
-
-          title:
-            'Procurando motorista',
-
-          description:
-            'Seu frete está disponível para motoristas próximos.',
-
-          bg:
-            'border-yellow-500/20 bg-yellow-500/5',
-        };
-
-      case AppTripState.OFERTANDO:
-        return {
-          icon: (
-            <Clock3 className="h-7 w-7 text-blue-400" />
-          ),
-
-          title:
-            'Motoristas recebendo oferta',
-
-          description:
-            'Estamos enviando sua corrida em tempo real.',
-
-          bg:
-            'border-blue-500/20 bg-blue-500/5',
-        };
-
-      case AppTripState.ACEITO:
-        return {
-          icon: (
-            <CheckCircle className="h-7 w-7 text-green-400" />
-          ),
-
-          title:
-            'Motorista encontrado',
-
-          description: motoristaNome
-            ? `${motoristaNome} aceitou sua corrida.`
-            : 'Seu motorista foi definido.',
-
-          bg:
-            'border-green-500/20 bg-green-500/5',
-        };
-
-      case AppTripState.EM_TRANSPORTE:
-        return {
-          icon: (
-            <Truck className="h-7 w-7 text-cyan-400" />
-          ),
-
-          title:
-            'Em transporte',
-
-          description:
-            'Sua carga está em rota de entrega.',
-
-          bg:
-            'border-cyan-500/20 bg-cyan-500/5',
-        };
-
-      case AppTripState.FINALIZANDO:
-        return {
-          icon: (
-            <Truck className="h-7 w-7 text-purple-400" />
-          ),
-
-          title:
-            'Finalizando corrida',
-
-          description:
-            'Estamos encerrando a operação.',
-
-          bg:
-            'border-purple-500/20 bg-purple-500/5',
-        };
-
-      case AppTripState.CANCELADO:
-        return {
-          icon: (
-            <XCircle className="h-7 w-7 text-red-400" />
-          ),
-
-          title:
-            'Corrida cancelada',
-
-          description:
-            'O frete foi cancelado.',
-
-          bg:
-            'border-red-500/20 bg-red-500/5',
-        };
-
-      default:
-        return {
-          icon: (
-            <Clock3 className="h-7 w-7 text-zinc-400" />
-          ),
-
-          title:
-            'Inicializando',
-
-          description:
-            'Aguarde enquanto sincronizamos.',
-
-          bg:
-            'border-zinc-700 bg-zinc-900',
-        };
-    }
-  };
-
-  const statusData =
-    getStatusData();
-
   return (
-    <div
-      className={`
-        rounded-3xl
-        border
-        p-6
-        backdrop-blur-xl
-        ${statusData.bg}
-      `}
-    >
-      <div className="flex items-start gap-4">
-        <div className="mt-1">
-          {statusData.icon}
+    <div className="rounded-[2.5rem] border border-white/10 bg-slate-900/80 p-8 shadow-2xl backdrop-blur-xl">
+      <div className="mb-8 flex items-center gap-3">
+        <Radar className="animate-spin text-cyan-400" />
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-400">
+            Status Operacional
+          </p>
+
+          <h2 className="text-2xl font-black text-white">
+            {status || loadingMessage}
+          </h2>
+        </div>
+      </div>
+
+      <div className="space-y-5">
+        <div className="rounded-2xl border border-white/5 bg-slate-950/50 p-5">
+          <div className="mb-2 flex items-center gap-2">
+            <User size={16} className="text-cyan-400" />
+
+            <span className="text-xs font-black uppercase tracking-wider text-slate-500">
+              Motorista
+            </span>
+          </div>
+
+          <p className="text-sm font-bold text-white">
+            {motoristaNome || 'Aguardando motorista'}
+          </p>
         </div>
 
-        <div>
-          <h2 className="text-lg font-black uppercase tracking-wide text-white">
-            {statusData.title}
-          </h2>
+        <div className="rounded-2xl border border-white/5 bg-slate-950/50 p-5">
+          <div className="mb-2 flex items-center gap-2">
+            <Truck size={16} className="text-green-400" />
 
-          <p className="mt-2 text-sm leading-relaxed text-zinc-300">
-            {statusData.description}
+            <span className="text-xs font-black uppercase tracking-wider text-slate-500">
+              Veículo
+            </span>
+          </div>
+
+          <p className="text-sm font-bold text-white">
+            {veiculo || 'Não definido'}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-white/5 bg-slate-950/50 p-5">
+          <div className="mb-2 flex items-center gap-2">
+            <Package size={16} className="text-yellow-400" />
+
+            <span className="text-xs font-black uppercase tracking-wider text-slate-500">
+              Operação
+            </span>
+          </div>
+
+          <p className="text-sm font-bold text-white">
+            {distancia?.toFixed(1) || '0'} km · R$ {valorTotal?.toFixed(2) || '0,00'}
           </p>
         </div>
       </div>
