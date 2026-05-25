@@ -1,145 +1,62 @@
 import {
   MessageCircle,
-  Phone,
-  Truck,
-  User,
+  XCircle,
 } from 'lucide-react';
 
-type ClientDriverCardProps = {
-  motoristaNome?: string | null;
-
-  motoristaFoto?: string | null;
-
-  motoristaVeiculo?: string | null;
-
-  motoristaPlaca?: string | null;
-
-  motoristaZap?: string | null;
-
-  motoristaTelefone?: string | null;
-};
+interface ClientDriverCardProps {
+  motoristaZap?: string;
+  motoristaNome?: string;
+  isFinal: boolean;
+  isCancelling: boolean;
+  onWhatsAppClick: () => void;
+  onCancelClick: () => void;
+}
 
 export default function ClientDriverCard({
-  motoristaNome,
-  motoristaFoto,
-  motoristaVeiculo,
-  motoristaPlaca,
   motoristaZap,
-  motoristaTelefone,
+  motoristaNome,
+  isFinal,
+  isCancelling,
+  onWhatsAppClick,
+  onCancelClick,
 }: ClientDriverCardProps) {
-  if (!motoristaNome) {
-    return null;
-  }
-
-  const whatsappLink =
-    motoristaZap
-      ? `https://wa.me/${motoristaZap.replace(
-          /\D/g,
-          ''
-        )}`
-      : null;
-
-  const phoneLink =
-    motoristaTelefone
-      ? `tel:${motoristaTelefone}`
-      : null;
-
   return (
-    <div className="rounded-3xl border border-cyan-500/20 bg-cyan-500/5 p-6 backdrop-blur-xl">
-      <div className="flex items-start gap-5">
-        <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl border border-cyan-500/20 bg-zinc-900">
-          {motoristaFoto ? (
-            <img
-              src={motoristaFoto}
-              alt={motoristaNome}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <User className="h-10 w-10 text-cyan-400" />
-          )}
-        </div>
+    <div className="rounded-[2.5rem] border border-white/10 bg-slate-900/80 p-8 shadow-2xl backdrop-blur-xl">
+      <h2 className="mb-6 text-xl font-black text-white">
+        Central do Motorista
+      </h2>
 
-        <div className="flex-1">
-          <h2 className="text-xl font-black uppercase tracking-wide text-white">
-            {motoristaNome}
-          </h2>
+      <div className="space-y-4">
+        <button
+          onClick={onWhatsAppClick}
+          disabled={!motoristaZap}
+          className="flex min-h-[64px] w-full items-center justify-center gap-3 rounded-[1.5rem] bg-emerald-500 text-white font-black uppercase tracking-wider hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <MessageCircle size={18} />
+          WhatsApp
+        </button>
 
-          <div className="mt-4 space-y-2">
-            {motoristaVeiculo && (
-              <div className="flex items-center gap-2 text-sm text-zinc-300">
-                <Truck className="h-4 w-4 text-cyan-400" />
-
-                <span>
-                  {motoristaVeiculo}
-                </span>
-              </div>
-            )}
-
-            {motoristaPlaca && (
-              <div className="text-sm font-bold uppercase tracking-widest text-cyan-300">
-                {motoristaPlaca}
-              </div>
-            )}
-          </div>
-        </div>
+        {!isFinal && (
+          <button
+            onClick={onCancelClick}
+            disabled={isCancelling}
+            className="flex min-h-[64px] w-full items-center justify-center gap-3 rounded-[1.5rem] border border-red-500/20 bg-red-500/10 text-red-400 font-black uppercase tracking-wider hover:bg-red-500/20"
+          >
+            <XCircle size={18} />
+            Cancelar Operação
+          </button>
+        )}
       </div>
 
-      {(whatsappLink ||
-        phoneLink) && (
-        <div className="mt-6 flex gap-4">
-          {whatsappLink && (
-            <a
-              href={whatsappLink}
-              target="_blank"
-              rel="noreferrer"
-              className="
-                flex flex-1 items-center justify-center gap-2
-                rounded-2xl
-                bg-green-600
-                px-5
-                py-4
-                text-sm
-                font-black
-                uppercase
-                tracking-wider
-                text-white
-                transition-all
-                hover:bg-green-500
-              "
-            >
-              <MessageCircle className="h-4 w-4" />
+      <div className="mt-6 rounded-2xl border border-white/5 bg-slate-950/50 p-5">
+        <p className="text-xs font-black uppercase tracking-wider text-slate-500">
+          Motorista Atual
+        </p>
 
-              WhatsApp
-            </a>
-          )}
-
-          {phoneLink && (
-            <a
-              href={phoneLink}
-              className="
-                flex flex-1 items-center justify-center gap-2
-                rounded-2xl
-                border
-                border-cyan-500/20
-                bg-zinc-900
-                px-5
-                py-4
-                text-sm
-                font-black
-                uppercase
-                tracking-wider
-                text-cyan-300
-                transition-all
-                hover:bg-zinc-800
-              "
-            >
-              <Phone className="h-4 w-4" />
-
-              Ligar
-            </a>
-          )}
-        </div>
-      )}
+        <p className="mt-2 text-sm font-bold text-white">
+          {motoristaNome || 'Aguardando conexão'}
+        </p>
+      </div>
     </div>
   );
 }
