@@ -3,6 +3,7 @@ import {
   onSnapshot,
   updateDoc,
   serverTimestamp,
+  Unsubscribe,
 } from 'firebase/firestore';
 
 import { db } from '../firebase';
@@ -13,132 +14,247 @@ import {
 } from './eventBusService';
 
 class FirebaseRealtimeService {
-  private unsubscribers: (() => void)[] = [];
+  private listeners:
+    Map<string, Unsubscribe> =
+    new Map();
 
-  listenDriver(driverId: string) {
-    if (!driverId) return;
-
-    const driverRef = doc(
-      db,
-      'motoristas',
-      driverId
+  private emitConnected() {
+    eventBusService.emit(
+      AppEvents.REALTIME_CONNECTED,
     );
-
-    const unsubscribe = onSnapshot(
-      driverRef,
-      snapshot => {
-        if (!snapshot.exists()) return;
-
-        const data = {
-          id: snapshot.id,
-          ...snapshot.data(),
-        };
-
-        eventBusService.emit(
-          AppEvents.DRIVER_STATUS_CHANGED,
-          data
-        );
-      },
-      error => {
-        console.error(
-          'Realtime Driver Error:',
-          error
-        );
-
-        eventBusService.emit(
-          AppEvents.REALTIME_DISCONNECTED
-        );
-      }
-    );
-
-    this.unsubscribers.push(unsubscribe);
   }
 
-  listenTrip(tripId: string) {
-    if (!tripId) return;
-
-    const tripRef = doc(
-      db,
-      'fretes',
-      tripId
+  private emitDisconnected() {
+    eventBusService.emit(
+      AppEvents.REALTIME_DISCONNECTED,
     );
+  }
 
-    const unsubscribe = onSnapshot(
-      tripRef,
-      snapshot => {
-        if (!snapshot.exists()) return;
+  listenDriver(
+    driverId: string,
+  ) {
+    try {
+      if (!driverId) return;
 
-        const data = {
-          id: snapshot.id,
-          ...snapshot.data(),
-        };
+      const key =
+        `driver_${driverId}`;
 
-        eventBusService.emit(
-          AppEvents.TRIP_STATUS_CHANGED,
-          data
-        );
-      },
-      error => {
-        console.error(
-          'Realtime Trip Error:',
-          error
-        );
-
-        eventBusService.emit(
-          AppEvents.REALTIME_DISCONNECTED
-        );
+      if (
+        this.listeners.has(key)
+      ) {
+        return;
       }
-    );
 
-    this.unsubscribers.push(unsubscribe);
+      const driverRef = doc(
+        db,
+        'motoristas',
+        driverId,
+      );
+
+      const unsubscribe =
+        onSnapshot(
+          driverRef,
+          snapshot => {
+            if (
+              !snapshot.exists()
+            ) {
+              return;
+            }
+
+            const data = {
+              id: snapshot.id,
+
+              ...snapshot.data(),
+            };
+
+            this.emitConnected();
+
+            eventBusService.emit(
+              AppEvents.DRIVER_STATUS_CHANGED,
+              data,
+            );
+          },
+          error => {
+            console.error(
+              'REALTIME DRIVER ERROR:',
+              error,
+            );
+
+            this.emitDisconnected();
+          },
+        );
+
+      this.listeners.set(
+        key,
+        unsubscribe,
+      );
+    } catch (error) {
+      console.error(
+        'ERRO LISTEN DRIVER:',
+        error,
+      );
+    }
+  }
+
+  listenTrip(
+    tripId: string,
+  ) {
+    try {
+      if (!tripId) return;
+
+      const key =
+        `trip_${tripId}`;
+
+      if (
+        this.listeners.has(key)
+      ) {
+        return;
+      }
+
+      const tripRef = doc(
+        db,
+        'fretes',
+        tripId,
+      );
+
+      const unsubscribe =
+        onSnapshot(
+          tripRef,
+          snapshot => {
+            if (
+              !snapshot.exists()
+            ) {
+              return;
+            }
+
+            const data = {
+              id: snapshot.id,
+
+              ...snapshot.data(),
+            };
+
+            this.emitConnected();
+
+            eventBusService.emit(
+              AppEvents.TRIP_STATUS_CHANGED,
+              data,
+            );
+          },
+          error => {
+            console.error(
+              'REALTIME TRIP ERROR:',
+              error,
+            );
+
+            this.emitDisconnected();
+          },
+        );
+
+      this.listeners.set(
+        key,
+        unsubscribe,
+      );
+    } catch (error) {
+      console.error(
+        'ERRO LISTEN TRIP:',
+        error,
+      );
+    }
   }
 
   async updateDriverRealtime(
     driverId: string,
-    payload: Record<string, any>
+    payload: Record<
+      string,
+      any
+    >,
   ) {
-    if (!driverId) return;
+    try {
+      if (!driverId) return;
 
-    const driverRef = doc(
-      db,
-      'motoristas',
-      driverId
-    );
+      const driverRef = doc(
+        db,
+        'motoristas',
+        driverId,
+      );
 
-    await updateDoc(driverRef, {
-      ...payload,
-      updatedAt: serverTimestamp(),
-    });
+      await updateDoc(
+        driverRef,
+        {
+          ...payload,
+
+          updatedAt:
+            serverTimestamp(),
+        },
+      );
+    } catch (error) {
+      console.error(
+        'ERRO UPDATE DRIVER:',
+        error,
+      );
+    }
   }
 
   async updateTripRealtime(
     tripId: string,
-    payload: Record<string, any>
+    payload: Record<
+      string,
+      any
+    >,
   ) {
-    if (!tripId) return;
+    try {
+      if (!tripId) return;
 
-    const tripRef = doc(
-      db,
-      'fretes',
-      tripId
-    );
+      const tripRef = doc(
+        db,
+        'fretes',
+        tripId,
+      );
 
-    await updateDoc(tripRef, {
-      ...payload,
-      updatedAt: serverTimestamp(),
-    });
+      await updateDoc(
+        tripRef,
+        {
+          ...payload,
+
+          updatedAt:
+            serverTimestamp(),
+        },
+      );
+    } catch (error) {
+      console.error(
+        'ERRO UPDATE TRIP:',
+        error,
+      );
+    }
+  }
+
+  stopListener(
+    key: string,
+  ) {
+    const listener =
+      this.listeners.get(
+        key,
+      );
+
+    if (listener) {
+      listener();
+
+      this.listeners.delete(
+        key,
+      );
+    }
   }
 
   disconnectAll() {
-    this.unsubscribers.forEach(
-      unsubscribe => unsubscribe()
+    this.listeners.forEach(
+      unsubscribe => {
+        unsubscribe();
+      },
     );
 
-    this.unsubscribers = [];
+    this.listeners.clear();
 
-    eventBusService.emit(
-      AppEvents.REALTIME_DISCONNECTED
-    );
+    this.emitDisconnected();
   }
 }
 
