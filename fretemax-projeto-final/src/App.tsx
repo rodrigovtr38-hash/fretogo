@@ -14,17 +14,13 @@ import Cliente from './pages/Cliente';
 import Motorista from './pages/Motorista';
 import Admin from './pages/Admin';
 
-import { useRealtimeSystem }
-  from './hooks/useRealtimeSystem';
-
 export default function App() {
-
-  useRealtimeSystem();
 
   return (
     <BrowserRouter>
       <ErrorBoundary>
         <AppShell>
+
           <Routes>
 
             {/* ======================================================
@@ -64,7 +60,7 @@ export default function App() {
             />
 
             {/* ======================================================
-                REDIRECTS SEO / ADS / LANDINGS
+                REDIRECTS SEO / ADS
             ====================================================== */}
 
             <Route
@@ -152,6 +148,7 @@ export default function App() {
             />
 
           </Routes>
+
         </AppShell>
       </ErrorBoundary>
     </BrowserRouter>
