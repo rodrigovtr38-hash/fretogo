@@ -1,4 +1,23 @@
-// src/services/paymentService.ts
+import {
+  doc,
+  updateDoc,
+  serverTimestamp,
+} from 'firebase/firestore';
+
+import { db } from '../firebase';
+
+import {
+  eventBusService,
+  AppEvents,
+} from './eventBusService';
+
+import {
+  firebaseRealtimeService,
+} from './firebaseRealtimeService';
+
+import {
+  AppTripState,
+} from '../state/tripStateMachine';
 
 type PaymentPayload = {
   valor: number;
@@ -73,6 +92,11 @@ class PaymentService {
         );
 
       if (!response.ok) {
+        eventBusService.emit(
+          AppEvents.PAYMENT_FAILED,
+          payload
+        );
+
         return {
           success: false,
           error:
@@ -83,8 +107,25 @@ class PaymentService {
       const data =
         await response.json();
 
+      await this.sincronizarPagamento(
+        payload.freteId,
+        data.transactionId
+      );
+
+      eventBusService.emit(
+        AppEvents.PAYMENT_APPROVED,
+        {
+          freteId:
+            payload.freteId,
+
+          transactionId:
+            data.transactionId,
+        }
+      );
+
       return {
         success: true,
+
         transactionId:
           data.transactionId,
       };
@@ -92,6 +133,11 @@ class PaymentService {
       console.error(
         'PAYMENT ERROR:',
         error
+      );
+
+      eventBusService.emit(
+        AppEvents.PAYMENT_FAILED,
+        payload
       );
 
       return {
@@ -102,8 +148,56 @@ class PaymentService {
     }
   }
 
-  async processarReembolso(
+  private async sincronizarPagamento(
+    freteId: string,
     transactionId: string
+  ) {
+    try {
+      const freteRef = doc(
+        db,
+        'fretes',
+        freteId
+      );
+
+      await updateDoc(
+        freteRef,
+        {
+          pagamentoStatus:
+            'aprovado',
+
+          transactionId,
+
+          status:
+            AppTripState.PROCURANDO_MOTORISTA,
+
+          updatedAt:
+            serverTimestamp(),
+        }
+      );
+
+      await firebaseRealtimeService.updateTripRealtime(
+        freteId,
+        {
+          pagamentoStatus:
+            'aprovado',
+
+          transactionId,
+
+          status:
+            AppTripState.PROCURANDO_MOTORISTA,
+        }
+      );
+    } catch (error) {
+      console.error(
+        'SYNC PAYMENT ERROR:',
+        error
+      );
+    }
+  }
+
+  async processarReembolso(
+    transactionId: string,
+    freteId?: string
   ): Promise<boolean> {
     try {
       const response =
@@ -123,7 +217,38 @@ class PaymentService {
           }
         );
 
-      return response.ok;
+      if (!response.ok) {
+        return false;
+      }
+
+      if (freteId) {
+        const freteRef = doc(
+          db,
+          'fretes',
+          freteId
+        );
+
+        await updateDoc(
+          freteRef,
+          {
+            pagamentoStatus:
+              'reembolsado',
+
+            updatedAt:
+              serverTimestamp(),
+          }
+        );
+      }
+
+      eventBusService.emit(
+        AppEvents.PAYMENT_REFUNDED,
+        {
+          transactionId,
+          freteId,
+        }
+      );
+
+      return true;
     } catch (error) {
       console.error(
         'REFUND ERROR:',
