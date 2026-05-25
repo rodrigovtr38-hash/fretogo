@@ -11,11 +11,10 @@ import {
 type DriverRealtimePayload = {
   id: string;
   state: DriverState;
-  previousState?: DriverState;
 };
 
 class DriverRealtimeListener {
-  private currentState: DriverState =
+  private currentState =
     DriverState.OFFLINE;
 
   initialize() {
@@ -28,17 +27,23 @@ class DriverRealtimeListener {
   private handleDriverUpdate(
     payload: DriverRealtimePayload
   ) {
-    if (!payload) return;
+    if (!payload?.state) return;
 
     const nextState = payload.state;
 
-    const isValidTransition =
+    if (
+      this.currentState === nextState
+    ) {
+      return;
+    }
+
+    const valid =
       canDriverTransition(
         this.currentState,
         nextState
       );
 
-    if (!isValidTransition) {
+    if (!valid) {
       console.warn(
         `Invalid Driver Transition: ${this.currentState} -> ${nextState}`
       );
@@ -46,55 +51,44 @@ class DriverRealtimeListener {
       return;
     }
 
-    const previousState = this.currentState;
-
     this.currentState = nextState;
 
-    console.log(
-      `Driver State Updated: ${previousState} -> ${nextState}`
-    );
-
-    this.emitStateEvents(nextState);
-  }
-
-  private emitStateEvents(
-    state: DriverState
-  ) {
-    switch (state) {
+    switch (nextState) {
       case DriverState.ONLINE:
         eventBusService.emit(
-          AppEvents.DRIVER_ONLINE
+          AppEvents.DRIVER_ONLINE,
+          payload
         );
         break;
 
       case DriverState.OFFLINE:
         eventBusService.emit(
-          AppEvents.DRIVER_OFFLINE
+          AppEvents.DRIVER_OFFLINE,
+          payload
         );
         break;
 
       case DriverState.ACEITOU:
         eventBusService.emit(
-          AppEvents.TRIP_ACCEPTED
+          AppEvents.TRIP_ACCEPTED,
+          payload
         );
         break;
 
       case DriverState.EM_TRANSPORTE:
         eventBusService.emit(
-          AppEvents.TRIP_STARTED
+          AppEvents.TRIP_STARTED,
+          payload
         );
         break;
 
       case DriverState.FINALIZANDO:
         eventBusService.emit(
-          AppEvents.TRIP_FINISHED
+          AppEvents.TRIP_FINISHED,
+          payload
         );
         break;
     }
-  }
-
-  getCurrentState() {
-    return this.currentState;
   }
 }
 
