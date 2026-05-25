@@ -11,11 +11,10 @@ import {
 type TripRealtimePayload = {
   id: string;
   status: AppTripState;
-  previousStatus?: AppTripState;
 };
 
 class TripRealtimeListener {
-  private currentState: AppTripState =
+  private currentState =
     AppTripState.AGUARDANDO_PAGAMENTO;
 
   initialize() {
@@ -28,17 +27,23 @@ class TripRealtimeListener {
   private handleTripUpdate(
     payload: TripRealtimePayload
   ) {
-    if (!payload) return;
+    if (!payload?.status) return;
 
     const nextState = payload.status;
 
-    const isValidTransition =
+    if (
+      this.currentState === nextState
+    ) {
+      return;
+    }
+
+    const isValid =
       canTransition(
         this.currentState,
         nextState
       );
 
-    if (!isValidTransition) {
+    if (!isValid) {
       console.warn(
         `Invalid Trip Transition: ${this.currentState} -> ${nextState}`
       );
@@ -46,56 +51,44 @@ class TripRealtimeListener {
       return;
     }
 
-    const previousState =
-      this.currentState;
-
     this.currentState = nextState;
 
-    console.log(
-      `Trip State Updated: ${previousState} -> ${nextState}`
-    );
-
-    this.emitTripEvents(nextState);
-  }
-
-  private emitTripEvents(
-    state: AppTripState
-  ) {
-    switch (state) {
+    switch (nextState) {
       case AppTripState.OFERTANDO:
         eventBusService.emit(
-          AppEvents.NEW_TRIP_REQUEST
+          AppEvents.NEW_TRIP_REQUEST,
+          payload
         );
         break;
 
       case AppTripState.ACEITO:
         eventBusService.emit(
-          AppEvents.TRIP_ACCEPTED
+          AppEvents.TRIP_ACCEPTED,
+          payload
         );
         break;
 
       case AppTripState.EM_TRANSPORTE:
         eventBusService.emit(
-          AppEvents.TRIP_STARTED
+          AppEvents.TRIP_STARTED,
+          payload
         );
         break;
 
       case AppTripState.ENTREGUE:
         eventBusService.emit(
-          AppEvents.TRIP_FINISHED
+          AppEvents.TRIP_FINISHED,
+          payload
         );
         break;
 
       case AppTripState.CANCELADO:
         eventBusService.emit(
-          AppEvents.TRIP_CANCELLED
+          AppEvents.TRIP_CANCELLED,
+          payload
         );
         break;
     }
-  }
-
-  getCurrentState() {
-    return this.currentState;
   }
 }
 
