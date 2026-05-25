@@ -2,9 +2,13 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc, runTransaction } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Radar, Sparkles, User, Package, CalendarDays } from 'lucide-react';
+import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, XCircle, MessageCircle, Radar, Sparkles, User, Package, CalendarDays } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import ChatFrete from '../components/ChatFrete';
+import ClientToast from '../components/ClientToast';
+import ClientCancelModal from '../components/ClientCancelModal';
+import ClientStatusCard from '../components/ClientStatusCard';
+import ClientDriverCard from '../components/ClientDriverCard';
 import { AppTripState, isFinalState, isActiveState } from '../state/tripStateMachine';
 import { executeDispatch } from '../services/orchestrator';
 
@@ -49,7 +53,7 @@ async function callWithRetryAndTimeout<T>(callableName: string, payload: unknown
     } catch (error) {
       if (attempt === maxRetries) throw error;
     }
-  } 
+  }
   throw new Error("MAX_RETRIES_EXCEEDED");
 }
 
@@ -129,9 +133,9 @@ export default function Cliente() {
 
     const checkDriverHealth = async () => {
       if (!orderData.motoristaLastSeen) return;
-      const lastSeenMs = orderData.motoristaLastSeen.toDate ? orderData.motoristaLastSeen.toDate().getTime() : orderData.motoristaLastSeen; 
+      const lastSeenMs = orderData.motoristaLastSeen.toDate ? orderData.motoristaLastSeen.toDate().getTime() : orderData.motoristaLastSeen;
       const now = Date.now();
-      
+
       if (now - lastSeenMs > 45000) {
         try {
           const callRedispatch = httpsCallable(getFunctions(), 'triggerRedispatch');
@@ -200,12 +204,12 @@ export default function Cliente() {
     if (loadingRoute || loadingPayment || !isFormValid || actionLock.current) return;
     actionLock.current = true;
     const pesoNum = parseInt(peso.replace(/\D/g, ''), 10);
-    if (!Number.isNaN(pesoNum) && pesoNum > LIMITES_PESO[vehicle]) { 
-      showToast('Peso excede o limite da categoria.', 'error'); 
-      actionLock.current = false; 
-      return; 
+    if (!Number.isNaN(pesoNum) && pesoNum > LIMITES_PESO[vehicle]) {
+      showToast('Peso excede o limite da categoria.', 'error');
+      actionLock.current = false;
+      return;
     }
-    
+
     setLoadingRoute(true);
     try {
       const distanceResult = await callWithRetryAndTimeout<number>('getDistance', { origin: `${coleta.rua}, ${coleta.num}, ${coleta.bairro}, Brazil`, destination: `${entrega.rua}, ${entrega.num}, ${entrega.bairro}, Brazil` }, 2, 8000);
@@ -217,9 +221,9 @@ export default function Cliente() {
       showToast('Calculando rota por estimativa.', 'warning');
       setDistanciaReal(15);
       setStep('preview');
-    } finally { 
-      setLoadingRoute(false); 
-      actionLock.current = false; 
+    } finally {
+      setLoadingRoute(false);
+      actionLock.current = false;
     }
   };
 
@@ -242,7 +246,7 @@ export default function Cliente() {
     try {
       const c1 = await getValidCoords(`${coleta.rua}, ${coleta.num}, ${coleta.bairro}, Brazil`, coleta.cep);
       const c2 = await getValidCoords(`${entrega.rua}, ${entrega.num}, ${entrega.bairro}, Brazil`, entrega.cep);
-      
+
       const docRef = await addDoc(collection(db, 'fretes'), {
         distancia: validDistancia, veiculo: vehicle, valorTotal: Number(valorTotalBruto.toFixed(2)),
         valorMotorista: Number((valorTotalBruto * 0.8).toFixed(2)), lucroPlataforma: Number((valorTotalBruto * 0.2).toFixed(2)),
@@ -253,7 +257,7 @@ export default function Cliente() {
         clienteNome: nome || 'Anônimo', clienteZap: whatsapp, coleta, entrega,
         origemLat: c1.lat, origemLng: c1.lng, destinoLat: c2.lat, destinoLng: c2.lng, tipoFrete,
         dataAgendada: tipoFrete === 'agendado' ? new Date(dataAgendada).toISOString() : null,
-        status: tipoFrete === 'agendado' ? AppTripState.AGENDADO : AppTripState.AGUARDANDO_PAGAMENTO, 
+        status: tipoFrete === 'agendado' ? AppTripState.AGENDADO : AppTripState.AGUARDANDO_PAGAMENTO,
         paymentStatus: 'pending',
         createdAt: serverTimestamp(),
         lastSeenCliente: serverTimestamp()
@@ -268,9 +272,9 @@ export default function Cliente() {
           const res = await fetch('/api/pagamento', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ titulo: `FRETOGO - ${VEHICLE_CONFIG[vehicle].nome}`, idPedido: docRef.id }) });
           if (!res.ok) throw new Error('API indisponível');
           const data = await res.json();
-          if (data?.url && data.url.startsWith('https')) { 
-            window.location.href = data.url; 
-            return; 
+          if (data?.url && data.url.startsWith('https')) {
+            window.location.href = data.url;
+            return;
           }
           throw new Error('Link inválido');
         } catch {
@@ -298,10 +302,10 @@ export default function Cliente() {
         if (!snap.exists()) throw new Error("NOT_FOUND");
         const data = snap.data() as OrderData;
         if (isFinalState(data.status)) throw new Error("ALREADY_FINAL");
-        
-        t.update(freteRef, { 
-          status: AppTripState.CANCELADO, 
-          canceladoEm: serverTimestamp(), 
+
+        t.update(freteRef, {
+          status: AppTripState.CANCELADO,
+          canceladoEm: serverTimestamp(),
           canceladoPor: 'cliente',
           filaMatching: [],
           motoristaId: null,
@@ -317,8 +321,8 @@ export default function Cliente() {
       showToast('Pedido cancelado com sucesso.', 'success');
     } catch {
       showToast('Falha ao cancelar operação.', 'error');
-    } finally { 
-      setIsCancelling(false); 
+    } finally {
+      setIsCancelling(false);
       actionLock.current = false;
     }
   };
@@ -355,30 +359,15 @@ export default function Cliente() {
       </header>
 
       <main className="relative z-10 flex-1 mx-auto flex w-full max-w-[1400px] flex-col px-4 py-8 pb-20 sm:px-6 lg:px-8">
-        {toast && (
-          <div className="fixed bottom-8 left-1/2 z-[120] -translate-x-1/2 animate-in slide-in-from-bottom-5">
-            <div className={`rounded-2xl border px-8 py-5 text-sm font-black uppercase tracking-widest shadow-2xl backdrop-blur-xl ${toast.type === 'success' ? 'border-green-500/30 bg-green-950/80 text-green-300' : toast.type === 'warning' ? 'border-yellow-500/30 bg-yellow-950/80 text-yellow-300' : 'border-red-500/30 bg-red-950/80 text-red-300'}`}>
-              {toast.msg}
-            </div>
-          </div>
-        )}
 
-        {showCancelModal && (
-          <div className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/80 p-5 backdrop-blur-md animate-in fade-in duration-200">
-            <div className="w-full max-w-md overflow-hidden rounded-[2.5rem] border border-red-500/20 bg-slate-900 p-10 text-center shadow-2xl">
-              <div className="absolute left-0 top-0 h-1 w-full bg-gradient-to-r from-transparent via-red-500 to-transparent" />
-              <AlertTriangle className="mx-auto mb-6 h-16 w-16 text-red-500 drop-shadow-[0_0_15px_rgba(239,68,68,0.4)]" />
-              <h3 className="mb-3 text-2xl font-black uppercase italic tracking-tight text-white">Cancelar operação?</h3>
-              <p className="mb-8 text-sm font-medium leading-relaxed text-slate-400">O radar operacional será encerrado e a busca por parceiros cancelada.</p>
-              <div className="flex gap-4">
-                <button onClick={() => setShowCancelModal(false)} className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-6 py-4 text-xs font-black uppercase tracking-widest text-slate-300 hover:bg-white/10">Voltar</button>
-                <button onClick={cancelFreteTransaction} disabled={isCancelling} className="flex-1 rounded-2xl bg-red-500 px-6 py-4 text-xs font-black uppercase tracking-widest text-white shadow-md hover:bg-red-400">
-                  {isCancelling ? 'Aguarde...' : 'Cancelar'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <ClientToast toast={toast} />
+
+        <ClientCancelModal
+          show={showCancelModal}
+          isCancelling={isCancelling}
+          onConfirm={cancelFreteTransaction}
+          onClose={() => setShowCancelModal(false)}
+        />
 
         {step === 'form' && (
           <div className="w-full rounded-[2.5rem] border border-white/10 bg-slate-900/60 p-8 shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4">
@@ -482,7 +471,6 @@ export default function Cliente() {
           </div>
         )}
 
-        {/* STEP: BUSCA */}
         {step === 'busca' && (
           <div className="w-full grid grid-cols-1 gap-8 lg:grid-cols-[1fr_420px]">
             <div className="relative overflow-hidden rounded-[3rem] border border-white/10 bg-slate-900/80 p-8 shadow-2xl backdrop-blur-xl">
@@ -493,18 +481,27 @@ export default function Cliente() {
               </div>
               <div className="mt-6"><ChatFrete freteId={currentOrderId || ''} tipoUsuario="cliente" nome={nome} /></div>
             </div>
-            <div className="space-y-6 rounded-[3rem] border border-cyan-500/20 bg-slate-900/90 p-8 shadow-xl">
-              <div className="text-center">
-                 <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-[2rem] border border-blue-500/30 bg-blue-500/10"><Truck className="h-10 w-10 text-blue-400" /></div>
-                 <h3 className="text-xl font-black uppercase italic text-white">{orderData?.status === AppTripState.ACEITO ? 'Motorista Confirmado' : 'Aguardando Parceiro'}</h3>
-              </div>
-              {orderData?.motoristaZap && <button onClick={handleWhatsAppClick} className="flex min-h-[64px] w-full items-center justify-center gap-3 rounded-[1.5rem] bg-green-500 px-6 font-black uppercase text-slate-950"> <MessageCircle size={20} /> Chamar no WhatsApp</button>}
-              {!orderData || !isFinalState(orderData.status) && (
-                <button onClick={() => setShowCancelModal(true)} disabled={isCancelling} className="flex min-h-[64px] w-full items-center justify-center gap-2 rounded-[1.5rem] border border-white/5 bg-slate-900/80 text-slate-500 hover:text-red-400"><XCircle size={16} /> Cancelar Operação</button>
-              )}
+            <div className="space-y-6">
+              <ClientStatusCard
+                status={orderData?.status}
+                loadingMessage={loadingMessage}
+                motoristaNome={orderData?.motoristaNome}
+                veiculo={orderData?.veiculo}
+                distancia={orderData?.distancia}
+                valorTotal={orderData?.valorTotal}
+              />
+              <ClientDriverCard
+                motoristaZap={orderData?.motoristaZap}
+                motoristaNome={orderData?.motoristaNome}
+                isFinal={orderData ? isFinalState(orderData.status) : false}
+                isCancelling={isCancelling}
+                onWhatsAppClick={handleWhatsAppClick}
+                onCancelClick={() => setShowCancelModal(true)}
+              />
             </div>
           </div>
         )}
+
       </main>
     </div>
   );
