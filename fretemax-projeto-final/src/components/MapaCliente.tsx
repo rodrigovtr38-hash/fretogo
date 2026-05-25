@@ -12,13 +12,17 @@ import {
   useJsApiLoader,
 } from '@react-google-maps/api';
 
-import { db } from '../firebase';
-
 import {
   collection,
   onSnapshot,
   doc,
 } from 'firebase/firestore';
+
+import { db } from '../firebase';
+
+import {
+  AppTripState,
+} from '../state/tripStateMachine';
 
 /* =========================================================
    MAP CONFIG
@@ -36,7 +40,7 @@ const centerDefault = {
 };
 
 /* =========================================================
-   DARK OPERATIONAL STYLE
+   MAP STYLE
 ========================================================= */
 
 const mapStyles = [
@@ -72,21 +76,8 @@ const mapStyles = [
   },
 
   {
-    featureType:
-      'administrative.locality',
-
-    elementType:
-      'labels.text.fill',
-
-    stylers: [
-      {
-        color: '#94a3b8',
-      },
-    ],
-  },
-
-  {
     featureType: 'poi',
+
     stylers: [
       {
         visibility: 'off',
@@ -152,8 +143,12 @@ interface MapProps {
 
 interface MotoristaData {
   lat: number;
+
   lng: number;
+
   status?: string;
+
+  tripStatus?: string;
 }
 
 /* =========================================================
@@ -166,21 +161,16 @@ const calculateHeading = (
   lat2: number,
   lng2: number,
 ): number => {
+
   const toRad = (
     deg: number,
-  ) => {
-    return (
-      (deg * Math.PI) / 180
-    );
-  };
+  ) =>
+    (deg * Math.PI) / 180;
 
   const toDeg = (
     rad: number,
-  ) => {
-    return (
-      (rad * 180) / Math.PI
-    );
-  };
+  ) =>
+    (rad * 180) / Math.PI;
 
   const dLng = toRad(
     lng2 - lng1,
@@ -197,13 +187,11 @@ const calculateHeading = (
       Math.cos(toRad(lat2)) *
       Math.cos(dLng);
 
-  const heading = toDeg(
-    Math.atan2(y, x),
-  );
-
   return (
-    (heading + 360) % 360
-  );
+    toDeg(
+      Math.atan2(y, x),
+    ) + 360
+  ) % 360;
 };
 
 /* =========================================================
@@ -215,6 +203,7 @@ export default function MapaCliente({
   origem,
   destino,
 }: MapProps) {
+
   const [motoristas, setMotoristas] =
     useState<
       MotoristaData[]
@@ -239,6 +228,27 @@ export default function MapaCliente({
   const [heading, setHeading] =
     useState(0);
 
+  const [
+    tripStatus,
+    setTripStatus,
+  ] = useState<string>(
+    '',
+  );
+
+  const [
+    operationalMessage,
+    setOperationalMessage,
+  ] = useState(
+    'Buscando parceiros próximos...',
+  );
+
+  const [
+    eta,
+    setEta,
+  ] = useState<
+    number | null
+  >(null);
+
   const mapRef =
     useRef<google.maps.Map | null>(
       null,
@@ -250,7 +260,7 @@ export default function MapaCliente({
   } | null>(null);
 
   /* =========================================================
-     MAPS LOADER
+     GOOGLE MAPS
   ========================================================= */
 
   const {
@@ -259,31 +269,37 @@ export default function MapaCliente({
   } = useJsApiLoader({
     googleMapsApiKey:
       import.meta.env
-        .VITE_GOOGLE_MAPS_KEY ||
-      '',
+        .VITE_GOOGLE_MAPS_KEY || '',
 
     id: 'fretogo-map',
   });
 
   /* =========================================================
-     REALTIME LISTENER
+     REALTIME
   ========================================================= */
 
   useEffect(() => {
+
     let unsub:
       | (() => void)
       | undefined;
 
     if (motoristaId) {
+
       unsub = onSnapshot(
         doc(
           db,
           'motoristas_online',
           motoristaId,
         ),
-        (snap) => {
-          if (!snap.exists())
+
+        snap => {
+
+          if (
+            !snap.exists()
+          ) {
             return;
+          }
 
           const data =
             snap.data();
@@ -294,25 +310,43 @@ export default function MapaCliente({
             typeof data?.lng ===
               'number'
           ) {
+
             setMotoristaAtivo({
               lat: data.lat,
+
               lng: data.lng,
+
               status:
                 data.status,
+
+              tripStatus:
+                data.tripStatus,
             });
+
+            if (
+              data?.tripStatus
+            ) {
+              setTripStatus(
+                data.tripStatus,
+              );
+            }
           }
         },
       );
+
     } else {
+
       unsub = onSnapshot(
         collection(
           db,
           'motoristas_online',
         ),
-        (snap) => {
+
+        snap => {
+
           const lista =
             snap.docs
-              .map((doc) =>
+              .map(doc =>
                 doc.data(),
               )
               .filter(
@@ -335,26 +369,137 @@ export default function MapaCliente({
     }
 
     return () => {
-      if (unsub) unsub();
+      if (unsub)
+        unsub();
     };
+
   }, [motoristaId]);
+
+  /* =========================================================
+     OPERATIONAL STATUS
+  ========================================================= */
+
+  useEffect(() => {
+
+    switch (
+      tripStatus
+    ) {
+
+      case AppTripState.DISPONIVEL:
+
+        setOperationalMessage(
+          'Buscando parceiro próximo...',
+        );
+
+        break;
+
+      case AppTripState.OFERTANDO:
+
+        setOperationalMessage(
+          'Enviando oferta operacional...',
+        );
+
+        break;
+
+      case AppTripState.REDISPATCH:
+
+        setOperationalMessage(
+          'Expandindo raio operacional...',
+        );
+
+        break;
+
+      case AppTripState.ACEITO:
+
+        setOperationalMessage(
+          'Motorista confirmado.',
+        );
+
+        setEta(12);
+
+        break;
+
+      case AppTripState.INDO_COLETA:
+
+        setOperationalMessage(
+          'Motorista a caminho da coleta.',
+        );
+
+        setEta(8);
+
+        break;
+
+      case AppTripState.COLETANDO:
+
+        setOperationalMessage(
+          'Carga sendo coletada.',
+        );
+
+        break;
+
+      case AppTripState.EM_TRANSPORTE:
+
+        setOperationalMessage(
+          'Carga em transporte.',
+        );
+
+        setEta(25);
+
+        break;
+
+      case AppTripState.FINALIZANDO:
+
+        setOperationalMessage(
+          'Finalizando entrega.',
+        );
+
+        break;
+
+      case AppTripState.ENTREGUE:
+
+        setOperationalMessage(
+          'Entrega concluída.',
+        );
+
+        setEta(null);
+
+        break;
+
+      case AppTripState.SEM_MOTORISTA:
+
+        setOperationalMessage(
+          'Nenhum parceiro encontrado.',
+        );
+
+        break;
+    }
+
+  }, [tripStatus]);
 
   /* =========================================================
      SMOOTH TRACKING
   ========================================================= */
 
   useEffect(() => {
-    if (!motoristaAtivo)
+
+    if (
+      !motoristaAtivo
+    ) {
       return;
+    }
 
     const newPos = {
-      lat: motoristaAtivo.lat,
-      lng: motoristaAtivo.lng,
+      lat:
+        motoristaAtivo.lat,
+
+      lng:
+        motoristaAtivo.lng,
     };
 
     if (
       !prevPosRef.current
     ) {
+
       setAnimatedPos(
         newPos,
       );
@@ -367,26 +512,6 @@ export default function MapaCliente({
 
     const oldPos =
       prevPosRef.current;
-
-    const latDiff =
-      Math.abs(
-        newPos.lat -
-          oldPos.lat,
-      );
-
-    const lngDiff =
-      Math.abs(
-        newPos.lng -
-          oldPos.lng,
-      );
-
-    /* evita jitter */
-    if (
-      latDiff < 0.00001 &&
-      lngDiff < 0.00001
-    ) {
-      return;
-    }
 
     const newHeading =
       calculateHeading(
@@ -406,6 +531,7 @@ export default function MapaCliente({
 
     prevPosRef.current =
       newPos;
+
   }, [motoristaAtivo]);
 
   /* =========================================================
@@ -413,6 +539,7 @@ export default function MapaCliente({
   ========================================================= */
 
   useEffect(() => {
+
     if (
       !mapRef.current ||
       !window.google ||
@@ -427,7 +554,10 @@ export default function MapaCliente({
     let hasPoints =
       false;
 
-    if (animatedPos) {
+    if (
+      animatedPos
+    ) {
+
       bounds.extend(
         animatedPos,
       );
@@ -436,6 +566,7 @@ export default function MapaCliente({
     }
 
     if (origem) {
+
       bounds.extend(
         origem,
       );
@@ -444,6 +575,7 @@ export default function MapaCliente({
     }
 
     if (destino) {
+
       bounds.extend(
         destino,
       );
@@ -451,36 +583,22 @@ export default function MapaCliente({
       hasPoints = true;
     }
 
-    if (!hasPoints)
-      return;
-
     if (
-      (!origem &&
-        !destino) ||
-      (!animatedPos &&
-        (!origem ||
-          !destino))
+      !hasPoints
     ) {
-      mapRef.current.setCenter(
-        animatedPos ||
-          origem ||
-          centerDefault,
-      );
-
-      mapRef.current.setZoom(
-        15,
-      );
-    } else {
-      mapRef.current.fitBounds(
-        bounds,
-        {
-          top: 80,
-          bottom: 80,
-          left: 80,
-          right: 80,
-        },
-      );
+      return;
     }
+
+    mapRef.current.fitBounds(
+      bounds,
+      {
+        top: 80,
+        bottom: 80,
+        left: 80,
+        right: 80,
+      },
+    );
+
   }, [
     animatedPos,
     origem,
@@ -494,13 +612,19 @@ export default function MapaCliente({
 
   const center =
     useMemo(() => {
-      if (animatedPos)
-        return animatedPos;
 
-      if (origem)
+      if (
+        animatedPos
+      ) {
+        return animatedPos;
+      }
+
+      if (origem) {
         return origem;
+      }
 
       return centerDefault;
+
     }, [
       animatedPos,
       origem,
@@ -511,26 +635,13 @@ export default function MapaCliente({
   ========================================================= */
 
   if (loadError) {
+
     return (
-      <div className="glass-card flex h-64 w-full items-center justify-center overflow-hidden border border-red-500/20">
+      <div className="flex h-64 items-center justify-center rounded-[2rem] border border-red-500/20 bg-slate-950">
 
-        <div className="text-center">
-
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-red-500/20 bg-red-500/10">
-
-            <div className="h-3 w-3 rounded-full bg-red-500" />
-
-          </div>
-
-          <p className="text-[11px] font-black uppercase tracking-[0.25em] text-red-400">
-            Radar indisponível
-          </p>
-
-          <p className="mt-3 text-sm text-slate-500">
-            Falha ao conectar satélites.
-          </p>
-
-        </div>
+        <p className="text-sm font-bold text-red-400">
+          Radar indisponível
+        </p>
 
       </div>
     );
@@ -541,22 +652,15 @@ export default function MapaCliente({
   ========================================================= */
 
   if (!isLoaded) {
+
     return (
-      <div className="glass-card relative h-64 w-full overflow-hidden border border-cyan-500/10">
+      <div className="flex h-64 items-center justify-center rounded-[2rem] border border-cyan-500/20 bg-slate-950">
 
-        <div className="absolute inset-0 bg-cyan-500/5" />
+        <div className="text-center">
 
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <div className="mx-auto h-14 w-14 rounded-full border-[3px] border-cyan-400 border-t-transparent animate-spin" />
 
-          <div className="relative">
-
-            <div className="absolute inset-0 rounded-full border border-cyan-400/20 radar-pulse" />
-
-            <div className="h-16 w-16 rounded-full border-[3px] border-cyan-400 border-t-transparent animate-spin" />
-
-          </div>
-
-          <p className="mt-8 text-[10px] font-black uppercase tracking-[0.3em] text-cyan-300">
+          <p className="mt-5 text-[10px] font-black uppercase tracking-[0.25em] text-cyan-300">
             Sincronizando radar
           </p>
 
@@ -571,13 +675,14 @@ export default function MapaCliente({
   ========================================================= */
 
   return (
-    <div className="group relative h-64 w-full overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950 shadow-[0_18px_60px_rgba(0,0,0,0.42)]">
+
+    <div className="relative h-64 overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950 shadow-[0_18px_60px_rgba(0,0,0,0.42)]">
 
       {/* overlay */}
 
       <div className="pointer-events-none absolute inset-0 z-10 bg-cyan-500/5 mix-blend-overlay" />
 
-      {/* live badge */}
+      {/* realtime */}
 
       <div className="absolute left-5 top-5 z-20">
 
@@ -592,14 +697,38 @@ export default function MapaCliente({
           </div>
 
           <span className="text-[9px] font-black uppercase tracking-[0.25em] text-cyan-200">
-            GPS realtime
+            GPS REALTIME
           </span>
 
         </div>
 
       </div>
 
-      {/* map */}
+      {/* operational */}
+
+      <div className="absolute right-5 top-5 z-20">
+
+        <div className="rounded-2xl border border-white/10 bg-slate-950/85 px-4 py-3 backdrop-blur-xl">
+
+          <p className="text-[9px] font-black uppercase tracking-[0.22em] text-cyan-300">
+            STATUS OPERACIONAL
+          </p>
+
+          <p className="mt-2 text-xs font-bold text-white">
+            {operationalMessage}
+          </p>
+
+          {eta && (
+            <p className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-green-400">
+              ETA {eta} min
+            </p>
+          )}
+
+        </div>
+
+      </div>
+
+      {/* MAP */}
 
       <GoogleMap
         mapContainerStyle={
@@ -607,7 +736,9 @@ export default function MapaCliente({
         }
         center={center}
         zoom={12}
-        onLoad={(map) => {
+        onLoad={(
+          map,
+        ) => {
           mapRef.current =
             map;
         }}
@@ -630,12 +761,10 @@ export default function MapaCliente({
           streetViewControl: false,
 
           mapTypeControl: false,
-
-          keyboardShortcuts: false,
         }}
       >
 
-        {/* ROUTE */}
+        {/* route */}
 
         {origem &&
           destino && (
@@ -643,9 +772,8 @@ export default function MapaCliente({
               path={[
                 origem,
 
-                animatedPos
-                  ? animatedPos
-                  : origem,
+                animatedPos ||
+                  origem,
 
                 destino,
               ]}
@@ -659,80 +787,30 @@ export default function MapaCliente({
                 strokeWeight: 3,
 
                 geodesic: true,
-
-                icons: [
-                  {
-                    icon: {
-                      path: 'M 0,-1 0,1',
-                      strokeOpacity: 1,
-                      scale: 2.5,
-                    },
-
-                    offset: '0',
-
-                    repeat:
-                      '20px',
-                  },
-                ],
               }}
             />
           )}
 
-        {/* ORIGEM */}
+        {/* origem */}
 
         {origem && (
           <Marker
             position={origem}
-            icon={{
-              path: window.google
-                .maps
-                .SymbolPath
-                .CIRCLE,
-
-              scale: 6,
-
-              fillColor:
-                '#3b82f6',
-
-              fillOpacity: 1,
-
-              strokeWeight: 3,
-
-              strokeColor:
-                '#ffffff',
-            }}
           />
         )}
 
-        {/* DESTINO */}
+        {/* destino */}
 
         {destino && (
           <Marker
             position={destino}
-            icon={{
-              path: window.google
-                .maps
-                .SymbolPath
-                .CIRCLE,
-
-              scale: 6,
-
-              fillColor:
-                '#22c55e',
-
-              fillOpacity: 1,
-
-              strokeWeight: 3,
-
-              strokeColor:
-                '#ffffff',
-            }}
           />
         )}
 
-        {/* MOTORISTA */}
+        {/* motorista */}
 
         {animatedPos ? (
+
           <Marker
             position={
               animatedPos
@@ -758,44 +836,30 @@ export default function MapaCliente({
               rotation:
                 heading,
             }}
-            options={{
-              optimized: false,
-            }}
           />
+
         ) : (
+
           motoristas.map(
             (
               motorista,
               index,
             ) => (
+
               <Marker
                 key={`${motorista.lat}-${motorista.lng}-${index}`}
                 position={{
-                  lat: motorista.lat,
-                  lng: motorista.lng,
-                }}
-                icon={{
-                  path: window
-                    .google
-                    .maps
-                    .SymbolPath
-                    .CIRCLE,
+                  lat:
+                    motorista.lat,
 
-                  scale: 4.5,
-
-                  fillColor:
-                    '#64748b',
-
-                  fillOpacity: 0.8,
-
-                  strokeWeight: 1,
-
-                  strokeColor:
-                    '#ffffff',
+                  lng:
+                    motorista.lng,
                 }}
               />
+
             ),
           )
+
         )}
 
       </GoogleMap>
