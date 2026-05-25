@@ -23,17 +23,23 @@ class RealtimeOrchestrator {
   private initialized = false;
 
   initialize(
-    driverId: string,
+    driverId?: string,
     tripId?: string
   ) {
     if (this.initialized) return;
 
     this.initialized = true;
 
-    firebaseRealtimeService.listenDriver(driverId);
+    if (driverId) {
+      firebaseRealtimeService.listenDriver(
+        driverId
+      );
+    }
 
     if (tripId) {
-      firebaseRealtimeService.listenTrip(tripId);
+      firebaseRealtimeService.listenTrip(
+        tripId
+      );
     }
 
     this.registerEvents();
@@ -49,6 +55,13 @@ class RealtimeOrchestrator {
       async (tripData: any) => {
         if (!tripData) return;
 
+        if (
+          !tripData.driverId ||
+          !tripData.status
+        ) {
+          return;
+        }
+
         const synchronized =
           StateSynchronizationService.synchronize(
             tripData.driverState as DriverState,
@@ -57,25 +70,17 @@ class RealtimeOrchestrator {
 
         if (
           synchronized.driverState &&
-          synchronized.driverState !== tripData.driverState
+          synchronized.driverState !==
+            tripData.driverState
         ) {
           await firebaseRealtimeService.updateDriverRealtime(
             tripData.driverId,
             {
-              state: synchronized.driverState,
+              state:
+                synchronized.driverState,
             }
           );
         }
-      }
-    );
-
-    eventBusService.on(
-      AppEvents.DRIVER_STATUS_CHANGED,
-      (driverData: any) => {
-        console.log(
-          'Driver realtime update:',
-          driverData
-        );
       }
     );
   }
