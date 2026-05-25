@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import {
   auth,
@@ -13,10 +13,6 @@ import {
   where,
   limit,
 } from 'firebase/firestore';
-
-import {
-  signOut,
-} from 'firebase/auth';
 
 import {
   AppTripState,
@@ -40,6 +36,7 @@ import OfertaModal from '../components/motorista/OfertaModal';
 
 interface OrderData {
   id?: string;
+
   status: string;
 
   distancia?: number;
@@ -112,21 +109,9 @@ export default function Motorista() {
   const [isOnline, setIsOnline] =
     useState(false);
 
-  const [toast, setToast] =
-    useState<any>(null);
-
   /*
   =====================================================
-  REFS
-  =====================================================
-  */
-
-  const actionLock =
-    useRef(false);
-
-  /*
-  =====================================================
-  AUTH
+  AUTH + REALTIME
   =====================================================
   */
 
@@ -136,8 +121,16 @@ export default function Motorista() {
 
     let unsubFretes: any;
 
+    let unsubOferta: any;
+
     const unsubscribe =
       auth.onAuthStateChanged((u) => {
+
+        /*
+        ============================================
+        LOGOUT
+        ============================================
+        */
 
         if (!u) {
 
@@ -150,16 +143,23 @@ export default function Motorista() {
           return;
         }
 
+        /*
+        ============================================
+        USER
+        ============================================
+        */
+
         setUser(u);
 
         /*
         ============================================
-        DRIVER CADASTRO
+        CADASTRO MOTORISTA
         ============================================
         */
 
         unsubCad = onSnapshot(
           doc(db, 'motoristas_cadastros', u.uid),
+
           (snap) => {
 
             if (snap.exists()) {
@@ -168,7 +168,6 @@ export default function Motorista() {
                 id: snap.id,
                 ...snap.data(),
               } as DriverData);
-
             }
 
             setCheckingDriver(false);
@@ -177,7 +176,7 @@ export default function Motorista() {
 
         /*
         ============================================
-        ACTIVE FRETE
+        FRETE ATIVO
         ============================================
         */
 
@@ -205,13 +204,13 @@ export default function Motorista() {
             limit(1)
           ),
 
-          (snap) => {
+          (snapshot) => {
 
-            if (!snap.empty) {
+            if (!snapshot.empty) {
 
               setActiveFrete({
-                id: snap.docs[0].id,
-                ...snap.docs[0].data(),
+                id: snapshot.docs[0].id,
+                ...snapshot.docs[0].data(),
               } as OrderData);
 
             } else {
@@ -225,72 +224,89 @@ export default function Motorista() {
 
         /*
         ============================================
-        OFERTAS
+        OFERTAS MATCHING
         ============================================
         */
 
-        const q = query(
-          collection(db, 'fretes'),
+        unsubOferta = onSnapshot(
 
-          where(
-            'status',
-            '==',
-            AppTripState.DISPONIVEL
+          query(
+            collection(db, 'fretes'),
+
+            where(
+              'status',
+              '==',
+              AppTripState.DISPONIVEL
+            ),
+
+            where(
+              'filaMatching',
+              'array-contains',
+              u.uid
+            )
           ),
 
-          where(
-            'filaMatching',
-            'array-contains',
-            u.uid
-          )
-        );
+          (snapshot) => {
 
-        onSnapshot(q, (snapshot) => {
+            if (!isOnline) {
 
-          if (!isOnline) return;
+              setOfertaFrete(null);
 
-          let found = false;
+              setExibindoOferta(false);
 
-          for (const docSnap of snapshot.docs) {
+              return;
+            }
 
-            const data =
-              docSnap.data() as OrderData;
+            let found = false;
 
-            if (
-              !data.motoristaId &&
-              data.filaMatching?.[0] === u.uid
-            ) {
+            for (const docSnap of snapshot.docs) {
 
-              setOfertaFrete({
-                id: docSnap.id,
-                ...data,
-              });
+              const data =
+                docSnap.data() as OrderData;
 
-              setExibindoOferta(true);
+              if (
+                !data.motoristaId &&
+                data.filaMatching?.[0] === u.uid
+              ) {
 
-              found = true;
+                setOfertaFrete({
+                  id: docSnap.id,
+                  ...data,
+                });
 
-              break;
+                setExibindoOferta(true);
+
+                found = true;
+
+                break;
+              }
+            }
+
+            if (!found) {
+
+              setOfertaFrete(null);
+
+              setExibindoOferta(false);
             }
           }
-
-          if (!found) {
-
-            setOfertaFrete(null);
-
-            setExibindoOferta(false);
-          }
-        });
-
+        );
       });
+
+    /*
+    =====================================================
+    CLEANUP
+    =====================================================
+    */
 
     return () => {
 
-      unsubscribe();
+      unsubscribe?.();
 
       unsubCad?.();
 
       unsubFretes?.();
+
+      unsubOferta?.();
     };
 
   }, [isOnline]);
@@ -308,14 +324,26 @@ export default function Motorista() {
 
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
-        Carregando painel...
+
+        <div className="text-center">
+
+          <h1 className="text-3xl font-black">
+            FRETOGO
+          </h1>
+
+          <p className="mt-4 text-slate-400">
+            Inicializando painel operacional...
+          </p>
+
+        </div>
+
       </div>
     );
   }
 
   /*
   =====================================================
-  AUTH SCREEN
+  LOGIN
   =====================================================
   */
 
@@ -336,7 +364,9 @@ export default function Motorista() {
 
     return (
       <DriverCadastro
-        user={user}
+        onFinish={() => {
+          window.location.reload();
+        }}
       />
     );
   }
@@ -381,11 +411,12 @@ export default function Motorista() {
 
     <div className="min-h-screen bg-slate-950 text-white">
 
+      {/* HEADER */}
       <DriverHeader
         user={user}
-        onLogout={() => signOut(auth)}
       />
 
+      {/* MODAL OFERTA */}
       <OfertaModal
         open={exibindoOferta}
         oferta={ofertaFrete}
@@ -394,36 +425,35 @@ export default function Motorista() {
         }}
       />
 
+      {/* FRETE ATIVO */}
       {
-
         activeFrete ? (
 
           <DriverActiveTrip
-            frete={activeFrete}
-            driver={driverData}
+            active={true}
           />
 
         ) : (
 
           <>
-
+            {/* DASHBOARD */}
             <DriverDashboard
               driver={driverData}
             />
 
+            {/* RADAR */}
             <DriverRadar
               isOnline={isOnline}
               setIsOnline={setIsOnline}
               user={user}
               driver={driverData}
             />
-
           </>
         )
       }
 
+      {/* CHAT */}
       {
-
         activeFrete?.id && (
 
           <div className="mx-auto mt-10 max-w-4xl px-4 pb-20">
@@ -434,16 +464,6 @@ export default function Motorista() {
               nome={driverData.nome || 'Motorista'}
             />
 
-          </div>
-        )
-      }
-
-      {
-
-        toast && (
-
-          <div className="fixed bottom-10 left-1/2 z-50 -translate-x-1/2 rounded-2xl bg-black px-6 py-4 text-sm font-bold text-white shadow-2xl">
-            {toast.msg}
           </div>
         )
       }
