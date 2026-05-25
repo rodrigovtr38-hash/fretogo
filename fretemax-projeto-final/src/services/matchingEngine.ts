@@ -18,10 +18,13 @@ export type CategoriaVeiculo =
   | 'hr'
   | 'toco'
   | 'truck'
-  | 'carreta';
+  | 'carreta'
+  | 'carreta_ls'
+  | 'bi_trem_cegonha';
 
 export interface FretePayload {
   id: string;
+
   clienteId: string;
 
   categoria: CategoriaVeiculo;
@@ -65,7 +68,11 @@ export interface MotoristaMatch {
   avaliacao?: number;
 
   viagens?: number;
+
+  distanciaAteColeta?: number;
 }
+
+const MATCH_TIMEOUT_MS = 20000;
 
 function calcularDistanciaKm(
   lat1: number,
@@ -86,16 +93,73 @@ function calcularDistanciaKm(
       Math.sin(dLon / 2) *
       Math.sin(dLon / 2);
 
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const c = 2 * Math.atan2(
+    Math.sqrt(a),
+    Math.sqrt(1 - a)
+  );
 
   return R * c;
+}
+
+function obterRaiosCategoria(
+  categoria: CategoriaVeiculo
+) {
+  switch (categoria) {
+    case 'moto':
+    case 'carro_pequeno':
+      return [5, 15, 30];
+
+    case 'utilitario':
+    case 'van':
+    case 'hr':
+    case 'toco':
+    case 'truck':
+    case 'carreta':
+    case 'carreta_ls':
+      return [20, 50, 120];
+
+    case 'bi_trem_cegonha':
+      return [100, 250];
+
+    default:
+      return [15, 30];
+  }
+}
+
+async function marcarMotoristaOcupado(
+  motoristaId: string,
+  freteId: string
+) {
+  try {
+    const motoristaRef = doc(
+      db,
+      'motoristas',
+      motoristaId
+    );
+
+    await updateDoc(motoristaRef, {
+      disponivel: false,
+
+      freteAtualId: freteId,
+
+      atualizadoEm: serverTimestamp(),
+    });
+  } catch (error) {
+    console.error(
+      'ERRO AO MARCAR MOTORISTA:',
+      error
+    );
+  }
 }
 
 export async function buscarMotoristasCompativeis(
   frete: FretePayload
 ) {
   try {
-    const motoristasRef = collection(db, 'motoristas');
+    const motoristasRef = collection(
+      db,
+      'motoristas'
+    );
 
     const q = query(
       motoristasRef,
@@ -110,19 +174,28 @@ export async function buscarMotoristasCompativeis(
     snapshot.forEach((docSnap) => {
       const data = docSnap.data();
 
-      const categorias = data.categoria || [];
+      const categorias: CategoriaVeiculo[] =
+        data.categoria || [];
 
       const categoriaCompativel =
         categorias.includes(frete.categoria);
 
       if (!categoriaCompativel) return;
 
-      const distanciaAteColeta = calcularDistanciaKm(
-        frete.origem.lat,
-        frete.origem.lng,
-        data.latitude,
-        data.longitude
-      );
+      if (
+        typeof data.latitude !== 'number' ||
+        typeof data.longitude !== 'number'
+      ) {
+        return;
+      }
+
+      const distanciaAteColeta =
+        calcularDistanciaKm(
+          frete.origem.lat,
+          frete.origem.lng,
+          data.latitude,
+          data.longitude
+        );
 
       motoristas.push({
         id: docSnap.id,
@@ -144,12 +217,14 @@ export async function buscarMotoristasCompativeis(
         viagens: data.viagens || 0,
 
         distanciaAteColeta,
-      } as any);
+      });
     });
 
-    const ordenados = motoristas.sort((a: any, b: any) => {
-      return a.distanciaAteColeta - b.distanciaAteColeta;
-    });
+    const ordenados = motoristas.sort(
+      (a, b) =>
+        (a.distanciaAteColeta || 0) -
+        (b.distanciaAteColeta || 0)
+    );
 
     return ordenados;
   } catch (error) {
@@ -164,7 +239,8 @@ export async function buscarMotoristasCompativeis(
 
 export async function enviarOfertaMotorista(
   motoristaId: string,
-  frete: FretePayload
+  frete: FretePayload,
+  tentativa: number
 ) {
   try {
     const motoristaRef = doc(
@@ -191,6 +267,13 @@ export async function enviarOfertaMotorista(
 
         destino: frete.destino,
 
+        tentativa,
+
+        status: 'pendente',
+
+        expiraEm:
+          Date.now() + MATCH_TIMEOUT_MS,
+
         criadaEm: serverTimestamp(),
       },
     });
@@ -206,16 +289,51 @@ export async function enviarOfertaMotorista(
   }
 }
 
+async function atualizarFreteStatus(
+  freteId: string,
+  status: string,
+  motoristaId?: string
+) {
+  try {
+    const freteRef = doc(
+      db,
+      'fretes',
+      freteId
+    );
+
+    await updateDoc(freteRef, {
+      status,
+
+      motoristaId: motoristaId || null,
+
+      atualizadoEm: serverTimestamp(),
+    });
+  } catch (error) {
+    console.error(
+      'ERRO AO ATUALIZAR FRETE:',
+      error
+    );
+  }
+}
+
 export async function iniciarMatchingFrete(
   frete: FretePayload
 ) {
   try {
+    await atualizarFreteStatus(
+      frete.id,
+      'buscando_motorista'
+    );
+
     const motoristas =
-      await buscarMotoristasCompativeis(frete);
+      await buscarMotoristasCompativeis(
+        frete
+      );
 
     if (!motoristas.length) {
-      console.log(
-        'NENHUM MOTORISTA DISPONÍVEL'
+      await atualizarFreteStatus(
+        frete.id,
+        'sem_motorista'
       );
 
       return {
@@ -224,24 +342,63 @@ export async function iniciarMatchingFrete(
       };
     }
 
-    for (const motorista of motoristas) {
-      const enviado =
-        await enviarOfertaMotorista(
-          motorista.id,
-          frete
+    const raios =
+      obterRaiosCategoria(
+        frete.categoria
+      );
+
+    let tentativa = 1;
+
+    for (const raio of raios) {
+      const candidatos = motoristas.filter(
+        (motorista) =>
+          (motorista.distanciaAteColeta || 0) <=
+          raio
+      );
+
+      for (const motorista of candidatos) {
+        const enviado =
+          await enviarOfertaMotorista(
+            motorista.id,
+            frete,
+            tentativa
+          );
+
+        if (!enviado) continue;
+
+        console.log(
+          `OFERTA ENVIADA -> ${motorista.nome}`
         );
 
-      if (enviado) {
-        console.log(
-          `OFERTA ENVIADA PARA ${motorista.nome}`
+        await marcarMotoristaOcupado(
+          motorista.id,
+          frete.id
+        );
+
+        await atualizarFreteStatus(
+          frete.id,
+          'aguardando_aceite',
+          motorista.id
         );
 
         return {
           sucesso: true,
+
           motorista,
+
+          tentativa,
+
+          raio,
         };
       }
+
+      tentativa++;
     }
+
+    await atualizarFreteStatus(
+      frete.id,
+      'fila_esgotada'
+    );
 
     return {
       sucesso: false,
@@ -251,6 +408,11 @@ export async function iniciarMatchingFrete(
     console.error(
       'ERRO MATCHING:',
       error
+    );
+
+    await atualizarFreteStatus(
+      frete.id,
+      'erro_matching'
     );
 
     return {
