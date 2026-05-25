@@ -14,10 +14,6 @@ import {
   limit,
 } from 'firebase/firestore';
 
-import {
-  AppTripState,
-} from '../state/tripStateMachine';
-
 import ChatFrete from '../components/ChatFrete';
 
 import DriverHeader from '../components/motorista/DriverHeader';
@@ -28,8 +24,6 @@ import DriverCadastro from '../components/motorista/DriverCadastro';
 
 import DriverDashboard from '../components/motorista/DriverDashboard';
 
-import DriverActiveTrip from '../components/motorista/DriverActiveTrip';
-
 import DriverRadar from '../components/motorista/DriverRadar';
 
 import OfertaModal from '../components/motorista/OfertaModal';
@@ -37,7 +31,7 @@ import OfertaModal from '../components/motorista/OfertaModal';
 interface OrderData {
   id?: string;
 
-  status: string;
+  status?: string;
 
   distancia?: number;
 
@@ -46,12 +40,6 @@ interface OrderData {
   enderecoColetaTexto?: string;
 
   enderecoEntregaTexto?: string;
-
-  origemLat?: number;
-  origemLng?: number;
-
-  destinoLat?: number;
-  destinoLng?: number;
 
   motoristaId?: string | null;
 
@@ -111,26 +99,14 @@ export default function Motorista() {
 
   /*
   =====================================================
-  AUTH + REALTIME
+  AUTH
   =====================================================
   */
 
   useEffect(() => {
 
-    let unsubCad: any;
-
-    let unsubFretes: any;
-
-    let unsubOferta: any;
-
     const unsubscribe =
       auth.onAuthStateChanged((u) => {
-
-        /*
-        ============================================
-        LOGOUT
-        ============================================
-        */
 
         if (!u) {
 
@@ -143,22 +119,20 @@ export default function Motorista() {
           return;
         }
 
-        /*
-        ============================================
-        USER
-        ============================================
-        */
-
         setUser(u);
 
         /*
         ============================================
-        CADASTRO MOTORISTA
+        DRIVER CADASTRO
         ============================================
         */
 
-        unsubCad = onSnapshot(
-          doc(db, 'motoristas_cadastros', u.uid),
+        const unsubCad = onSnapshot(
+          doc(
+            db,
+            'motoristas_cadastros',
+            u.uid
+          ),
 
           (snap) => {
 
@@ -171,6 +145,16 @@ export default function Motorista() {
             }
 
             setCheckingDriver(false);
+          },
+
+          (error) => {
+
+            console.error(
+              'ERRO CADASTRO:',
+              error
+            );
+
+            setCheckingDriver(false);
           }
         );
 
@@ -180,7 +164,7 @@ export default function Motorista() {
         ============================================
         */
 
-        unsubFretes = onSnapshot(
+        const unsubFrete = onSnapshot(
 
           query(
             collection(db, 'fretes'),
@@ -189,16 +173,6 @@ export default function Motorista() {
               'motoristaId',
               '==',
               u.uid
-            ),
-
-            where(
-              'status',
-              'in',
-              [
-                AppTripState.ACEITO,
-                AppTripState.COLETANDO,
-                AppTripState.EM_TRANSPORTE,
-              ]
             ),
 
             limit(1)
@@ -211,7 +185,7 @@ export default function Motorista() {
               setActiveFrete({
                 id: snapshot.docs[0].id,
                 ...snapshot.docs[0].data(),
-              } as OrderData);
+              });
 
             } else {
 
@@ -219,31 +193,31 @@ export default function Motorista() {
             }
 
             setLoading(false);
+          },
+
+          (error) => {
+
+            console.error(
+              'ERRO FRETE:',
+              error
+            );
+
+            setLoading(false);
           }
         );
 
         /*
         ============================================
-        OFERTAS MATCHING
+        OFERTAS
         ============================================
         */
 
-        unsubOferta = onSnapshot(
+        const unsubOferta = onSnapshot(
 
           query(
             collection(db, 'fretes'),
 
-            where(
-              'status',
-              '==',
-              AppTripState.DISPONIVEL
-            ),
-
-            where(
-              'filaMatching',
-              'array-contains',
-              u.uid
-            )
+            limit(10)
           ),
 
           (snapshot) => {
@@ -259,14 +233,14 @@ export default function Motorista() {
 
             let found = false;
 
-            for (const docSnap of snapshot.docs) {
+            snapshot.docs.forEach((docSnap) => {
 
               const data =
                 docSnap.data() as OrderData;
 
               if (
-                !data.motoristaId &&
-                data.filaMatching?.[0] === u.uid
+                !found &&
+                !data.motoristaId
               ) {
 
                 setOfertaFrete({
@@ -277,10 +251,8 @@ export default function Motorista() {
                 setExibindoOferta(true);
 
                 found = true;
-
-                break;
               }
-            }
+            });
 
             if (!found) {
 
@@ -288,25 +260,30 @@ export default function Motorista() {
 
               setExibindoOferta(false);
             }
+          },
+
+          (error) => {
+
+            console.error(
+              'ERRO OFERTA:',
+              error
+            );
           }
         );
-      });
 
-    /*
-    =====================================================
-    CLEANUP
-    =====================================================
-    */
+        return () => {
+
+          unsubCad();
+
+          unsubFrete();
+
+          unsubOferta();
+        };
+      });
 
     return () => {
 
-      unsubscribe?.();
-
-      unsubCad?.();
-
-      unsubFretes?.();
-
-      unsubOferta?.();
+      unsubscribe();
     };
 
   }, [isOnline]);
@@ -332,7 +309,7 @@ export default function Motorista() {
           </h1>
 
           <p className="mt-4 text-slate-400">
-            Inicializando painel operacional...
+            Inicializando sistema operacional...
           </p>
 
         </div>
@@ -416,7 +393,20 @@ export default function Motorista() {
         user={user}
       />
 
-      {/* MODAL OFERTA */}
+      {/* DASHBOARD */}
+      <DriverDashboard
+        driver={driverData}
+      />
+
+      {/* RADAR */}
+      <DriverRadar
+        isOnline={isOnline}
+        setIsOnline={setIsOnline}
+        user={user}
+        driver={driverData}
+      />
+
+      {/* OFERTA */}
       <OfertaModal
         open={exibindoOferta}
         oferta={ofertaFrete}
@@ -427,28 +417,51 @@ export default function Motorista() {
 
       {/* FRETE ATIVO */}
       {
-        activeFrete ? (
+        activeFrete && (
 
-          <DriverActiveTrip
-            active={true}
-          />
+          <div className="mx-auto mt-10 max-w-6xl px-4">
 
-        ) : (
+            <div className="rounded-[2rem] border border-cyan-500/20 bg-slate-900/80 p-8">
 
-          <>
-            {/* DASHBOARD */}
-            <DriverDashboard
-              driver={driverData}
-            />
+              <h2 className="text-3xl font-black text-white">
+                Frete ativo encontrado
+              </h2>
 
-            {/* RADAR */}
-            <DriverRadar
-              isOnline={isOnline}
-              setIsOnline={setIsOnline}
-              user={user}
-              driver={driverData}
-            />
-          </>
+              <p className="mt-4 text-slate-400">
+                O sistema detectou uma entrega em andamento.
+              </p>
+
+              <div className="mt-8 grid gap-5 md:grid-cols-2">
+
+                <div className="rounded-2xl border border-white/5 bg-black/20 p-5">
+
+                  <p className="text-sm uppercase tracking-[0.2em] text-slate-500">
+                    Coleta
+                  </p>
+
+                  <h3 className="mt-3 text-xl font-black text-white">
+                    {activeFrete.enderecoColetaTexto || 'Não informado'}
+                  </h3>
+
+                </div>
+
+                <div className="rounded-2xl border border-white/5 bg-black/20 p-5">
+
+                  <p className="text-sm uppercase tracking-[0.2em] text-slate-500">
+                    Entrega
+                  </p>
+
+                  <h3 className="mt-3 text-xl font-black text-white">
+                    {activeFrete.enderecoEntregaTexto || 'Não informado'}
+                  </h3>
+
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
         )
       }
 
