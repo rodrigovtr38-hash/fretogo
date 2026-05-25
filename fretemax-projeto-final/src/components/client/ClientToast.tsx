@@ -1,88 +1,37 @@
-import {
-  AlertTriangle,
-  CheckCircle,
-  AlertCircle,
-} from 'lucide-react';
+import { AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 
-type ToastType =
-  | 'success'
-  | 'error'
-  | 'warning';
-
-type ClientToastProps = {
+interface ClientToastProps {
   toast: {
     msg: string;
-    type: ToastType;
+    type: 'error' | 'success' | 'warning';
   } | null;
-};
+}
 
 export default function ClientToast({
   toast,
 }: ClientToastProps) {
-  if (!toast) {
-    return null;
-  }
-
-  const getStyles = () => {
-    switch (toast.type) {
-      case 'success':
-        return {
-          container:
-            'border-green-500/30 bg-green-950/80 text-green-300',
-          icon: (
-            <CheckCircle
-              className="h-5 w-5"
-            />
-          ),
-        };
-
-      case 'warning':
-        return {
-          container:
-            'border-yellow-500/30 bg-yellow-950/80 text-yellow-300',
-          icon: (
-            <AlertTriangle
-              className="h-5 w-5"
-            />
-          ),
-        };
-
-      default:
-        return {
-          container:
-            'border-red-500/30 bg-red-950/80 text-red-300',
-          icon: (
-            <AlertCircle
-              className="h-5 w-5"
-            />
-          ),
-        };
-    }
-  };
-
-  const styles = getStyles();
+  if (!toast) return null;
 
   return (
-    <div className="fixed bottom-8 left-1/2 z-[120] -translate-x-1/2 animate-in slide-in-from-bottom-5">
+    <div className="fixed top-6 right-6 z-[9999] animate-in slide-in-from-top-5 fade-in duration-300">
       <div
-        className={`
-          flex items-center gap-3
-          rounded-2xl
-          border
-          px-8
-          py-5
-          text-sm
-          font-black
-          uppercase
-          tracking-widest
-          shadow-2xl
-          backdrop-blur-xl
-          ${styles.container}
-        `}
+        className={`flex items-center gap-3 rounded-2xl border px-5 py-4 shadow-2xl backdrop-blur-xl ${
+          toast.type === 'success'
+            ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+            : toast.type === 'warning'
+            ? 'border-amber-500/20 bg-amber-500/10 text-amber-300'
+            : 'border-red-500/20 bg-red-500/10 text-red-300'
+        }`}
       >
-        {styles.icon}
+        {toast.type === 'success' ? (
+          <CheckCircle size={18} />
+        ) : toast.type === 'warning' ? (
+          <AlertTriangle size={18} />
+        ) : (
+          <XCircle size={18} />
+        )}
 
-        <span>
+        <span className="text-sm font-bold">
           {toast.msg}
         </span>
       </div>
