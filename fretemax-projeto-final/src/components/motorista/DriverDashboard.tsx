@@ -1,561 +1,204 @@
-import { useMemo, useState } from 'react';
-
-import { motion } from 'framer-motion';
-
-import {
-  Bell,
-  CheckCircle2,
-  Clock3,
-  DollarSign,
-  MapPin,
-  Navigation,
-  Power,
-  ShieldCheck,
-  Truck,
-  User,
-  Wallet,
-} from 'lucide-react';
-
-interface Freight {
-  id: number;
-  origem: string;
-  destino: string;
-  valor: number;
-  distancia: string;
-  urgente: boolean;
+interface DriverDashboardProps {
+  driver: any;
 }
 
-export default function DriverDashboard() {
-
-  const [online, setOnline] =
-    useState(true);
-
-  const [acceptedFreight, setAcceptedFreight] =
-    useState<Freight | null>(null);
-
-  const freights = useMemo<Freight[]>(
-    () => [
-      {
-        id: 1,
-        origem: 'São Paulo - SP',
-        destino: 'Campinas - SP',
-        valor: 850,
-        distancia: '92km',
-        urgente: true,
-      },
-      {
-        id: 2,
-        origem: 'Guarulhos - SP',
-        destino: 'Santos - SP',
-        valor: 1450,
-        distancia: '108km',
-        urgente: false,
-      },
-      {
-        id: 3,
-        origem: 'Osasco - SP',
-        destino: 'Sorocaba - SP',
-        valor: 690,
-        distancia: '85km',
-        urgente: true,
-      },
-    ],
-    []
-  );
-
-  const acceptFreight = (
-    freight: Freight
-  ) => {
-    setAcceptedFreight(freight);
-  };
-
+export default function DriverDashboard({
+  driver,
+}: DriverDashboardProps) {
   return (
-    <div className="min-h-screen bg-[#020617] text-white">
+    <div className="mx-auto w-full max-w-7xl px-4 py-6">
 
-      {/* HEADER */}
-      <div className="sticky top-0 z-50 border-b border-white/5 bg-[#020617]/90 backdrop-blur-xl">
+      {/* HERO */}
+      <div className="overflow-hidden rounded-[2rem] border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 via-slate-900 to-slate-950 p-8">
 
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
+        <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
 
-          <div className="flex items-center gap-4">
+          <div>
 
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan-500/10">
+            <span className="mb-4 inline-flex rounded-full border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 text-xs font-black uppercase tracking-[0.2em] text-cyan-300">
+              CENTRAL OPERACIONAL
+            </span>
 
-              <Truck className="text-cyan-400" />
+            <h1 className="max-w-2xl text-4xl font-black leading-tight text-white md:text-5xl">
+              Bem-vindo ao radar operacional FRETOGO
+            </h1>
+
+            <p className="mt-5 max-w-2xl text-lg leading-relaxed text-slate-300">
+              Sistema inteligente de distribuição logística em tempo real.
+              Fique online para começar a receber fretes compatíveis com sua categoria e localização.
+            </p>
+
+          </div>
+
+          {/* DRIVER CARD */}
+          <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-black/30 p-6 backdrop-blur-xl">
+
+            <div className="mb-6 flex items-center gap-4">
+
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-cyan-500/10 text-2xl font-black text-cyan-400">
+                {driver?.nome?.charAt(0) || 'M'}
+              </div>
+
+              <div>
+
+                <h2 className="text-2xl font-black text-white">
+                  {driver?.nome || 'Motorista'}
+                </h2>
+
+                <p className="text-slate-400">
+                  Parceiro FRETOGO
+                </p>
+
+              </div>
 
             </div>
 
-            <div>
+            <div className="space-y-4">
 
-              <h1 className="text-2xl font-black">
-                Painel do Motorista
-              </h1>
+              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-slate-900/80 px-4 py-4">
 
-              <p className="text-sm text-slate-400">
-                Sistema operacional em tempo real
-              </p>
+                <span className="text-slate-400">
+                  Categoria
+                </span>
+
+                <span className="font-black uppercase text-cyan-400">
+                  {driver?.categoria || 'Não definida'}
+                </span>
+
+              </div>
+
+              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-slate-900/80 px-4 py-4">
+
+                <span className="text-slate-400">
+                  Status
+                </span>
+
+                <span className="font-black text-emerald-400">
+                  APROVADO
+                </span>
+
+              </div>
 
             </div>
 
           </div>
-
-          {/* ONLINE STATUS */}
-          <button
-            onClick={() =>
-              setOnline(!online)
-            }
-            className={`flex items-center gap-3 rounded-2xl px-5 py-3 text-sm font-bold transition-all ${
-              online
-                ? 'bg-emerald-500 text-black'
-                : 'bg-red-500 text-white'
-            }`}
-          >
-
-            <Power size={18} />
-
-            {online
-              ? 'ONLINE'
-              : 'OFFLINE'}
-
-          </button>
 
         </div>
 
       </div>
 
-      {/* CONTENT */}
-      <div className="mx-auto max-w-7xl px-6 py-8">
+      {/* STATUS GRID */}
+      <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
 
-        {/* STATS */}
-        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-[2rem] border border-cyan-500/10 bg-slate-900/70 p-6">
 
-          {/* CARD */}
-          <motion.div
-            whileHover={{ scale: 1.02 }}
-            className="rounded-[2rem] border border-white/5 bg-white/5 p-6"
-          >
+          <p className="text-sm font-bold uppercase tracking-[0.2em] text-cyan-400">
+            STATUS
+          </p>
 
-            <div className="mb-5 flex items-center justify-between">
+          <h3 className="mt-4 text-3xl font-black text-white">
+            ONLINE READY
+          </h3>
 
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan-500/10">
-
-                <DollarSign className="text-cyan-400" />
-
-              </div>
-
-              <span className="rounded-full bg-cyan-500/10 px-3 py-1 text-xs font-bold text-cyan-400">
-                HOJE
-              </span>
-
-            </div>
-
-            <h2 className="text-4xl font-black">
-              R$ 2.840
-            </h2>
-
-            <p className="mt-2 text-sm text-slate-400">
-              Ganhos do dia
-            </p>
-
-          </motion.div>
-
-          {/* CARD */}
-          <motion.div
-            whileHover={{ scale: 1.02 }}
-            className="rounded-[2rem] border border-white/5 bg-white/5 p-6"
-          >
-
-            <div className="mb-5 flex items-center justify-between">
-
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/10">
-
-                <CheckCircle2 className="text-emerald-400" />
-
-              </div>
-
-              <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-400">
-                FINALIZADOS
-              </span>
-
-            </div>
-
-            <h2 className="text-4xl font-black">
-              18
-            </h2>
-
-            <p className="mt-2 text-sm text-slate-400">
-              Fretes concluídos hoje
-            </p>
-
-          </motion.div>
-
-          {/* CARD */}
-          <motion.div
-            whileHover={{ scale: 1.02 }}
-            className="rounded-[2rem] border border-white/5 bg-white/5 p-6"
-          >
-
-            <div className="mb-5 flex items-center justify-between">
-
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-yellow-500/10">
-
-                <Clock3 className="text-yellow-400" />
-
-              </div>
-
-              <span className="rounded-full bg-yellow-500/10 px-3 py-1 text-xs font-bold text-yellow-400">
-                EM ROTA
-              </span>
-
-            </div>
-
-            <h2 className="text-4xl font-black">
-              3
-            </h2>
-
-            <p className="mt-2 text-sm text-slate-400">
-              Corridas ativas
-            </p>
-
-          </motion.div>
-
-          {/* CARD */}
-          <motion.div
-            whileHover={{ scale: 1.02 }}
-            className="rounded-[2rem] border border-white/5 bg-white/5 p-6"
-          >
-
-            <div className="mb-5 flex items-center justify-between">
-
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-purple-500/10">
-
-                <Wallet className="text-purple-400" />
-
-              </div>
-
-              <span className="rounded-full bg-purple-500/10 px-3 py-1 text-xs font-bold text-purple-400">
-                MÊS
-              </span>
-
-            </div>
-
-            <h2 className="text-4xl font-black">
-              R$ 28.950
-            </h2>
-
-            <p className="mt-2 text-sm text-slate-400">
-              Faturamento mensal
-            </p>
-
-          </motion.div>
+          <p className="mt-3 text-slate-400">
+            Sistema preparado para receber fretes em tempo real.
+          </p>
 
         </div>
 
-        {/* GRID */}
-        <div className="mt-8 grid gap-8 xl:grid-cols-[1fr_400px]">
+        <div className="rounded-[2rem] border border-emerald-500/10 bg-slate-900/70 p-6">
 
-          {/* LEFT */}
-          <div className="space-y-8">
+          <p className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-400">
+            MATCHING
+          </p>
 
-            {/* MAP */}
-            <div className="overflow-hidden rounded-[2rem] border border-white/5 bg-white/5">
+          <h3 className="mt-4 text-3xl font-black text-white">
+            GPS ATIVO
+          </h3>
 
-              <div className="flex items-center justify-between border-b border-white/5 px-6 py-5">
+          <p className="mt-3 text-slate-400">
+            Busca inteligente por proximidade e categoria.
+          </p>
 
-                <div>
+        </div>
 
-                  <h2 className="text-xl font-black">
-                    Mapa Operacional
-                  </h2>
+        <div className="rounded-[2rem] border border-yellow-500/10 bg-slate-900/70 p-6">
 
-                  <p className="text-sm text-slate-400">
-                    Rastreamento em tempo real
-                  </p>
+          <p className="text-sm font-bold uppercase tracking-[0.2em] text-yellow-400">
+            DISTRIBUIÇÃO
+          </p>
 
-                </div>
+          <h3 className="mt-4 text-3xl font-black text-white">
+            REDISPATCH
+          </h3>
 
-                <Navigation className="text-cyan-400" />
+          <p className="mt-3 text-slate-400">
+            Fretes redistribuídos automaticamente em caso de recusa.
+          </p>
 
-              </div>
+        </div>
 
-              <div className="flex h-[420px] items-center justify-center bg-gradient-to-br from-cyan-500/10 to-blue-500/10">
+        <div className="rounded-[2rem] border border-purple-500/10 bg-slate-900/70 p-6">
 
-                <div className="text-center">
+          <p className="text-sm font-bold uppercase tracking-[0.2em] text-purple-400">
+            ENTERPRISE
+          </p>
 
-                  <MapPin
-                    size={70}
-                    className="mx-auto mb-5 text-cyan-400"
-                  />
+          <h3 className="mt-4 text-3xl font-black text-white">
+            REALTIME
+          </h3>
 
-                  <h3 className="text-2xl font-black">
-                    Mapa em tempo real
-                  </h3>
+          <p className="mt-3 text-slate-400">
+            Comunicação sincronizada entre cliente, motorista e central.
+          </p>
 
-                  <p className="mt-2 text-slate-400">
-                    Google Maps será integrado aqui
-                  </p>
+        </div>
 
-                </div>
+      </div>
 
-              </div>
+      {/* OPERATIONAL INFO */}
+      <div className="mt-8 rounded-[2rem] border border-white/5 bg-slate-900/70 p-8">
 
-            </div>
+        <h2 className="text-2xl font-black text-white">
+          Central logística inteligente
+        </h2>
 
-            {/* FRETES */}
-            <div className="rounded-[2rem] border border-white/5 bg-white/5 p-6">
+        <p className="mt-4 max-w-4xl text-lg leading-relaxed text-slate-400">
+          O sistema FRETOGO monitora automaticamente motoristas online,
+          localização em tempo real, categoria compatível, distância da coleta,
+          redispatch operacional e sincronização completa das corridas.
+        </p>
 
-              <div className="mb-6 flex items-center justify-between">
+        <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
 
-                <div>
+          <div className="rounded-2xl border border-white/5 bg-black/20 p-5">
+            <h3 className="font-black text-cyan-400">
+              Match inteligente
+            </h3>
 
-                  <h2 className="text-2xl font-black">
-                    Fretes Disponíveis
-                  </h2>
-
-                  <p className="text-sm text-slate-400">
-                    Novas cargas em tempo real
-                  </p>
-
-                </div>
-
-                <Bell className="text-cyan-400" />
-
-              </div>
-
-              <div className="space-y-5">
-
-                {freights.map((freight) => (
-
-                  <motion.div
-                    key={freight.id}
-                    whileHover={{ scale: 1.01 }}
-                    className="rounded-[2rem] border border-white/5 bg-[#0f172a] p-5"
-                  >
-
-                    <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-
-                      <div>
-
-                        <div className="flex items-center gap-3">
-
-                          <h3 className="text-xl font-black">
-                            {freight.origem}
-                          </h3>
-
-                          {freight.urgente && (
-                            <span className="rounded-full bg-red-500 px-3 py-1 text-xs font-bold text-white">
-                              URGENTE
-                            </span>
-                          )}
-
-                        </div>
-
-                        <p className="mt-2 text-slate-400">
-                          Destino:
-                          {' '}
-                          {freight.destino}
-                        </p>
-
-                        <div className="mt-4 flex flex-wrap gap-3 text-sm">
-
-                          <span className="rounded-full bg-cyan-500/10 px-3 py-2 text-cyan-400">
-                            {freight.distancia}
-                          </span>
-
-                          <span className="rounded-full bg-emerald-500/10 px-3 py-2 text-emerald-400">
-                            R$
-                            {' '}
-                            {freight.valor}
-                          </span>
-
-                        </div>
-
-                      </div>
-
-                      <button
-                        onClick={() =>
-                          acceptFreight(
-                            freight
-                          )
-                        }
-                        className="rounded-2xl bg-cyan-500 px-6 py-4 text-sm font-black uppercase tracking-[0.2em] text-black transition-all hover:scale-[1.02]"
-                      >
-
-                        Aceitar Frete
-
-                      </button>
-
-                    </div>
-
-                  </motion.div>
-
-                ))}
-
-              </div>
-
-            </div>
-
+            <p className="mt-2 text-sm leading-relaxed text-slate-400">
+              Motoristas recebem apenas cargas compatíveis com veículo e proximidade.
+            </p>
           </div>
 
-          {/* RIGHT */}
-          <div className="space-y-8">
+          <div className="rounded-2xl border border-white/5 bg-black/20 p-5">
+            <h3 className="font-black text-cyan-400">
+              Distribuição automática
+            </h3>
 
-            {/* PROFILE */}
-            <div className="rounded-[2rem] border border-white/5 bg-white/5 p-6">
+            <p className="mt-2 text-sm leading-relaxed text-slate-400">
+              O sistema redispara automaticamente caso o frete seja recusado.
+            </p>
+          </div>
 
-              <div className="flex items-center gap-4">
+          <div className="rounded-2xl border border-white/5 bg-black/20 p-5">
+            <h3 className="font-black text-cyan-400">
+              Rastreamento realtime
+            </h3>
 
-                <div className="flex h-20 w-20 items-center justify-center rounded-[2rem] bg-cyan-500/10">
-
-                  <User
-                    size={40}
-                    className="text-cyan-400"
-                  />
-
-                </div>
-
-                <div>
-
-                  <h2 className="text-2xl font-black">
-                    Rodrigo Martins
-                  </h2>
-
-                  <p className="text-slate-400">
-                    Motorista parceiro
-                  </p>
-
-                </div>
-
-              </div>
-
-              <div className="mt-6 space-y-4">
-
-                <div className="flex items-center justify-between rounded-2xl bg-[#0f172a] px-4 py-4">
-
-                  <span className="text-slate-400">
-                    Veículo
-                  </span>
-
-                  <span className="font-bold">
-                    HR Hyundai
-                  </span>
-
-                </div>
-
-                <div className="flex items-center justify-between rounded-2xl bg-[#0f172a] px-4 py-4">
-
-                  <span className="text-slate-400">
-                    Placa
-                  </span>
-
-                  <span className="font-bold">
-                    BRA2E19
-                  </span>
-
-                </div>
-
-                <div className="flex items-center justify-between rounded-2xl bg-[#0f172a] px-4 py-4">
-
-                  <span className="text-slate-400">
-                    Status
-                  </span>
-
-                  <span className="font-bold text-emerald-400">
-                    Verificado
-                  </span>
-
-                </div>
-
-              </div>
-
-            </div>
-
-            {/* ACTIVE FREIGHT */}
-            <div className="rounded-[2rem] border border-white/5 bg-white/5 p-6">
-
-              <div className="mb-5 flex items-center justify-between">
-
-                <div>
-
-                  <h2 className="text-xl font-black">
-                    Frete Atual
-                  </h2>
-
-                  <p className="text-sm text-slate-400">
-                    Corrida em andamento
-                  </p>
-
-                </div>
-
-                <ShieldCheck className="text-cyan-400" />
-
-              </div>
-
-              {!acceptedFreight ? (
-
-                <div className="rounded-2xl border border-dashed border-white/10 p-8 text-center">
-
-                  <Truck
-                    size={50}
-                    className="mx-auto mb-4 text-slate-600"
-                  />
-
-                  <p className="text-slate-400">
-                    Nenhum frete aceito
-                  </p>
-
-                </div>
-
-              ) : (
-
-                <div className="rounded-2xl bg-[#0f172a] p-5">
-
-                  <div className="mb-4 flex items-center justify-between">
-
-                    <span className="rounded-full bg-cyan-500/10 px-3 py-1 text-xs font-bold text-cyan-400">
-                      EM ROTA
-                    </span>
-
-                    <span className="font-black text-emerald-400">
-                      R$
-                      {' '}
-                      {acceptedFreight.valor}
-                    </span>
-
-                  </div>
-
-                  <h3 className="text-xl font-black">
-                    {acceptedFreight.origem}
-                  </h3>
-
-                  <p className="mt-2 text-slate-400">
-                    Destino:
-                    {' '}
-                    {acceptedFreight.destino}
-                  </p>
-
-                  <div className="mt-5 grid grid-cols-2 gap-3">
-
-                    <button className="rounded-2xl bg-cyan-500 py-4 text-sm font-black uppercase tracking-[0.2em] text-black">
-
-                      Iniciar
-
-                    </button>
-
-                    <button className="rounded-2xl bg-emerald-500 py-4 text-sm font-black uppercase tracking-[0.2em] text-black">
-
-                      Finalizar
-
-                    </button>
-
-                  </div>
-
-                </div>
-
-              )}
-
-            </div>
-
+            <p className="mt-2 text-sm leading-relaxed text-slate-400">
+              Cliente acompanha coleta, transporte e entrega em tempo real.
+            </p>
           </div>
 
         </div>
