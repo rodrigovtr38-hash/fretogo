@@ -6,14 +6,16 @@ import {
 
 export const useDriverRealtime = (
   driverId?: string,
-  isOnline?: boolean
+  isOnline?: boolean,
 ) => {
   useEffect(() => {
-    if (!driverId) return;
+    if (!driverId) {
+      return;
+    }
 
     if (isOnline) {
       locationRealtimeService.start(
-        driverId
+        driverId,
       );
     } else {
       locationRealtimeService.stop();
