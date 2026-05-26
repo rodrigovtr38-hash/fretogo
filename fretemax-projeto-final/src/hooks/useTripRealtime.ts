@@ -5,17 +5,21 @@ import {
 } from '../services/firebaseRealtimeService';
 
 export const useTripRealtime = (
-  tripId?: string
+  tripId?: string,
 ) => {
   useEffect(() => {
-    if (!tripId) return;
+    if (!tripId) {
+      return;
+    }
 
     firebaseRealtimeService.listenTrip(
-      tripId
+      tripId,
     );
 
     return () => {
-      firebaseRealtimeService.disconnectAll();
+      firebaseRealtimeService.stopTripListener(
+        tripId,
+      );
     };
   }, [tripId]);
 };
