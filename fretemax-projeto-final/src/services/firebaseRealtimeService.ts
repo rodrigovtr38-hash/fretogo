@@ -1,6 +1,4 @@
-# src/services/firebaseRealtimeService.ts
 
-```ts
 import {
   doc,
   onSnapshot,
