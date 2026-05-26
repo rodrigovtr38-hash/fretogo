@@ -4,30 +4,21 @@ import {
   realtimeOrchestrator,
 } from '../services/realtimeOrchestrator';
 
-import {
-  driverRealtimeListener,
-} from '../services/driverRealtimeListener';
-
-import {
-  tripRealtimeListener,
-} from '../services/tripRealtimeListener';
-
 export const useRealtimeSystem = (
   driverId?: string,
-  tripId?: string
+  tripId?: string,
 ) => {
   useEffect(() => {
-    realtimeOrchestrator.initialize(
+    realtimeOrchestrator.initialize({
       driverId,
-      tripId
-    );
-
-    driverRealtimeListener.initialize();
-
-    tripRealtimeListener.initialize();
+      tripId,
+    });
 
     return () => {
-      realtimeOrchestrator.destroy();
+      realtimeOrchestrator.destroy({
+        driverId,
+        tripId,
+      });
     };
   }, [driverId, tripId]);
 };
