@@ -1,24 +1,30 @@
+// src/hooks/useClientFreight.ts
+
 import {
-  useState,
-  useRef,
   useCallback,
+  useRef,
+  useState,
 } from 'react';
 
 import {
   clientFreightService,
 } from '../services/clientFreightService';
 
-type CreateFreightPayload = {
-  freightData: Record<string, any>;
+type CreateFreightPayload =
+  {
+    freightData: Record<
+      string,
+      any
+    >;
 
-  onSuccess?: (
-    freightId: string
-  ) => void;
+    onSuccess?: (
+      freightId: string,
+    ) => void;
 
-  onError?: (
-    message: string
-  ) => void;
-};
+    onError?: (
+      message: string,
+    ) => void;
+  };
 
 export const useClientFreight =
   () => {
@@ -36,9 +42,9 @@ export const useClientFreight =
       useRef(false);
 
     /*
-    ==========================
+    =========================================================
     CREATE FREIGHT
-    ==========================
+    =========================================================
     */
 
     const createFreight =
@@ -58,13 +64,13 @@ export const useClientFreight =
             true;
 
           setLoadingPayment(
-            true
+            true,
           );
 
           try {
             const response =
               await clientFreightService.criarFrete(
-                freightData
+                freightData,
               );
 
             if (
@@ -72,7 +78,7 @@ export const useClientFreight =
             ) {
               onError?.(
                 response.error ||
-                  'Erro ao criar frete.'
+                  'Erro ao criar operação.',
               );
 
               return null;
@@ -83,11 +89,11 @@ export const useClientFreight =
             ) {
               localStorage.setItem(
                 'fretogo_currentorder',
-                response.freteId
+                response.freteId,
               );
 
               onSuccess?.(
-                response.freteId
+                response.freteId,
               );
             }
 
@@ -97,32 +103,32 @@ export const useClientFreight =
             );
           } catch (error: any) {
             console.error(
-              'Create Freight Error:',
-              error
+              'CREATE FREIGHT ERROR:',
+              error,
             );
 
             onError?.(
               error?.message ||
-                'Erro ao criar frete.'
+                'Erro operacional.',
             );
 
             return null;
           } finally {
             setLoadingPayment(
-              false
+              false,
             );
 
             actionLock.current =
               false;
           }
         },
-        []
+        [],
       );
 
     /*
-    ==========================
+    =========================================================
     CANCEL FREIGHT
-    ==========================
+    =========================================================
     */
 
     const cancelFreight =
@@ -131,8 +137,8 @@ export const useClientFreight =
           freightId: string,
           onSuccess?: () => void,
           onError?: (
-            message: string
-          ) => void
+            message: string,
+          ) => void,
         ) => {
           if (
             !freightId ||
@@ -145,54 +151,57 @@ export const useClientFreight =
             true;
 
           setIsCancelling(
-            true
+            true,
           );
 
           try {
             const success =
               await clientFreightService.cancelarFrete(
-                freightId
+                freightId,
               );
 
             if (!success) {
               onError?.(
-                'Erro ao cancelar frete.'
+                'Erro ao cancelar operação.',
               );
 
               return;
             }
 
             localStorage.removeItem(
-              'fretogo_currentorder'
+              'fretogo_currentorder',
             );
 
             onSuccess?.();
           } catch (error: any) {
             console.error(
-              'Cancel Freight Error:',
-              error
+              'CANCEL FREIGHT ERROR:',
+              error,
             );
 
             onError?.(
               error?.message ||
-                'Erro ao cancelar frete.'
+                'Erro ao cancelar.',
             );
           } finally {
             setIsCancelling(
-              false
+              false,
             );
 
             actionLock.current =
               false;
           }
         },
-        []
+        [],
       );
 
     return {
       loadingPayment,
+
       isCancelling,
+
       createFreight,
+
       cancelFreight,
     };
   };
