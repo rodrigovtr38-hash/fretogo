@@ -1,355 +1,298 @@
+// src/components/ChatFrete.tsx
+
 import {
-  useEffect,
-  useState,
-  useRef,
   useCallback,
-  memo,
+  useEffect,
+  useRef,
+  useState,
 } from 'react';
 
-import { db } from '../firebase';
-
 import {
-  collection,
   addDoc,
-  onSnapshot,
-  query,
-  orderBy,
-  serverTimestamp,
+  collection,
   limit,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
 } from 'firebase/firestore';
 
 import {
-  Send,
-  ShieldCheck,
   Loader2,
-  Radio,
+  Send,
 } from 'lucide-react';
 
-/* =========================================================
-   TYPES
-========================================================= */
-
-interface ChatMessage {
-  texto: string;
-  enviadoPor: string;
-  nome: string;
-  createdAt?: any;
-}
+import { db } from '../firebase';
 
 interface ChatFreteProps {
   freteId: string;
-  tipoUsuario: string;
+
   nome: string;
+
+  tipoUsuario:
+    | 'cliente'
+    | 'motorista'
+    | 'admin';
 }
 
-/* =========================================================
-   COMPONENT
-========================================================= */
+interface ChatMessage {
+  id: string;
 
-function ChatFrete({
+  texto: string;
+
+  nome: string;
+
+  tipoUsuario:
+    | 'cliente'
+    | 'motorista'
+    | 'admin';
+
+  createdAt?: any;
+}
+
+export default function ChatFrete({
   freteId,
-  tipoUsuario,
   nome,
+  tipoUsuario,
 }: ChatFreteProps) {
-  const [mensagens, setMensagens] =
-    useState<ChatMessage[]>([]);
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
 
-  const [texto, setTexto] =
-    useState('');
+  const [
+    mensagem,
+    setMensagem,
+  ] = useState('');
 
-  const [sending, setSending] =
-    useState(false);
+  const [
+    sending,
+    setSending,
+  ] = useState(false);
 
-  const [loading, setLoading] =
-    useState(true);
+  const [
+    messages,
+    setMessages,
+  ] = useState<
+    ChatMessage[]
+  >([]);
 
   const bottomRef =
     useRef<HTMLDivElement | null>(
       null,
     );
 
-  const inputRef =
-    useRef<HTMLInputElement | null>(
-      null,
-    );
-
-  /* =========================================================
-     REALTIME
-  ========================================================= */
+  /*
+  =========================================================
+  REALTIME
+  =========================================================
+  */
 
   useEffect(() => {
-    if (!freteId) return;
+    if (!freteId) {
+      return;
+    }
 
-    const q = query(
+    const messagesRef =
       collection(
         db,
         'fretes',
         freteId,
-        'mensagens',
-      ),
+        'chat',
+      );
 
+    const q = query(
+      messagesRef,
       orderBy(
         'createdAt',
         'asc',
       ),
-
-      limit(80),
+      limit(100),
     );
 
-    const unsub =
+    const unsubscribe =
       onSnapshot(
         q,
-        (snap) => {
-          const data =
-            snap.docs.map(
-              (d) =>
-                d.data() as ChatMessage,
-            );
 
-          setMensagens(data);
+        snapshot => {
+          const next: ChatMessage[] =
+            [];
+
+          snapshot.forEach(
+            docSnap => {
+              next.push({
+                id: docSnap.id,
+                ...(docSnap.data() as any),
+              });
+            },
+          );
+
+          setMessages(next);
 
           setLoading(false);
         },
 
-        () => {
+        error => {
+          console.error(
+            'CHAT REALTIME ERROR:',
+            error,
+          );
+
           setLoading(false);
         },
       );
 
-    return () => unsub();
+    return () => {
+      unsubscribe();
+    };
   }, [freteId]);
 
-  /* =========================================================
-     AUTO SCROLL
-  ========================================================= */
+  /*
+  =========================================================
+  AUTO SCROLL
+  =========================================================
+  */
 
   useEffect(() => {
-    const timeout =
-      setTimeout(() => {
-        bottomRef.current?.scrollIntoView(
-          {
-            behavior:
-              'smooth',
-          },
-        );
-      }, 80);
+    bottomRef.current?.scrollIntoView(
+      {
+        behavior: 'smooth',
+      },
+    );
+  }, [messages]);
 
-    return () =>
-      clearTimeout(timeout);
-  }, [mensagens]);
+  /*
+  =========================================================
+  SEND MESSAGE
+  =========================================================
+  */
 
-  /* =========================================================
-     SEND
-  ========================================================= */
-
-  const enviarMensagem =
+  const sendMessage =
     useCallback(async () => {
       if (
-        !texto.trim() ||
+        !mensagem.trim() ||
         sending
       ) {
         return;
       }
 
-      const sanitized =
-        texto
-          .trim()
-          .slice(0, 500);
-
-      if (!sanitized)
-        return;
-
-      setSending(true);
-
       try {
+        setSending(true);
+
         await addDoc(
           collection(
             db,
             'fretes',
             freteId,
-            'mensagens',
+            'chat',
           ),
           {
             texto:
-              sanitized,
-
-            enviadoPor:
-              tipoUsuario,
+              mensagem.trim(),
 
             nome,
+
+            tipoUsuario,
 
             createdAt:
               serverTimestamp(),
           },
         );
 
-        setTexto('');
-
-        inputRef.current?.focus();
-      } catch (e) {
+        setMensagem('');
+      } catch (error) {
         console.error(
-          'Erro chat:',
-          e,
+          'SEND CHAT ERROR:',
+          error,
         );
       } finally {
         setSending(false);
       }
     }, [
-      texto,
-      sending,
       freteId,
-      tipoUsuario,
+      mensagem,
       nome,
+      sending,
+      tipoUsuario,
     ]);
 
-  /* =========================================================
-     ENTER SEND
-  ========================================================= */
-
-  const handleKeyDown = (
-    e: React.KeyboardEvent<HTMLInputElement>,
-  ) => {
-    if (
-      e.key === 'Enter'
-    ) {
-      e.preventDefault();
-
-      enviarMensagem();
-    }
-  };
-
-  /* =========================================================
-     UI
-  ========================================================= */
+  /*
+  =========================================================
+  UI
+  =========================================================
+  */
 
   return (
-    <div className="glass-card relative mt-6 flex h-[360px] flex-col overflow-hidden border border-white/10 bg-slate-950/95 shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
+    <div className="rounded-[2rem] border border-white/10 bg-slate-900/80 shadow-2xl backdrop-blur-xl">
 
-      {/* HEADER */}
+      <div className="border-b border-white/5 px-6 py-5">
 
-      <div className="relative flex items-center justify-between border-b border-white/5 bg-slate-900/90 px-5 py-4 backdrop-blur-xl">
+        <h2 className="text-lg font-black text-white">
+          Chat Operacional
+        </h2>
 
-        <div className="flex items-center gap-3">
-
-          <div className="relative flex h-10 w-10 items-center justify-center rounded-2xl border border-cyan-500/20 bg-cyan-500/10">
-
-            <Radio className="h-4 w-4 text-cyan-300" />
-
-            <div className="absolute inset-0 rounded-2xl border border-cyan-400/20 radar-pulse" />
-
-          </div>
-
-          <div>
-
-            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-cyan-300">
-              Canal Operacional
-            </p>
-
-            <p className="mt-1 text-xs font-bold text-slate-400">
-              Comunicação protegida em tempo real
-            </p>
-
-          </div>
-
-        </div>
-
-        <div className="hidden items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 md:flex">
-
-          <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-
-          <span className="text-[9px] font-black uppercase tracking-[0.22em] text-emerald-300">
-            Seguro
-          </span>
-
-        </div>
+        <p className="mt-1 text-xs text-slate-400">
+          Comunicação realtime da operação.
+        </p>
 
       </div>
 
-      {/* MESSAGES */}
-
-      <div className="relative flex-1 overflow-y-auto px-4 py-5">
-
-        {/* ambient */}
-
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(6,182,212,0.05),transparent_60%)]" />
+      <div className="h-[360px] overflow-y-auto px-5 py-5">
 
         {loading ? (
-          <div className="flex h-full flex-col items-center justify-center">
+          <div className="flex h-full items-center justify-center">
 
-            <div className="relative mb-5">
-
-              <div className="absolute inset-0 rounded-full border border-cyan-400/20 radar-pulse" />
-
-              <Loader2 className="h-8 w-8 animate-spin text-cyan-400" />
-
-            </div>
-
-            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-cyan-300">
-              Sincronizando mensagens
-            </p>
+            <Loader2 className="animate-spin text-cyan-400" />
 
           </div>
-        ) : mensagens.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center text-center">
+        ) : messages.length ===
+          0 ? (
+          <div className="flex h-full items-center justify-center">
 
-            <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full border border-white/10 bg-white/5">
-
-              <Radio className="h-6 w-6 text-cyan-400" />
-
-            </div>
-
-            <p className="text-sm font-bold text-slate-300">
-              Nenhuma mensagem ainda
-            </p>
-
-            <p className="mt-2 max-w-[240px] text-xs leading-relaxed text-slate-500">
-              Utilize este canal para alinhar
-              coleta, entrega e detalhes da carga.
+            <p className="text-sm text-slate-500">
+              Nenhuma mensagem operacional.
             </p>
 
           </div>
         ) : (
-          <div className="relative z-10 space-y-3">
+          <div className="space-y-4">
 
-            {mensagens.map(
-              (
-                m,
-                index,
-              ) => {
-                const isMine =
-                  m.enviadoPor ===
+            {messages.map(
+              message => {
+                const isOwn =
+                  message.tipoUsuario ===
                   tipoUsuario;
 
                 return (
                   <div
-                    key={`${index}-${m.createdAt?.seconds || 'msg'}`}
+                    key={
+                      message.id
+                    }
                     className={`flex ${
-                      isMine
+                      isOwn
                         ? 'justify-end'
                         : 'justify-start'
                     }`}
                   >
 
                     <div
-                      className={`max-w-[86%] rounded-[1.4rem] px-4 py-3 shadow-lg transition-all duration-200 ${
-                        isMine
-                          ? 'border border-cyan-500/20 bg-cyan-500 text-slate-950'
-                          : 'border border-white/10 bg-slate-900 text-slate-100'
+                      className={`max-w-[85%] rounded-2xl px-4 py-3 ${
+                        isOwn
+                          ? 'bg-cyan-500 text-slate-950'
+                          : 'bg-slate-950 text-white'
                       }`}
                     >
 
-                      <p
-                        className={`mb-2 text-[9px] font-black uppercase tracking-[0.22em] ${
-                          isMine
-                            ? 'text-slate-950/70'
-                            : 'text-slate-500'
-                        }`}
-                      >
-                        {m.nome}
+                      <p className="mb-1 text-[10px] font-black uppercase tracking-[0.18em] opacity-70">
+                        {
+                          message.nome
+                        }
                       </p>
 
-                      <p className="text-sm font-semibold leading-relaxed break-words">
-                        {m.texto}
+                      <p className="text-sm font-semibold leading-relaxed">
+                        {
+                          message.texto
+                        }
                       </p>
 
                     </div>
@@ -366,43 +309,42 @@ function ChatFrete({
 
       </div>
 
-      {/* INPUT */}
+      <div className="border-t border-white/5 p-5">
 
-      <div className="border-t border-white/5 bg-slate-900/90 p-4 backdrop-blur-xl">
-
-        <div className="flex items-center gap-3">
+        <div className="flex gap-3">
 
           <input
-            ref={inputRef}
-            value={texto}
-            maxLength={500}
-            onChange={(e) =>
-              setTexto(
+            value={mensagem}
+            onChange={e =>
+              setMensagem(
                 e.target.value,
               )
             }
-            onKeyDown={
-              handleKeyDown
-            }
-            placeholder="Digite uma mensagem operacional..."
-            className="flex-1 rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-sm font-semibold text-white outline-none transition-all duration-200 placeholder:text-slate-600 focus:border-cyan-500/50 focus:bg-slate-900"
+            onKeyDown={e => {
+              if (
+                e.key ===
+                'Enter'
+              ) {
+                sendMessage();
+              }
+            }}
+            placeholder="Mensagem operacional..."
+            className="flex-1 rounded-2xl border border-white/10 bg-slate-950 px-5 py-4 text-sm font-semibold text-white outline-none"
           />
 
           <button
+            type="button"
             onClick={
-              enviarMensagem
+              sendMessage
             }
-            disabled={
-              sending ||
-              !texto.trim()
-            }
-            className="group flex h-[56px] w-[56px] items-center justify-center rounded-2xl border border-cyan-500/20 bg-cyan-500 text-slate-950 shadow-[0_10px_30px_rgba(6,182,212,0.25)] transition-all duration-200 hover:scale-[1.03] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={sending}
+            className="flex h-[56px] w-[56px] items-center justify-center rounded-2xl bg-cyan-500 text-slate-950 transition-all duration-300 hover:bg-cyan-400 disabled:opacity-40"
           >
 
             {sending ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
+              <Loader2 className="animate-spin" />
             ) : (
-              <Send className="h-5 w-5 transition-transform duration-200 group-hover:translate-x-[1px]" />
+              <Send size={18} />
             )}
 
           </button>
@@ -414,5 +356,3 @@ function ChatFrete({
     </div>
   );
 }
-
-export default memo(ChatFrete);
