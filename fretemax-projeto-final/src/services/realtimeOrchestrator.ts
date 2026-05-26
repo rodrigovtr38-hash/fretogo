@@ -20,79 +20,41 @@ import {
 } from '../state/tripStateMachine';
 
 class RealtimeOrchestrator {
-  private initialized =
-    false;
+  private initialized = false;
 
-  private syncing =
-    false;
+  private syncing = false;
 
-  initialize(
-    driverId?: string,
-    tripId?: string,
-  ) {
+  private eventsRegistered = false;
+
+  initialize(config: {
+    driverId?: string;
+    tripId?: string;
+  }) {
     try {
+      if (!this.eventsRegistered) {
+        this.registerEvents();
 
-      if (
-        this.initialized
-      ) {
-        return;
+        this.eventsRegistered = true;
       }
 
-      console.log(
-        'REALTIME ORCHESTRATOR STARTED',
-      );
-
-      this.initialized =
-        true;
-
-      /*
-      ===================================
-      DRIVER REALTIME
-      ===================================
-      */
-
-      if (driverId) {
-
+      if (config.driverId) {
         firebaseRealtimeService.listenDriver(
-          driverId,
+          config.driverId,
         );
-
       }
 
-      /*
-      ===================================
-      TRIP REALTIME
-      ===================================
-      */
-
-      if (tripId) {
-
+      if (config.tripId) {
         firebaseRealtimeService.listenTrip(
-          tripId,
+          config.tripId,
         );
-
       }
 
-      /*
-      ===================================
-      REGISTER EVENTS
-      ===================================
-      */
-
-      this.registerEvents();
-
-      /*
-      ===================================
-      REALTIME CONNECTED
-      ===================================
-      */
+      this.initialized = true;
 
       eventBusService.emit(
         AppEvents.REALTIME_CONNECTED,
       );
-
     } catch (error) {
-
       console.error(
         'REALTIME ORCHESTRATOR INIT ERROR:',
         error,
@@ -111,195 +73,11 @@ class RealtimeOrchestrator {
   }
 
   private registerEvents() {
-
-    /*
-    ===================================
-    TRIP STATUS
-    ===================================
-    */
-
     eventBusService.on(
       AppEvents.TRIP_STATUS_CHANGED,
-
-      async (
-        tripData: any,
-      ) => {
-
+      async (tripData: any) => {
         try {
-
-          if (
-            this.syncing
-          ) {
+          if (this.syncing) {
             return;
           }
-
-          if (
-            !tripData
-          ) {
-            return;
-          }
-
-          if (
-            !tripData.driverId ||
-            !tripData.status
-          ) {
-            return;
-          }
-
-          this.syncing =
-            true;
-
-          const synchronized =
-            StateSynchronizationService.synchronize(
-              tripData.driverState as DriverState,
-
-              tripData.status as AppTripState,
-            );
-
-          /*
-          ===============================
-          UPDATE DRIVER
-          ===============================
-          */
-
-          if (
-            synchronized.driverState &&
-            synchronized.driverState !==
-              tripData.driverState
-          ) {
-
-            await firebaseRealtimeService.updateDriverRealtime(
-              tripData.driverId,
-              {
-                state:
-                  synchronized.driverState,
-              },
-            );
-
-          }
-
-          /*
-          ===============================
-          LOG
-          ===============================
-          */
-
-          console.log(
-            'SYNC OK:',
-            tripData.status,
-          );
-
-        } catch (error) {
-
-          console.error(
-            'TRIP SYNC ERROR:',
-            error,
-          );
-
-          eventBusService.emit(
-            AppEvents.SYSTEM_ERROR,
-            {
-              origem:
-                'TRIP_STATUS_CHANGED',
-
-              error,
-            },
-          );
-
-        } finally {
-
-          this.syncing =
-            false;
-
-        }
-      },
-    );
-
-    /*
-    ===================================
-    REALTIME DISCONNECTED
-    ===================================
-    */
-
-    eventBusService.on(
-      AppEvents.REALTIME_DISCONNECTED,
-
-      () => {
-
-        console.warn(
-          'REALTIME DISCONNECTED',
-        );
-
-      },
-    );
-
-    /*
-    ===================================
-    REALTIME RECONNECTED
-    ===================================
-    */
-
-    eventBusService.on(
-      AppEvents.REALTIME_RECONNECTED,
-
-      () => {
-
-        console.log(
-          'REALTIME RECONNECTED',
-        );
-
-      },
-    );
-
-    /*
-    ===================================
-    SYSTEM ERROR
-    ===================================
-    */
-
-    eventBusService.on(
-      AppEvents.SYSTEM_ERROR,
-
-      (
-        payload,
-      ) => {
-
-        console.error(
-          'SYSTEM ERROR:',
-          payload,
-        );
-
-      },
-    );
-  }
-
-  destroy() {
-
-    try {
-
-      firebaseRealtimeService.disconnectAll();
-
-      eventBusService.clear();
-
-      this.initialized =
-        false;
-
-      this.syncing =
-        false;
-
-      console.log(
-        'REALTIME ORCHESTRATOR DESTROYED',
-      );
-
-    } catch (error) {
-
-      console.error(
-        'REALTIME DESTROY ERROR:',
-        error,
-      );
-    }
-  }
-}
-
-export const realtimeOrchestrator =
   new RealtimeOrchestrator();
