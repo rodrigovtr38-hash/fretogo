@@ -1,13 +1,13 @@
 // src/services/clientFreightService.ts
 
 import {
-  collection,
   addDoc,
-  updateDoc,
+  collection,
   doc,
-  serverTimestamp,
-  runTransaction,
   getDoc,
+  runTransaction,
+  serverTimestamp,
+  updateDoc,
 } from 'firebase/firestore';
 
 import { db } from '../firebase';
@@ -17,37 +17,133 @@ import {
 } from './paymentService';
 
 import {
-  AppTripState,
-} from '../state/tripStateMachine';
-
-import {
   executeDispatch,
 } from './orchestrator';
 
 import {
-  eventBusService,
   AppEvents,
+  eventBusService,
 } from './eventBusService';
 
-type CreateFreightPayload = {
-  clienteId: string;
-  origem: any;
-  destino: any;
-  vehicleType: string;
-  distancia: number;
-  valorTotal: number;
-  observacoes?: string;
-};
+import {
+  AppTripState,
+} from '../state/tripStateMachine';
+
+type CreateFreightPayload =
+  {
+    clienteId: string;
+
+    origem: any;
+
+    destino: any;
+
+    categoria: string;
+
+    tipoCarga: string;
+
+    pesoKg: number;
+
+    volumes: number;
+
+    prioridade:
+      | 'normal'
+      | 'urgente';
+
+    observacoes?: string;
+
+    distancia: number;
+
+    valorTotal: number;
+
+    agendado?: boolean;
+
+    dataAgendamento?: string;
+
+    retornoDisponivel?: boolean;
+  };
 
 class ClientFreightService {
   async criarFrete(
-    payload: CreateFreightPayload
+    payload: CreateFreightPayload,
   ) {
     try {
       /*
-      ==========================
-      PAGAMENTO
-      ==========================
+      =========================================================
+      CREATE FREIGHT FIRST
+      =========================================================
+      */
+
+      const freteRef =
+        await addDoc(
+          collection(
+            db,
+            'fretes',
+          ),
+          {
+            clienteId:
+              payload.clienteId,
+
+            origem:
+              payload.origem,
+
+            destino:
+              payload.destino,
+
+            categoria:
+              payload.categoria,
+
+            tipoCarga:
+              payload.tipoCarga,
+
+            pesoKg:
+              payload.pesoKg,
+
+            volumes:
+              payload.volumes,
+
+            prioridade:
+              payload.prioridade,
+
+            observacoes:
+              payload.observacoes ||
+              '',
+
+            distancia:
+              payload.distancia,
+
+            valorTotal:
+              payload.valorTotal,
+
+            agendado:
+              payload.agendado ||
+              false,
+
+            dataAgendamento:
+              payload.dataAgendamento ||
+              null,
+
+            retornoDisponivel:
+              payload.retornoDisponivel ||
+              false,
+
+            pagamentoStatus:
+              'pendente',
+
+            status:
+              AppTripState.PENDENTE,
+
+            criadoEm:
+              serverTimestamp(),
+
+            atualizadoEm:
+              serverTimestamp(),
+          },
+        );
+
+      /*
+      =========================================================
+      PAYMENT
+      =========================================================
       */
 
       const pagamento =
@@ -63,26 +159,35 @@ class ClientFreightService {
               payload.clienteId,
 
             freteId:
-              'PENDING',
-          }
+              freteRef.id,
+          },
         );
 
       /*
-      ==========================
-      PAGAMENTO NEGADO
-      ==========================
+      =========================================================
+      PAYMENT FAILED
+      =========================================================
       */
 
-      if (!pagamento.success) {
-        eventBusService.emit(
-          AppEvents.PAYMENT_FAILED,
+      if (
+        !pagamento.success
+      ) {
+        await updateDoc(
+          doc(
+            db,
+            'fretes',
+            freteRef.id,
+          ),
           {
-            clienteId:
-              payload.clienteId,
+            pagamentoStatus:
+              'falhou',
 
-            error:
-              pagamento.error,
-          }
+            status:
+              AppTripState.CANCELADO,
+
+            atualizadoEm:
+              serverTimestamp(),
+          },
         );
 
         return {
@@ -93,103 +198,62 @@ class ClientFreightService {
       }
 
       /*
-      ==========================
-      FRETE
-      ==========================
+      =========================================================
+      PAYMENT APPROVED
+      =========================================================
       */
 
-      const freteRef =
-        await addDoc(
-          collection(db, 'fretes'),
-          {
-            clienteId:
-              payload.clienteId,
-
-            origem:
-              payload.origem,
-
-            destino:
-              payload.destino,
-
-            vehicleType:
-              payload.vehicleType,
-
-            distancia:
-              payload.distancia,
-
-            valorTotal:
-              payload.valorTotal,
-
-            observacoes:
-              payload.observacoes ||
-              '',
-
-            transactionId:
-              pagamento.transactionId,
-
-            paymentStatus:
-              'approved',
-
-            status:
-              AppTripState.DISPONIVEL,
-
-            criadoEm:
-              serverTimestamp(),
-
-            atualizadoEm:
-              serverTimestamp(),
-          }
-        );
-
-      /*
-      ==========================
-      PAYMENT EVENT
-      ==========================
-      */
-
-      eventBusService.emit(
-        AppEvents.PAYMENT_APPROVED,
+      await updateDoc(
+        doc(
+          db,
+          'fretes',
+          freteRef.id,
+        ),
         {
-          freteId:
-            freteRef.id,
+          pagamentoStatus:
+            'aprovado',
 
           transactionId:
             pagamento.transactionId,
-        }
+
+          status:
+            AppTripState.PROCURANDO_MOTORISTA,
+
+          atualizadoEm:
+            serverTimestamp(),
+        },
       );
 
       /*
-      ==========================
+      =========================================================
       DISPATCH
-      ==========================
+      =========================================================
       */
 
-      await executeDispatch({
-        id: freteRef.id,
+      await executeDispatch(
+        freteRef.id,
+        {
+          categoria:
+            payload.categoria,
 
-        clienteId:
-          payload.clienteId,
+          origemLat:
+            payload.origem.lat,
 
-        origem:
-          payload.origem,
+          origemLng:
+            payload.origem.lng,
 
-        destino:
-          payload.destino,
+          destinoLat:
+            payload.destino.lat,
 
-        vehicleType:
-          payload.vehicleType,
-
-        distancia:
-          payload.distancia,
-
-        valorTotal:
-          payload.valorTotal,
-      });
+          destinoLng:
+            payload.destino.lng,
+        },
+      );
 
       /*
-      ==========================
-      FREIGHT EVENT
-      ==========================
+      =========================================================
+      EVENTS
+      =========================================================
       */
 
       eventBusService.emit(
@@ -197,25 +261,19 @@ class ClientFreightService {
         {
           freteId:
             freteRef.id,
-        }
+        },
       );
 
       return {
         success: true,
+
         freteId:
           freteRef.id,
       };
     } catch (error) {
       console.error(
         'ERRO CRIAR FRETE:',
-        error
-      );
-
-      eventBusService.emit(
-        AppEvents.PAYMENT_FAILED,
-        {
-          error,
-        }
+        error,
       );
 
       return {
@@ -227,13 +285,13 @@ class ClientFreightService {
   }
 
   async cancelarFrete(
-    freteId: string
+    freteId: string,
   ) {
     try {
       const freteRef = doc(
         db,
         'fretes',
-        freteId
+        freteId,
       );
 
       await updateDoc(
@@ -244,27 +302,21 @@ class ClientFreightService {
 
           atualizadoEm:
             serverTimestamp(),
-        }
+        },
       );
-
-      /*
-      ==========================
-      EVENT
-      ==========================
-      */
 
       eventBusService.emit(
         AppEvents.TRIP_CANCELLED,
         {
           freteId,
-        }
+        },
       );
 
       return true;
     } catch (error) {
       console.error(
         'ERRO CANCELAR FRETE:',
-        error
+        error,
       );
 
       return false;
@@ -273,13 +325,16 @@ class ClientFreightService {
 
   async atualizarFrete(
     freteId: string,
-    payload: Record<string, any>
+    payload: Record<
+      string,
+      any
+    >,
   ) {
     try {
       const freteRef = doc(
         db,
         'fretes',
-        freteId
+        freteId,
       );
 
       await updateDoc(
@@ -289,14 +344,14 @@ class ClientFreightService {
 
           atualizadoEm:
             serverTimestamp(),
-        }
+        },
       );
 
       return true;
     } catch (error) {
       console.error(
         'ERRO UPDATE FRETE:',
-        error
+        error,
       );
 
       return false;
@@ -304,21 +359,23 @@ class ClientFreightService {
   }
 
   async buscarFrete(
-    freteId: string
+    freteId: string,
   ) {
     try {
       const freteRef = doc(
         db,
         'fretes',
-        freteId
+        freteId,
       );
 
       const snapshot =
         await getDoc(
-          freteRef
+          freteRef,
         );
 
-      if (!snapshot.exists()) {
+      if (
+        !snapshot.exists()
+      ) {
         return null;
       }
 
@@ -329,7 +386,7 @@ class ClientFreightService {
     } catch (error) {
       console.error(
         'ERRO BUSCAR FRETE:',
-        error
+        error,
       );
 
       return null;
@@ -337,13 +394,13 @@ class ClientFreightService {
   }
 
   async finalizarFrete(
-    freteId: string
+    freteId: string,
   ) {
     try {
       const freteRef = doc(
         db,
         'fretes',
-        freteId
+        freteId,
       );
 
       await runTransaction(
@@ -351,14 +408,14 @@ class ClientFreightService {
         async transaction => {
           const snapshot =
             await transaction.get(
-              freteRef
+              freteRef,
             );
 
           if (
             !snapshot.exists()
           ) {
             throw new Error(
-              'Frete não encontrado'
+              'Frete não encontrado',
             );
           }
 
@@ -370,29 +427,23 @@ class ClientFreightService {
 
               atualizadoEm:
                 serverTimestamp(),
-            }
+            },
           );
-        }
+        },
       );
-
-      /*
-      ==========================
-      EVENT
-      ==========================
-      */
 
       eventBusService.emit(
         AppEvents.TRIP_FINISHED,
         {
           freteId,
-        }
+        },
       );
 
       return true;
     } catch (error) {
       console.error(
         'ERRO FINALIZAR FRETE:',
-        error
+        error,
       );
 
       return false;
