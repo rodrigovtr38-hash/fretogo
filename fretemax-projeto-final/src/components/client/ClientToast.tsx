@@ -1,3 +1,5 @@
+// src/components/client/ClientToast.tsx
+
 import {
   AlertTriangle,
   CheckCircle,
@@ -6,17 +8,22 @@ import {
 
 export interface ClientToastData {
   msg: string;
-  type?: 'error' | 'success' | 'warning';
+
+  type?:
+    | 'error'
+    | 'success'
+    | 'warning';
 }
 
 interface ClientToastProps {
-  toast?: ClientToastData | null;
+  toast?:
+    | ClientToastData
+    | null;
 }
 
 export default function ClientToast({
   toast,
 }: ClientToastProps) {
-
   if (!toast?.msg) {
     return null;
   }
@@ -39,18 +46,23 @@ export default function ClientToast({
     <div className="fixed right-6 top-6 z-[9999] animate-in slide-in-from-top-5 fade-in duration-300">
 
       <div
-        className={`
-          flex items-center gap-3 rounded-2xl border px-5 py-4 shadow-2xl backdrop-blur-xl
-          ${styles[type]}
-        `}
+        className={`flex items-center gap-3 rounded-2xl border px-5 py-4 shadow-2xl backdrop-blur-xl ${styles[type]}`}
       >
 
-        {type === 'success' ? (
-          <CheckCircle size={18} />
-        ) : type === 'warning' ? (
-          <AlertTriangle size={18} />
+        {type ===
+        'success' ? (
+          <CheckCircle
+            size={18}
+          />
+        ) : type ===
+          'warning' ? (
+          <AlertTriangle
+            size={18}
+          />
         ) : (
-          <XCircle size={18} />
+          <XCircle
+            size={18}
+          />
         )}
 
         <span className="text-sm font-bold">
@@ -58,6 +70,7 @@ export default function ClientToast({
         </span>
 
       </div>
+
     </div>
   );
 }
