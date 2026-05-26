@@ -1,5 +1,8 @@
+// src/hooks/useClientPayment.ts
+
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
 } from 'react';
@@ -8,152 +11,236 @@ import {
   paymentService,
 } from '../services/paymentService';
 
-type CreatePixPaymentPayload = {
-  amount: number;
-  description: string;
-  customer: {
-    name: string;
-    phone: string;
+type CreatePixPaymentPayload =
+  {
+    amount: number;
+
+    description: string;
+
+    customer: {
+      name: string;
+
+      phone: string;
+    };
   };
-};
 
-export const useClientPayment = () => {
-  const [loadingPayment, setLoadingPayment] =
-    useState(false);
+const PAYMENT_TIMEOUT =
+  1000 * 60 * 15;
 
-  const [paymentError, setPaymentError] =
-    useState<string | null>(null);
+export const useClientPayment =
+  () => {
+    const [
+      loadingPayment,
+      setLoadingPayment,
+    ] = useState(false);
 
-  const [paymentApproved, setPaymentApproved] =
-    useState(false);
+    const [
+      paymentError,
+      setPaymentError,
+    ] = useState<
+      string | null
+    >(null);
 
-  const [pixCode, setPixCode] =
-    useState<string | null>(null);
+    const [
+      paymentApproved,
+      setPaymentApproved,
+    ] = useState(false);
 
-  const [paymentId, setPaymentId] =
-    useState<string | null>(null);
+    const [
+      pixCode,
+      setPixCode,
+    ] = useState<
+      string | null
+    >(null);
 
-  const paymentTimeoutRef =
-    useRef<NodeJS.Timeout | null>(null);
+    const [
+      paymentId,
+      setPaymentId,
+    ] = useState<
+      string | null
+    >(null);
 
-  const createPixPayment =
-    useCallback(
-      async (
-        payload: CreatePixPaymentPayload
-      ) => {
-        try {
-          setLoadingPayment(true);
+    const paymentTimeoutRef =
+      useRef<
+        NodeJS.Timeout | null
+      >(null);
 
-          setPaymentError(null);
+    /*
+    =========================================================
+    CREATE PIX
+    =========================================================
+    */
 
-          setPaymentApproved(false);
-
-          const response =
-            await paymentService.createPixPayment(
-              payload
+    const createPixPayment =
+      useCallback(
+        async (
+          payload: CreatePixPaymentPayload,
+        ) => {
+          try {
+            setLoadingPayment(
+              true,
             );
 
-          setPixCode(
-            response.pixCode
-          );
+            setPaymentError(
+              null,
+            );
 
-          setPaymentId(
-            response.paymentId
-          );
+            setPaymentApproved(
+              false,
+            );
 
-          paymentTimeoutRef.current =
-            setTimeout(() => {
-              setPaymentError(
-                'Pagamento expirado.'
+            const response =
+              await paymentService.createPixPayment(
+                payload,
               );
-            }, 1000 * 60 * 15);
 
-          return response;
-        } catch (error: any) {
-          console.error(
-            'PIX Payment Error:',
-            error
-          );
+            setPixCode(
+              response.pixCode,
+            );
 
-          setPaymentError(
-            error?.message ||
-              'Erro ao gerar PIX.'
-          );
+            setPaymentId(
+              response.paymentId,
+            );
 
-          return null;
-        } finally {
-          setLoadingPayment(false);
-        }
-      },
-      []
-    );
+            paymentTimeoutRef.current =
+              setTimeout(
+                () => {
+                  setPaymentError(
+                    'Pagamento expirado.',
+                  );
+                },
+                PAYMENT_TIMEOUT,
+              );
 
-  const confirmPayment =
-    useCallback(async () => {
-      if (!paymentId) {
-        return false;
-      }
+            return response;
+          } catch (error: any) {
+            console.error(
+              'PIX ERROR:',
+              error,
+            );
 
-      try {
-        const confirmed =
-          await paymentService.confirmPayment(
-            paymentId
-          );
+            setPaymentError(
+              error?.message ||
+                'Erro PIX.',
+            );
 
-        if (confirmed) {
-          setPaymentApproved(
-            true
-          );
-
-          if (
-            paymentTimeoutRef.current
-          ) {
-            clearTimeout(
-              paymentTimeoutRef.current
+            return null;
+          } finally {
+            setLoadingPayment(
+              false,
             );
           }
+        },
+        [],
+      );
+
+    /*
+    =========================================================
+    CONFIRM
+    =========================================================
+    */
+
+    const confirmPayment =
+      useCallback(async () => {
+        if (!paymentId) {
+          return false;
         }
 
-        return confirmed;
-      } catch (error) {
-        console.error(
-          'Confirm Payment Error:',
-          error
+        try {
+          const confirmed =
+            await paymentService.confirmPayment(
+              paymentId,
+            );
+
+          if (
+            confirmed
+          ) {
+            setPaymentApproved(
+              true,
+            );
+
+            if (
+              paymentTimeoutRef.current
+            ) {
+              clearTimeout(
+                paymentTimeoutRef.current,
+              );
+            }
+          }
+
+          return confirmed;
+        } catch (error) {
+          console.error(
+            'CONFIRM PAYMENT ERROR:',
+            error,
+          );
+
+          return false;
+        }
+      }, [paymentId]);
+
+    /*
+    =========================================================
+    RESET
+    =========================================================
+    */
+
+    const resetPayment =
+      useCallback(() => {
+        setPixCode(null);
+
+        setPaymentId(null);
+
+        setPaymentApproved(
+          false,
         );
 
-        return false;
-      }
-    }, [paymentId]);
+        setPaymentError(
+          null,
+        );
 
-  const resetPayment =
-    useCallback(() => {
-      setPixCode(null);
-
-      setPaymentId(null);
-
-      setPaymentApproved(false);
-
-      setPaymentError(null);
-
-      if (
-        paymentTimeoutRef.current
-      ) {
-        clearTimeout(
+        if (
           paymentTimeoutRef.current
-        );
-      }
+        ) {
+          clearTimeout(
+            paymentTimeoutRef.current,
+          );
+        }
+      }, []);
+
+    /*
+    =========================================================
+    CLEANUP
+    =========================================================
+    */
+
+    useEffect(() => {
+      return () => {
+        if (
+          paymentTimeoutRef.current
+        ) {
+          clearTimeout(
+            paymentTimeoutRef.current,
+          );
+        }
+      };
     }, []);
 
-  return {
-    loadingPayment,
-    paymentError,
-    paymentApproved,
+    return {
+      loadingPayment,
 
-    pixCode,
-    paymentId,
+      paymentError,
 
-    createPixPayment,
-    confirmPayment,
-    resetPayment,
+      paymentApproved,
+
+      pixCode,
+
+      paymentId,
+
+      createPixPayment,
+
+      confirmPayment,
+
+      resetPayment,
+    };
   };
-};
