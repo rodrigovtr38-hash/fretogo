@@ -21,13 +21,9 @@ type Coordinates = {
 
 interface MapaClienteProps {
   origem?: Coordinates | null;
-
   destino?: Coordinates | null;
-
   motoristaPos?: Coordinates | null;
-
   operationalMessage?: string;
-
   eta?: number | null;
 }
 
@@ -140,12 +136,6 @@ function MapaCliente({
   const animationFrameRef =
     useRef<number>();
 
-  /*
-  =========================================================
-  CENTER
-  =========================================================
-  */
-
   const center =
     useMemo(() => {
       if (motoristaPos) {
@@ -164,12 +154,6 @@ function MapaCliente({
       motoristaPos,
       origem,
     ]);
-
-  /*
-  =========================================================
-  ROUTE
-  =========================================================
-  */
 
   const routePath =
     useMemo(() => {
@@ -197,12 +181,6 @@ function MapaCliente({
       destino,
     ]);
 
-  /*
-  =========================================================
-  FIT BOUNDS
-  =========================================================
-  */
-
   useEffect(() => {
     if (
       !mapRef.current ||
@@ -223,12 +201,6 @@ function MapaCliente({
       80,
     );
   }, [routePath]);
-
-  /*
-  =========================================================
-  ANIMATE DRIVER
-  =========================================================
-  */
 
   useEffect(() => {
     if (!motoristaPos) {
@@ -298,12 +270,6 @@ function MapaCliente({
     };
   }, [motoristaPos]);
 
-  /*
-  =========================================================
-  DRIVER HEADING
-  =========================================================
-  */
-
   const heading =
     useMemo(() => {
       if (
@@ -331,41 +297,26 @@ function MapaCliente({
       );
     }, [animatedPos]);
 
-  /*
-  =========================================================
-  UI
-  =========================================================
-  */
-
   return (
     <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950 shadow-2xl">
-
       <div className="absolute left-5 top-5 z-20">
-
         <div className="rounded-2xl border border-white/10 bg-slate-950/85 px-4 py-3 backdrop-blur-xl">
-
           <p className="text-[9px] font-black uppercase tracking-[0.22em] text-cyan-300">
             Rastreamento
           </p>
 
           <div className="mt-2 flex items-center gap-2">
-
-            <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            <div className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
 
             <span className="text-[9px] font-black uppercase tracking-[0.25em] text-cyan-200">
               GPS REALTIME
             </span>
-
           </div>
-
         </div>
-
       </div>
 
       <div className="absolute right-5 top-5 z-20">
-
         <div className="rounded-2xl border border-white/10 bg-slate-950/85 px-4 py-3 backdrop-blur-xl">
-
           <p className="text-[9px] font-black uppercase tracking-[0.22em] text-cyan-300">
             Status Operacional
           </p>
@@ -379,9 +330,7 @@ function MapaCliente({
               ETA {eta} min
             </p>
           )}
-
         </div>
-
       </div>
 
       <GoogleMap
@@ -420,7 +369,6 @@ function MapaCliente({
             false,
         }}
       >
-
         {routePath.length >=
           2 && (
           <Polyline
@@ -480,9 +428,7 @@ function MapaCliente({
             }}
           />
         )}
-
       </GoogleMap>
-
     </div>
   );
 }
