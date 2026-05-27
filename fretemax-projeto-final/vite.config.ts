@@ -15,7 +15,14 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [
-    react(),
+    react({
+      /*
+       * IMPORTANTE:
+       * Mantém compatibilidade segura
+       * com React 18 + StrictMode.
+       */
+      jsxRuntime: 'automatic',
+    }),
 
     tailwindcss(),
 
@@ -31,16 +38,24 @@ export default defineConfig({
     },
   },
 
+  define: {
+    __APP_VERSION__: JSON.stringify(
+      process.env.npm_package_version,
+    ),
+  },
+
   server: {
-    host: true,
+    host: '0.0.0.0',
 
     port: 5173,
 
     strictPort: true,
+
+    open: false,
   },
 
   preview: {
-    host: true,
+    host: '0.0.0.0',
 
     port: 4173,
 
@@ -49,18 +64,48 @@ export default defineConfig({
 
   optimizeDeps: {
     include: [
+      /* ===================================================
+         REACT
+      =================================================== */
+
       'react',
+
       'react-dom',
+
+      'react-router-dom',
+
+      /* ===================================================
+         FIREBASE
+      =================================================== */
+
       'firebase/app',
+
       'firebase/auth',
+
       'firebase/firestore',
+
       'firebase/storage',
-      'firebase/messaging',
+
+      /* ===================================================
+         MAPS
+      =================================================== */
+
+      '@react-google-maps/api',
+
+      'geofire-common',
     ],
+
+    esbuildOptions: {
+      target: 'es2020',
+    },
   },
 
   build: {
     target: 'es2020',
+
+    outDir: 'dist',
+
+    assetsDir: 'assets',
 
     sourcemap: false,
 
@@ -68,9 +113,9 @@ export default defineConfig({
 
     cssMinify: true,
 
-    chunkSizeWarningLimit: 900,
-
     reportCompressedSize: true,
+
+    chunkSizeWarningLimit: 1200,
 
     assetsInlineLimit: 4096,
 
@@ -80,6 +125,12 @@ export default defineConfig({
 
     rollupOptions: {
       output: {
+        /*
+         * IMPORTANTE:
+         * Isolamento de chunks críticos
+         * para evitar cascata runtime.
+         */
+
         manualChunks: {
           /* ===================================================
              REACT CORE
@@ -92,7 +143,7 @@ export default defineConfig({
           ],
 
           /* ===================================================
-             FIREBASE
+             FIREBASE CORE
           =================================================== */
 
           firebase: [
@@ -100,11 +151,10 @@ export default defineConfig({
             'firebase/auth',
             'firebase/firestore',
             'firebase/storage',
-            'firebase/messaging',
           ],
 
           /* ===================================================
-             MAPS
+             MAPS / GEO
           =================================================== */
 
           maps: [
@@ -137,9 +187,16 @@ export default defineConfig({
   },
 
   esbuild: {
-    drop: [
-      'console',
-      'debugger',
-    ],
+    /*
+     * IMPORTANTE:
+     * NÃO remover console em DEV.
+     * Realtime/logística precisa de rastreabilidade.
+     */
+
+    drop:
+      process.env.NODE_ENV ===
+      'production'
+        ? ['debugger']
+        : [],
   },
 });
