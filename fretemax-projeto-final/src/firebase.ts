@@ -1,22 +1,51 @@
-import { initializeApp } from 'firebase/app';
 import {
+  FirebaseApp,
+  getApp,
+  getApps,
+  initializeApp,
+} from 'firebase/app';
+
+import {
+  browserLocalPersistence,
   getAuth,
   GoogleAuthProvider,
+  indexedDBLocalPersistence,
+  initializeAuth,
   setPersistence,
-  browserLocalPersistence,
 } from 'firebase/auth';
 
 import {
+  Firestore,
   initializeFirestore,
   persistentLocalCache,
   persistentMultipleTabManager,
 } from 'firebase/firestore';
 
-import { getStorage } from 'firebase/storage';
+import {
+  FirebaseStorage,
+  getStorage,
+} from 'firebase/storage';
 
-// ======================================================
-// VALIDAÇÃO SEGURA DAS ENVS
-// ======================================================
+/* =========================================================
+   GLOBAL TYPES
+========================================================= */
+
+declare global {
+  interface Window {
+    __FRETOGO_FIREBASE_APP__?:
+      FirebaseApp;
+
+    __FRETOGO_FIRESTORE__?:
+      Firestore;
+
+    __FRETOGO_STORAGE__?:
+      FirebaseStorage;
+  }
+}
+
+/* =========================================================
+   VALIDATE ENV
+========================================================= */
 
 const requiredEnvVars = [
   'VITE_FB_API_KEY',
@@ -27,67 +56,203 @@ const requiredEnvVars = [
   'VITE_FB_APP_ID',
 ];
 
-requiredEnvVars.forEach((envName) => {
-  if (!import.meta.env[envName]) {
-    throw new Error(
-      `❌ Firebase ENV ausente: ${envName}. Verifique as variáveis da Vercel.`,
-    );
-  }
-});
+requiredEnvVars.forEach(
+  (envName) => {
+    if (
+      !import.meta.env[envName]
+    ) {
+      throw new Error(
+        `❌ Firebase ENV ausente: ${envName}`,
+      );
+    }
+  },
+);
 
-// ======================================================
-// CONFIG FIREBASE
-// ======================================================
+/* =========================================================
+   FIREBASE CONFIG
+========================================================= */
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FB_API_KEY,
-  authDomain: import.meta.env.VITE_FB_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FB_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FB_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FB_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FB_APP_ID,
+  apiKey:
+    import.meta.env
+      .VITE_FB_API_KEY,
+
+  authDomain:
+    import.meta.env
+      .VITE_FB_AUTH_DOMAIN,
+
+  projectId:
+    import.meta.env
+      .VITE_FB_PROJECT_ID,
+
+  storageBucket:
+    import.meta.env
+      .VITE_FB_STORAGE_BUCKET,
+
+  messagingSenderId:
+    import.meta.env
+      .VITE_FB_MESSAGING_SENDER_ID,
+
+  appId:
+    import.meta.env
+      .VITE_FB_APP_ID,
 };
 
-// ======================================================
-// INIT APP
-// ======================================================
+/* =========================================================
+   FIREBASE APP SINGLETON
+========================================================= */
 
-const app = initializeApp(firebaseConfig);
+function createFirebaseApp(): FirebaseApp {
+  if (
+    typeof window !==
+      'undefined' &&
+    window.__FRETOGO_FIREBASE_APP__
+  ) {
+    return window.__FRETOGO_FIREBASE_APP__;
+  }
 
-// ======================================================
-// AUTH
-// ======================================================
+  const firebaseApp =
+    getApps().length > 0
+      ? getApp()
+      : initializeApp(
+          firebaseConfig,
+        );
 
-export const auth = getAuth(app);
+  if (
+    typeof window !==
+    'undefined'
+  ) {
+    window.__FRETOGO_FIREBASE_APP__ =
+      firebaseApp;
+  }
 
-setPersistence(auth, browserLocalPersistence).catch((error) => {
-  console.error('❌ Erro ao configurar persistência Auth:', error);
+  return firebaseApp;
+}
+
+export const app =
+  createFirebaseApp();
+
+/* =========================================================
+   AUTH SINGLETON
+========================================================= */
+
+export const auth =
+  (() => {
+    try {
+      const existingAuth =
+        getAuth(app);
+
+      return existingAuth;
+    } catch {
+      return initializeAuth(
+        app,
+        {
+          persistence: [
+            indexedDBLocalPersistence,
+            browserLocalPersistence,
+          ],
+        },
+      );
+    }
+  })();
+
+/* =========================================================
+   AUTH PERSISTENCE
+========================================================= */
+
+void setPersistence(
+  auth,
+  browserLocalPersistence,
+).catch((error) => {
+  console.error(
+    '❌ Erro persistência Auth:',
+    error,
+  );
 });
 
-// ======================================================
-// GOOGLE PROVIDER
-// ======================================================
+/* =========================================================
+   GOOGLE PROVIDER
+========================================================= */
 
-export const provider = new GoogleAuthProvider();
+export const provider =
+  new GoogleAuthProvider();
 
 provider.setCustomParameters({
   prompt: 'select_account',
 });
 
-// ======================================================
-// FIRESTORE ENTERPRISE SETUP
-// ======================================================
+/* =========================================================
+   FIRESTORE SINGLETON
+========================================================= */
 
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager(),
-  }),
-});
+function createFirestore(): Firestore {
+  if (
+    typeof window !==
+      'undefined' &&
+    window.__FRETOGO_FIRESTORE__
+  ) {
+    return window.__FRETOGO_FIRESTORE__;
+  }
 
-// ======================================================
-// STORAGE
-// ======================================================
+  const firestore =
+    initializeFirestore(app, {
+      localCache:
+        persistentLocalCache({
+          tabManager:
+            persistentMultipleTabManager(),
+        }),
+    });
 
-export const storage = getStorage(app);
+  if (
+    typeof window !==
+    'undefined'
+  ) {
+    window.__FRETOGO_FIRESTORE__ =
+      firestore;
+  }
+
+  return firestore;
+}
+
+export const db =
+  createFirestore();
+
+/* =========================================================
+   STORAGE SINGLETON
+========================================================= */
+
+function createStorage(): FirebaseStorage {
+  if (
+    typeof window !==
+      'undefined' &&
+    window.__FRETOGO_STORAGE__
+  ) {
+    return window.__FRETOGO_STORAGE__;
+  }
+
+  const storageInstance =
+    getStorage(app);
+
+  if (
+    typeof window !==
+    'undefined'
+  ) {
+    window.__FRETOGO_STORAGE__ =
+      storageInstance;
+  }
+
+  return storageInstance;
+}
+
+export const storage =
+  createStorage();
+
+/* =========================================================
+   CORE READY LOG
+========================================================= */
+
+console.log(
+  '✅ Firebase CORE inicializado.',
+);
 
 export default app;
