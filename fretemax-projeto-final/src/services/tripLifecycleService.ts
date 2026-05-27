@@ -1,13 +1,13 @@
-// src/services/tripLifecycleService.ts
-
 import {
   doc,
   getDoc,
-  updateDoc,
   serverTimestamp,
+  updateDoc,
 } from 'firebase/firestore';
 
-import { db } from '../firebase';
+import {
+  db,
+} from '../firebase';
 
 import {
   AppTripState,
@@ -24,26 +24,129 @@ import {
   DispatchQueueService,
 } from './dispatchQueueService';
 
+import {
+  dispatchRealtimeService,
+} from './dispatchRealtimeService';
+
+import {
+  StateSynchronizationService,
+} from './stateSynchronizationService';
+
 import type {
   FretePayload,
 } from './matchingEngine';
 
-export class TripLifecycleService {
+/* =========================================================
+   SERVICE
+========================================================= */
 
-  /*
-  =====================================================
-  ALTERAR STATUS DA VIAGEM
-  =====================================================
-  */
+export class TripLifecycleService {
+  private static inflight =
+    new Set<string>();
+
+  private static staleGuard =
+    new Map<
+      string,
+      number
+    >();
+
+  /* =========================================================
+     LOCKS
+  ========================================================= */
+
+  private static acquire(
+    key: string,
+  ): boolean {
+    if (
+      this.inflight.has(
+        key,
+      )
+    ) {
+      return false;
+    }
+
+    this.inflight.add(
+      key,
+    );
+
+    return true;
+  }
+
+  private static release(
+    key: string,
+  ) {
+    this.inflight.delete(
+      key,
+    );
+  }
+
+  /* =========================================================
+     STALE PROTECTION
+  ========================================================= */
+
+  private static isStale(
+    key: string,
+  ): boolean {
+    const current =
+      Date.now();
+
+    const last =
+      this.staleGuard.get(
+        key,
+      );
+
+    if (
+      last &&
+      current - last <
+        1000
+    ) {
+      return true;
+    }
+
+    this.staleGuard.set(
+      key,
+      current,
+    );
+
+    return false;
+  }
+
+  /* =========================================================
+     STATUS VIAGEM
+  ========================================================= */
 
   static async alterarStatusViagem(
     freteId: string,
     novoStatus: AppTripState,
-    extras: Record<string, any> = {},
+    extras: Record<
+      string,
+      any
+    > = {},
   ) {
+    const lockKey =
+      `trip-${freteId}-${novoStatus}`;
+
+    if (
+      !this.acquire(
+        lockKey,
+      )
+    ) {
+      return false;
+    }
+
+    if (
+      this.isStale(
+        lockKey,
+      )
+    ) {
+      this.release(
+        lockKey,
+      );
+
+      return false;
+    }
 
     try {
-
       const freteRef =
         doc(
           db,
@@ -59,7 +162,6 @@ export class TripLifecycleService {
       if (
         !snapshot.exists()
       ) {
-
         throw new Error(
           'FRETE NÃO ENCONTRADO',
         );
@@ -71,20 +173,15 @@ export class TripLifecycleService {
       const statusAtual =
         data.status;
 
-      /*
-      =====================================================
-      VALIDAÇÃO STATE MACHINE
-      =====================================================
-      */
-
       const permitido =
         canTransition(
           statusAtual,
           novoStatus,
         );
 
-      if (!permitido) {
-
+      if (
+        !permitido
+      ) {
         console.error(
           `TRANSIÇÃO INVÁLIDA: ${statusAtual} -> ${novoStatus}`,
         );
@@ -92,17 +189,35 @@ export class TripLifecycleService {
         return false;
       }
 
-      /*
-      =====================================================
-      UPDATE REALTIME
-      =====================================================
-      */
+      const runtime =
+        StateSynchronizationService.synchronize(
+          data.driverState ||
+            DriverState.ONLINE,
+          novoStatus,
+        );
 
       await updateDoc(
         freteRef,
         {
           status:
-            novoStatus,
+            runtime.tripState,
+
+          runtime,
+
+          trackingAtivo:
+            runtime
+              .operationalRuntime
+              .tracking,
+
+          dispatchAtivo:
+            runtime
+              .operationalRuntime
+              .dispatch,
+
+          matchingAtivo:
+            runtime
+              .operationalRuntime
+              .matching,
 
           atualizadoEm:
             serverTimestamp(),
@@ -111,21 +226,21 @@ export class TripLifecycleService {
         },
       );
 
-      console.log(
-        `STATUS ALTERADO: ${statusAtual} -> ${novoStatus}`,
-      );
-
-      /*
-      =====================================================
-      REDISPATCH AUTOMÁTICO
-      =====================================================
-      */
+      if (
+        data.motoristaId
+      ) {
+        await dispatchRealtimeService.atualizarTripRealtime(
+          freteId,
+          {
+            runtime,
+          },
+        );
+      }
 
       if (
         novoStatus ===
         AppTripState.REDISPATCH
       ) {
-
         await this.executarRedispatch(
           {
             ...data,
@@ -135,32 +250,46 @@ export class TripLifecycleService {
       }
 
       return true;
-
-    } catch (error) {
-
+    } catch (
+      error
+    ) {
       console.error(
         'ERRO ALTERAR STATUS:',
         error,
       );
 
       return false;
+    } finally {
+      this.release(
+        lockKey,
+      );
     }
   }
 
-  /*
-  =====================================================
-  ALTERAR STATUS MOTORISTA
-  =====================================================
-  */
+  /* =========================================================
+     STATUS MOTORISTA
+  ========================================================= */
 
   static async alterarStatusMotorista(
     motoristaId: string,
     novoStatus: DriverState,
-    extras: Record<string, any> = {},
+    extras: Record<
+      string,
+      any
+    > = {},
   ) {
+    const lockKey =
+      `driver-${motoristaId}-${novoStatus}`;
+
+    if (
+      !this.acquire(
+        lockKey,
+      )
+    ) {
+      return false;
+    }
 
     try {
-
       const motoristaRef =
         doc(
           db,
@@ -176,7 +305,6 @@ export class TripLifecycleService {
       if (
         !snapshot.exists()
       ) {
-
         throw new Error(
           'MOTORISTA NÃO ENCONTRADO',
         );
@@ -189,32 +317,21 @@ export class TripLifecycleService {
         data.status ||
         DriverState.OFFLINE;
 
-      /*
-      =====================================================
-      VALIDAR TRANSIÇÃO
-      =====================================================
-      */
-
       const permitido =
         canDriverTransition(
           statusAtual,
           novoStatus,
         );
 
-      if (!permitido) {
-
+      if (
+        !permitido
+      ) {
         console.error(
           `TRANSIÇÃO MOTORISTA INVÁLIDA: ${statusAtual} -> ${novoStatus}`,
         );
 
         return false;
       }
-
-      /*
-      =====================================================
-      UPDATE REALTIME
-      =====================================================
-      */
 
       await updateDoc(
         motoristaRef,
@@ -229,36 +346,43 @@ export class TripLifecycleService {
         },
       );
 
-      console.log(
-        `STATUS MOTORISTA: ${statusAtual} -> ${novoStatus}`,
-      );
-
       return true;
-
-    } catch (error) {
-
+    } catch (
+      error
+    ) {
       console.error(
         'ERRO STATUS MOTORISTA:',
         error,
       );
 
       return false;
+    } finally {
+      this.release(
+        lockKey,
+      );
     }
   }
 
-  /*
-  =====================================================
-  ACEITAR CORRIDA
-  =====================================================
-  */
+  /* =========================================================
+     ACEITAR
+  ========================================================= */
 
   static async aceitarCorrida(
     freteId: string,
     motoristaId: string,
   ) {
+    const lockKey =
+      `accept-${freteId}`;
+
+    if (
+      !this.acquire(
+        lockKey,
+      )
+    ) {
+      return false;
+    }
 
     try {
-
       const freteRef =
         doc(
           db,
@@ -274,7 +398,6 @@ export class TripLifecycleService {
       if (
         !freteSnap.exists()
       ) {
-
         throw new Error(
           'FRETE NÃO EXISTE',
         );
@@ -283,28 +406,11 @@ export class TripLifecycleService {
       const freteData =
         freteSnap.data();
 
-      /*
-      =====================================================
-      IMPEDIR DUPLO ACEITE
-      =====================================================
-      */
-
       if (
         freteData.motoristaId
       ) {
-
-        console.error(
-          'FRETE JÁ ACEITO',
-        );
-
         return false;
       }
-
-      /*
-      =====================================================
-      STATUS VIAGEM
-      =====================================================
-      */
 
       await this.alterarStatusViagem(
         freteId,
@@ -317,12 +423,6 @@ export class TripLifecycleService {
         },
       );
 
-      /*
-      =====================================================
-      STATUS MOTORISTA
-      =====================================================
-      */
-
       await this.alterarStatusMotorista(
         motoristaId,
         DriverState.ACEITOU,
@@ -332,35 +432,36 @@ export class TripLifecycleService {
         },
       );
 
+      await dispatchRealtimeService.aceitarCorrida(
+        motoristaId,
+        freteId,
+      );
+
       return true;
-
-    } catch (error) {
-
+    } catch (
+      error
+    ) {
       console.error(
         'ERRO ACEITAR:',
         error,
       );
 
       return false;
+    } finally {
+      this.release(
+        lockKey,
+      );
     }
   }
 
-  /*
-  =====================================================
-  REDISPATCH
-  =====================================================
-  */
+  /* =========================================================
+     REDISPATCH
+  ========================================================= */
 
   static async executarRedispatch(
     frete: FretePayload,
   ) {
-
     try {
-
-      console.log(
-        'INICIANDO REDISPATCH...',
-      );
-
       await this.alterarStatusViagem(
         frete.id,
         AppTripState.BUSCANDO_MOTORISTA,
@@ -369,9 +470,9 @@ export class TripLifecycleService {
       await DispatchQueueService.iniciarFila(
         frete,
       );
-
-    } catch (error) {
-
+    } catch (
+      error
+    ) {
       console.error(
         'ERRO REDISPATCH:',
         error,
@@ -379,43 +480,39 @@ export class TripLifecycleService {
     }
   }
 
-  /*
-  =====================================================
-  FINALIZAR CORRIDA
-  =====================================================
-  */
+  /* =========================================================
+     FINALIZAR
+  ========================================================= */
 
   static async finalizarCorrida(
     freteId: string,
     motoristaId: string,
     comprovante?: string,
   ) {
+    const lockKey =
+      `finish-${freteId}`;
+
+    if (
+      !this.acquire(
+        lockKey,
+      )
+    ) {
+      return false;
+    }
 
     try {
-
-      /*
-      =====================================================
-      STATUS ENTREGA
-      =====================================================
-      */
-
       await this.alterarStatusViagem(
         freteId,
         AppTripState.ENTREGUE,
         {
           comprovante:
-            comprovante || null,
+            comprovante ||
+            null,
 
           entregueEm:
             serverTimestamp(),
         },
       );
-
-      /*
-      =====================================================
-      LIBERAR MOTORISTA
-      =====================================================
-      */
 
       await this.alterarStatusMotorista(
         motoristaId,
@@ -424,37 +521,58 @@ export class TripLifecycleService {
           disponivel:
             true,
 
+          matchingAtivo:
+            true,
+
           novaOferta:
             null,
+
+          returning:
+            true,
         },
       );
 
+      await dispatchRealtimeService.finalizarEntrega(
+        motoristaId,
+      );
+
       return true;
-
-    } catch (error) {
-
+    } catch (
+      error
+    ) {
       console.error(
         'ERRO FINALIZAR:',
         error,
       );
 
       return false;
+    } finally {
+      this.release(
+        lockKey,
+      );
     }
   }
 
-  /*
-  =====================================================
-  CANCELAR CORRIDA
-  =====================================================
-  */
+  /* =========================================================
+     CANCELAMENTO
+  ========================================================= */
 
   static async cancelarCorrida(
     freteId: string,
     motivo: string,
   ) {
+    const lockKey =
+      `cancel-${freteId}`;
+
+    if (
+      !this.acquire(
+        lockKey,
+      )
+    ) {
+      return false;
+    }
 
     try {
-
       const freteRef =
         doc(
           db,
@@ -470,33 +588,19 @@ export class TripLifecycleService {
       if (
         !snapshot.exists()
       ) {
-
         return false;
       }
 
       const data =
         snapshot.data();
 
-      /*
-      =====================================================
-      IMPEDIR CANCELAMENTO DUPLO
-      =====================================================
-      */
-
       if (
         isFinalState(
           data.status,
         )
       ) {
-
         return false;
       }
-
-      /*
-      =====================================================
-      CANCELAR VIAGEM
-      =====================================================
-      */
 
       await this.alterarStatusViagem(
         freteId,
@@ -510,16 +614,9 @@ export class TripLifecycleService {
         },
       );
 
-      /*
-      =====================================================
-      LIBERAR MOTORISTA
-      =====================================================
-      */
-
       if (
         data.motoristaId
       ) {
-
         await this.alterarStatusMotorista(
           data.motoristaId,
           DriverState.ONLINE,
@@ -527,22 +624,33 @@ export class TripLifecycleService {
             disponivel:
               true,
 
+            matchingAtivo:
+              true,
+
             novaOferta:
               null,
           },
         );
+
+        await dispatchRealtimeService.setDriverOnline(
+          data.motoristaId,
+        );
       }
 
       return true;
-
-    } catch (error) {
-
+    } catch (
+      error
+    ) {
       console.error(
         'ERRO CANCELAMENTO:',
         error,
       );
 
       return false;
+    } finally {
+      this.release(
+        lockKey,
+      );
     }
   }
 }
