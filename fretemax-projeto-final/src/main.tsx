@@ -1,4 +1,5 @@
 import React from 'react';
+
 import ReactDOM from 'react-dom/client';
 
 import App from './App.tsx';
@@ -6,7 +7,21 @@ import App from './App.tsx';
 import './index.css';
 
 /* =========================================================
-   ROOT
+   GLOBAL RUNTIME FLAGS
+========================================================= */
+
+declare global {
+  interface Window {
+    __FRETOGO_ROOT__?: boolean;
+
+    __FRETOGO_BOOTSTRAP__?: boolean;
+
+    __FRETOGO_SW_REGISTERED__?: boolean;
+  }
+}
+
+/* =========================================================
+   ROOT ELEMENT VALIDATION
 ========================================================= */
 
 const rootElement =
@@ -14,8 +29,72 @@ const rootElement =
 
 if (!rootElement) {
   throw new Error(
-    'Root element não encontrado.',
+    '❌ Root element não encontrado.',
   );
+}
+
+/* =========================================================
+   BOOTSTRAP GUARD
+========================================================= */
+
+if (window.__FRETOGO_ROOT__) {
+  console.warn(
+    '⚠️ React root já inicializado.',
+  );
+} else {
+  window.__FRETOGO_ROOT__ = true;
+}
+
+/* =========================================================
+   MOBILE / DESKTOP NORMALIZATION
+========================================================= */
+
+function setupRuntimeEnvironment() {
+  try {
+    const viewport =
+      document.querySelector(
+        'meta[name="viewport"]',
+      );
+
+    if (!viewport) {
+      const meta =
+        document.createElement('meta');
+
+      meta.name = 'viewport';
+
+      meta.content =
+        'width=device-width, initial-scale=1, viewport-fit=cover';
+
+      document.head.appendChild(meta);
+    }
+
+    document.documentElement.style.setProperty(
+      '--vh',
+      `${window.innerHeight * 0.01}px`,
+    );
+
+    window.addEventListener(
+      'resize',
+      () => {
+        document.documentElement.style.setProperty(
+          '--vh',
+          `${window.innerHeight * 0.01}px`,
+        );
+      },
+      {
+        passive: true,
+      },
+    );
+
+    console.log(
+      '✅ Runtime environment inicializado.',
+    );
+  } catch (error) {
+    console.error(
+      '❌ Erro ao preparar runtime:',
+      error,
+    );
+  }
 }
 
 /* =========================================================
@@ -24,54 +103,106 @@ if (!rootElement) {
 
 async function registerServiceWorker() {
   if (
-    'serviceWorker' in navigator &&
-    import.meta.env.PROD
+    window.__FRETOGO_SW_REGISTERED__
   ) {
-    try {
-      const registration =
-        await navigator.serviceWorker.register(
-          '/sw.js',
+    return;
+  }
+
+  if (
+    !('serviceWorker' in navigator)
+  ) {
+    return;
+  }
+
+  if (!import.meta.env.PROD) {
+    return;
+  }
+
+  try {
+    const registration =
+      await navigator.serviceWorker.register(
+        '/sw.js',
+      );
+
+    window.__FRETOGO_SW_REGISTERED__ =
+      true;
+
+    console.log(
+      '✅ FRETOGO SW registrado:',
+      registration.scope,
+    );
+
+    registration.addEventListener(
+      'updatefound',
+      () => {
+        console.log(
+          '♻️ Nova versão encontrada.',
         );
-
-      console.log(
-        '✅ FRETOGO SW registrado:',
-        registration.scope,
-      );
-
-      /* ===============================================
-         FORCE UPDATE
-      =============================================== */
-
-      registration.addEventListener(
-        'updatefound',
-        () => {
-          console.log(
-            '♻️ Nova versão encontrada.',
-          );
-        },
-      );
-    } catch (error) {
-      console.error(
-        '❌ Erro ao registrar SW:',
-        error,
-      );
-    }
+      },
+    );
+  } catch (error) {
+    console.error(
+      '❌ Erro ao registrar SW:',
+      error,
+    );
   }
 }
 
-window.addEventListener(
-  'load',
-  registerServiceWorker,
-);
-
 /* =========================================================
-   RENDER
+   APP STARTUP
 ========================================================= */
 
-ReactDOM.createRoot(
-  rootElement,
-).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+async function bootstrapApplication() {
+  if (
+    window.__FRETOGO_BOOTSTRAP__
+  ) {
+    console.warn(
+      '⚠️ Bootstrap já executado.',
+    );
+
+    return;
+  }
+
+  window.__FRETOGO_BOOTSTRAP__ =
+    true;
+
+  try {
+    setupRuntimeEnvironment();
+
+    window.addEventListener(
+      'load',
+      () => {
+        registerServiceWorker();
+      },
+      {
+        once: true,
+      },
+    );
+
+    const root =
+      ReactDOM.createRoot(
+        rootElement,
+      );
+
+    root.render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>,
+    );
+
+    console.log(
+      '✅ FRETOGO bootstrap inicializado.',
+    );
+  } catch (error) {
+    console.error(
+      '❌ Falha crítica no bootstrap:',
+      error,
+    );
+  }
+}
+
+/* =========================================================
+   START
+========================================================= */
+
+void bootstrapApplication();
