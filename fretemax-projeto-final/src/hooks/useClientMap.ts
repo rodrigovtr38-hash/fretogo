@@ -1,6 +1,8 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -8,95 +10,228 @@ import {
   locationService,
 } from '../services/locationService';
 
+import {
+  mapsLoader,
+} from '../services/mapsLoader';
+
+/* =========================================================
+   TYPES
+========================================================= */
+
 type Coordinates = {
   lat: number;
   lng: number;
 };
 
-type RouteData = {
-  distanceKm: number;
-  durationMinutes: number;
-};
+type MapsStatus =
+  | 'idle'
+  | 'loading'
+  | 'ready'
+  | 'error';
+
+/* =========================================================
+   HOOK
+========================================================= */
 
 export const useClientMap = () => {
+  const mountedRef =
+    useRef(true);
+
+  /* =======================================================
+     MAP STATE
+  ======================================================= */
+
   const [origin, setOrigin] =
     useState<Coordinates | null>(
-      null
+      null,
     );
 
-  const [destination, setDestination] =
+  const [
+    destination,
+    setDestination,
+  ] =
     useState<Coordinates | null>(
-      null
+      null,
     );
 
   const [distanceKm, setDistanceKm] =
     useState(0);
 
-  const [durationMinutes, setDurationMinutes] =
-    useState(0);
+  const [
+    durationMinutes,
+    setDurationMinutes,
+  ] = useState(0);
 
-  const [loadingRoute, setLoadingRoute] =
-    useState(false);
-
-  const [mapReady, setMapReady] =
-    useState(false);
+  const [
+    loadingRoute,
+    setLoadingRoute,
+  ] = useState(false);
 
   const [routeError, setRouteError] =
-    useState<string | null>(null);
+    useState<string | null>(
+      null,
+    );
+
+  /* =======================================================
+     MAPS RUNTIME
+  ======================================================= */
+
+  const [mapsStatus, setMapsStatus] =
+    useState<MapsStatus>(
+      'idle',
+    );
+
+  const [
+    mapsError,
+    setMapsError,
+  ] = useState<string | null>(
+    null,
+  );
+
+  /* =======================================================
+     BOOTSTRAP MAPS
+  ======================================================= */
 
   useEffect(() => {
-    setMapReady(true);
+    mountedRef.current =
+      true;
+
+    async function initializeMaps() {
+      try {
+        setMapsStatus(
+          'loading',
+        );
+
+        setMapsError(null);
+
+        await mapsLoader.load();
+
+        if (
+          !mountedRef.current
+        ) {
+          return;
+        }
+
+        setMapsStatus(
+          'ready',
+        );
+
+        console.log(
+          '✅ Maps runtime pronto.',
+        );
+      } catch (error) {
+        console.error(
+          '❌ Maps bootstrap error:',
+          error,
+        );
+
+        if (
+          mountedRef.current
+        ) {
+          setMapsStatus(
+            'error',
+          );
+
+          setMapsError(
+            'Erro ao carregar Google Maps.',
+          );
+        }
+      }
+    }
+
+    void initializeMaps();
+
+    return () => {
+      mountedRef.current =
+        false;
+    };
   }, []);
+
+  /* =======================================================
+     ROUTE
+  ======================================================= */
 
   const calculateRoute =
     useCallback(
       async (
         originCoords: Coordinates,
-        destinationCoords: Coordinates
+        destinationCoords: Coordinates,
       ) => {
         try {
-          setLoadingRoute(true);
+          setLoadingRoute(
+            true,
+          );
 
-          setRouteError(null);
+          setRouteError(
+            null,
+          );
 
           const route =
             await locationService.calculateRoute(
               originCoords,
-              destinationCoords
+              destinationCoords,
             );
 
+          if (!route) {
+            throw new Error(
+              'Route unavailable.',
+            );
+          }
+
+          if (
+            !mountedRef.current
+          ) {
+            return null;
+          }
+
           setDistanceKm(
-            route.distanceKm
+            route.distanceKm,
           );
 
           setDurationMinutes(
-            route.durationMinutes
+            route.durationMinutes,
           );
 
-          setOrigin(originCoords);
+          setOrigin(
+            originCoords,
+          );
 
           setDestination(
-            destinationCoords
+            destinationCoords,
           );
 
           return route;
         } catch (error) {
           console.error(
-            'Route Error:',
-            error
+            '❌ Route Error:',
+            error,
           );
 
-          setRouteError(
-            'Erro ao calcular rota.'
-          );
+          if (
+            mountedRef.current
+          ) {
+            setRouteError(
+              'Erro ao calcular rota.',
+            );
+          }
 
           return null;
         } finally {
-          setLoadingRoute(false);
+          if (
+            mountedRef.current
+          ) {
+            setLoadingRoute(
+              false,
+            );
+          }
         }
       },
-      []
+      [],
     );
+
+  /* =======================================================
+     GEOLOCATION
+  ======================================================= */
 
   const getCurrentLocation =
     useCallback(async () => {
@@ -104,32 +239,40 @@ export const useClientMap = () => {
         return await locationService.getCurrentLocation();
       } catch (error) {
         console.error(
-          'Location Error:',
-          error
+          '❌ Location Error:',
+          error,
         );
 
         return null;
       }
     }, []);
 
+  /* =======================================================
+     CEP
+  ======================================================= */
+
   const getCoordinatesFromCep =
     useCallback(
       async (cep: string) => {
         try {
           return await locationService.getCoordinatesFromCEP(
-            cep
+            cep,
           );
         } catch (error) {
           console.error(
-            'CEP Error:',
-            error
+            '❌ CEP Error:',
+            error,
           );
 
           return null;
         }
       },
-      []
+      [],
     );
+
+  /* =======================================================
+     RESET
+  ======================================================= */
 
   const resetMapState =
     useCallback(() => {
@@ -144,6 +287,18 @@ export const useClientMap = () => {
       setRouteError(null);
     }, []);
 
+  /* =======================================================
+     READY
+  ======================================================= */
+
+  const mapReady =
+    useMemo(
+      () =>
+        mapsStatus ===
+        'ready',
+      [mapsStatus],
+    );
+
   return {
     origin,
     destination,
@@ -152,11 +307,17 @@ export const useClientMap = () => {
     durationMinutes,
 
     loadingRoute,
-    mapReady,
+
     routeError,
 
+    mapsStatus,
+    mapsError,
+    mapReady,
+
     calculateRoute,
+
     getCurrentLocation,
+
     getCoordinatesFromCep,
 
     resetMapState,
