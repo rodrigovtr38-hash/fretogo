@@ -1,4 +1,10 @@
-import { useEffect, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   auth,
@@ -6,12 +12,15 @@ import {
 } from '../firebase';
 
 import {
-  doc,
-  onSnapshot,
   collection,
-  query,
-  where,
+  doc,
   limit,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
 } from 'firebase/firestore';
 
 import ChatFrete from '../components/ChatFrete';
@@ -22,33 +31,11 @@ import DriverAuth from '../components/motorista/DriverAuth';
 
 import DriverCadastro from '../components/motorista/DriverCadastro';
 
-import DriverDashboard from '../components/motorista/DriverDashboard';
-
 import DriverRadar from '../components/motorista/DriverRadar';
 
-import OfertaModal from '../components/motorista/OfertaModal';
-
-interface OrderData {
-  id?: string;
-
-  status?: string;
-
-  distancia?: number;
-
-  valorMotorista?: number;
-
-  enderecoColetaTexto?: string;
-
-  enderecoEntregaTexto?: string;
-
-  motoristaId?: string | null;
-
-  motoristaNome?: string;
-
-  motoristaZap?: string;
-
-  filaMatching?: string[];
-}
+import DriverDashboardLayout, {
+  OperationalFreight,
+} from '../components/driver/dashboard/DriverDashboardLayout';
 
 interface DriverData {
   id?: string;
@@ -65,14 +52,27 @@ interface DriverData {
     | 'rejeitado';
 }
 
+const CATEGORY_FEES: Record<
+  string,
+  number
+> = {
+  moto: 0.2,
+  carro: 0.2,
+  utilitario: 0.2,
+  toco: 0.15,
+  truck: 0.15,
+  carreta: 0.15,
+  bitrem: 0.15,
+};
+
+const ACTIVE_STATUSES = [
+  'aceito',
+  'coleta',
+  'em_transito',
+  'entregando',
+];
+
 export default function Motorista() {
-
-  /*
-  =====================================================
-  STATES
-  =====================================================
-  */
-
   const [user, setUser] =
     useState<any>(null);
 
@@ -85,225 +85,553 @@ export default function Motorista() {
   const [driverData, setDriverData] =
     useState<DriverData | null>(null);
 
-  const [activeFrete, setActiveFrete] =
-    useState<OrderData | null>(null);
+  const [activeFreight, setActiveFreight] =
+    useState<OperationalFreight | null>(
+      null,
+    );
 
-  const [ofertaFrete, setOfertaFrete] =
-    useState<OrderData | null>(null);
+  const [availableFreights, setAvailableFreights] =
+    useState<
+      OperationalFreight[]
+    >([]);
 
-  const [exibindoOferta, setExibindoOferta] =
-    useState(false);
+  const [selectedFreight, setSelectedFreight] =
+    useState<OperationalFreight | null>(
+      null,
+    );
 
   const [isOnline, setIsOnline] =
     useState(false);
 
-  /*
-  =====================================================
-  AUTH
-  =====================================================
-  */
+  const [radarLoading, setRadarLoading] =
+    useState(false);
+
+  const listenerRegistryRef =
+    useRef<{
+      freights?: () => void;
+      active?: () => void;
+      driver?: () => void;
+    }>({});
+
+  const operationalCategory =
+    useMemo(() => {
+      if (
+        !driverData?.categoria
+      ) {
+        return 'carro';
+      }
+
+      return driverData.categoria
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(
+          /[\u0300-\u036f]/g,
+          '',
+        );
+    }, [driverData]);
+
+  const normalizeFreight =
+    useCallback(
+      (
+        id: string,
+        data: any,
+      ): OperationalFreight => {
+        const feePercent =
+          CATEGORY_FEES[
+            data.categoria
+          ] ?? 0.2;
+
+        const valorCliente =
+          Number(
+            data.valorCliente ||
+              data.valor ||
+              0,
+          );
+
+        const valorMotorista =
+          data.valorMotorista ??
+          valorCliente *
+            (1 - feePercent);
+
+        const distanciaColetaKm =
+          Number(
+            data.distanciaColetaKm ||
+              0,
+          );
+
+        const distanciaEntregaKm =
+          Number(
+            data.distanciaEntregaKm ||
+              data.distancia ||
+              0,
+          );
+
+        return {
+          id,
+
+          status:
+            data.status ||
+            'disponivel',
+
+          prioridade:
+            Boolean(
+              data.prioridade,
+            ),
+
+          agendado:
+            Boolean(
+              data.agendado,
+            ),
+
+          categoria:
+            data.categoria ||
+            'carro',
+
+          enderecoColetaTexto:
+            data.enderecoColetaTexto ||
+            'Coleta não informada',
+
+          enderecoEntregaTexto:
+            data.enderecoEntregaTexto ||
+            'Entrega não informada',
+
+          distanciaColetaKm,
+
+          distanciaEntregaKm,
+
+          distanciaTotalKm:
+            distanciaColetaKm +
+            distanciaEntregaKm,
+
+          valorCliente,
+
+          valorMotorista,
+
+          pesoKg: Number(
+            data.pesoKg || 0,
+          ),
+
+          volumes: Number(
+            data.volumes || 1,
+          ),
+
+          etaMinutes: Number(
+            data.etaMinutes ||
+              20,
+          ),
+
+          motoristaId:
+            data.motoristaId ||
+            null,
+
+          createdAt:
+            data.createdAt,
+
+          updatedAt:
+            data.updatedAt,
+        };
+      },
+      [],
+    );
 
   useEffect(() => {
-
     const unsubscribe =
-      auth.onAuthStateChanged((u) => {
+      auth.onAuthStateChanged(
+        (firebaseUser) => {
+          setUser(firebaseUser);
 
-        if (!u) {
+          if (!firebaseUser) {
+            setDriverData(null);
 
-          setUser(null);
+            setAvailableFreights(
+              [],
+            );
+
+            setActiveFreight(
+              null,
+            );
+
+            setLoading(false);
+
+            setCheckingDriver(
+              false,
+            );
+
+            return;
+          }
+
+          setCheckingDriver(
+            true,
+          );
+
+          const driverUnsubscribe =
+            onSnapshot(
+              doc(
+                db,
+                'motoristas_cadastros',
+                firebaseUser.uid,
+              ),
+              (
+                snapshot,
+              ) => {
+                if (
+                  snapshot.exists()
+                ) {
+                  setDriverData(
+                    {
+                      id: snapshot.id,
+                      ...snapshot.data(),
+                    } as DriverData,
+                  );
+                } else {
+                  setDriverData(
+                    null,
+                  );
+                }
+
+                setCheckingDriver(
+                  false,
+                );
+              },
+              (
+                error,
+              ) => {
+                console.error(
+                  'DRIVER SNAPSHOT ERROR:',
+                  error,
+                );
+
+                setCheckingDriver(
+                  false,
+                );
+              },
+            );
+
+          listenerRegistryRef.current.driver =
+            driverUnsubscribe;
 
           setLoading(false);
+        },
+      );
 
-          setCheckingDriver(false);
+    return () => {
+      unsubscribe();
 
+      Object.values(
+        listenerRegistryRef.current,
+      ).forEach(
+        (unsubscribeFn) => {
+          if (
+            typeof unsubscribeFn ===
+            'function'
+          ) {
+            unsubscribeFn();
+          }
+        },
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    if (
+      !user?.uid ||
+      !driverData ||
+      !isOnline
+    ) {
+      setAvailableFreights(
+        [],
+      );
+
+      if (
+        listenerRegistryRef.current
+          .freights
+      ) {
+        listenerRegistryRef.current.freights();
+      }
+
+      return;
+    }
+
+    setRadarLoading(true);
+
+    const freightsQuery =
+      query(
+        collection(
+          db,
+          'fretes',
+        ),
+
+        where(
+          'categoria',
+          '==',
+          operationalCategory,
+        ),
+
+        where(
+          'status',
+          '==',
+          'disponivel',
+        ),
+
+        orderBy(
+          'createdAt',
+          'desc',
+        ),
+
+        limit(20),
+      );
+
+    const unsubscribe =
+      onSnapshot(
+        freightsQuery,
+        (snapshot) => {
+          const freights =
+            snapshot.docs
+              .map(
+                (
+                  document,
+                ) =>
+                  normalizeFreight(
+                    document.id,
+                    document.data(),
+                  ),
+              )
+              .filter(
+                (
+                  freight,
+                ) =>
+                  !freight.motoristaId,
+              );
+
+          setAvailableFreights(
+            freights,
+          );
+
+          setRadarLoading(
+            false,
+          );
+        },
+        (error) => {
+          console.error(
+            'FREIGHTS REALTIME ERROR:',
+            error,
+          );
+
+          setRadarLoading(
+            false,
+          );
+        },
+      );
+
+    listenerRegistryRef.current.freights =
+      unsubscribe;
+
+    return () => {
+      unsubscribe();
+    };
+  }, [
+    user,
+    driverData,
+    isOnline,
+    operationalCategory,
+    normalizeFreight,
+  ]);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setActiveFreight(
+        null,
+      );
+
+      return;
+    }
+
+    const activeQuery =
+      query(
+        collection(
+          db,
+          'fretes',
+        ),
+
+        where(
+          'motoristaId',
+          '==',
+          user.uid,
+        ),
+
+        where(
+          'status',
+          'in',
+          ACTIVE_STATUSES,
+        ),
+
+        limit(1),
+      );
+
+    const unsubscribe =
+      onSnapshot(
+        activeQuery,
+        (snapshot) => {
+          if (
+            snapshot.empty
+          ) {
+            setActiveFreight(
+              null,
+            );
+
+            return;
+          }
+
+          const activeDoc =
+            snapshot.docs[0];
+
+          setActiveFreight(
+            normalizeFreight(
+              activeDoc.id,
+              activeDoc.data(),
+            ),
+          );
+        },
+        (error) => {
+          console.error(
+            'ACTIVE FREIGHT ERROR:',
+            error,
+          );
+        },
+      );
+
+    listenerRegistryRef.current.active =
+      unsubscribe;
+
+    return () => {
+      unsubscribe();
+    };
+  }, [
+    user,
+    normalizeFreight,
+  ]);
+
+  const handleToggleOnline =
+    useCallback(
+      (
+        nextState: boolean,
+      ) => {
+        setIsOnline(
+          nextState,
+        );
+      },
+      [],
+    );
+
+  const handleSelectFreight =
+    useCallback(
+      (
+        freight: OperationalFreight,
+      ) => {
+        setSelectedFreight(
+          freight,
+        );
+      },
+      [],
+    );
+
+  const handleCloseFreight =
+    useCallback(() => {
+      setSelectedFreight(
+        null,
+      );
+    }, []);
+
+  const handleAcceptFreight =
+    useCallback(
+      async (
+        freight: OperationalFreight,
+      ) => {
+        if (
+          !user?.uid ||
+          !driverData
+        ) {
           return;
         }
 
-        setUser(u);
-
-        /*
-        ============================================
-        DRIVER CADASTRO
-        ============================================
-        */
-
-        const unsubCad = onSnapshot(
-          doc(
-            db,
-            'motoristas_cadastros',
-            u.uid
-          ),
-
-          (snap) => {
-
-            if (snap.exists()) {
-
-              setDriverData({
-                id: snap.id,
-                ...snap.data(),
-              } as DriverData);
-            }
-
-            setCheckingDriver(false);
-          },
-
-          (error) => {
-
-            console.error(
-              'ERRO CADASTRO:',
-              error
-            );
-
-            setCheckingDriver(false);
-          }
-        );
-
-        /*
-        ============================================
-        FRETE ATIVO
-        ============================================
-        */
-
-        const unsubFrete = onSnapshot(
-
-          query(
-            collection(db, 'fretes'),
-
-            where(
-              'motoristaId',
-              '==',
-              u.uid
+        try {
+          await updateDoc(
+            doc(
+              db,
+              'fretes',
+              freight.id,
             ),
+            {
+              status:
+                'aceito',
 
-            limit(1)
-          ),
+              motoristaId:
+                user.uid,
 
-          (snapshot) => {
+              motoristaNome:
+                driverData.nome ||
+                'Motorista',
 
-            if (!snapshot.empty) {
+              motoristaZap:
+                driverData.whatsapp ||
+                '',
 
-              setActiveFrete({
-                id: snapshot.docs[0].id,
-                ...snapshot.docs[0].data(),
-              });
+              acceptedAt:
+                serverTimestamp(),
 
-            } else {
+              updatedAt:
+                serverTimestamp(),
+            },
+          );
 
-              setActiveFrete(null);
-            }
+          setSelectedFreight(
+            null,
+          );
+        } catch (error) {
+          console.error(
+            'ACCEPT FREIGHT ERROR:',
+            error,
+          );
+        }
+      },
+      [
+        user,
+        driverData,
+      ],
+    );
 
-            setLoading(false);
-          },
-
-          (error) => {
-
-            console.error(
-              'ERRO FRETE:',
-              error
-            );
-
-            setLoading(false);
-          }
+  const handleRejectFreight =
+    useCallback(
+      async (
+        freight: OperationalFreight,
+      ) => {
+        setAvailableFreights(
+          (
+            current,
+          ) =>
+            current.filter(
+              (
+                item,
+              ) =>
+                item.id !==
+                freight.id,
+            ),
         );
 
-        /*
-        ============================================
-        OFERTAS
-        ============================================
-        */
-
-        const unsubOferta = onSnapshot(
-
-          query(
-            collection(db, 'fretes'),
-
-            limit(10)
-          ),
-
-          (snapshot) => {
-
-            if (!isOnline) {
-
-              setOfertaFrete(null);
-
-              setExibindoOferta(false);
-
-              return;
-            }
-
-            let found = false;
-
-            snapshot.docs.forEach((docSnap) => {
-
-              const data =
-                docSnap.data() as OrderData;
-
-              if (
-                !found &&
-                !data.motoristaId
-              ) {
-
-                setOfertaFrete({
-                  id: docSnap.id,
-                  ...data,
-                });
-
-                setExibindoOferta(true);
-
-                found = true;
-              }
-            });
-
-            if (!found) {
-
-              setOfertaFrete(null);
-
-              setExibindoOferta(false);
-            }
-          },
-
-          (error) => {
-
-            console.error(
-              'ERRO OFERTA:',
-              error
-            );
-          }
+        setSelectedFreight(
+          null,
         );
-
-        return () => {
-
-          unsubCad();
-
-          unsubFrete();
-
-          unsubOferta();
-        };
-      });
-
-    return () => {
-
-      unsubscribe();
-    };
-
-  }, [isOnline]);
-
-  /*
-  =====================================================
-  LOADING
-  =====================================================
-  */
+      },
+      [],
+    );
 
   if (
     loading ||
     checkingDriver
   ) {
-
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
-
         <div className="text-center">
-
           <h1 className="text-3xl font-black">
             FRETOGO
           </h1>
@@ -311,59 +639,36 @@ export default function Motorista() {
           <p className="mt-4 text-slate-400">
             Inicializando sistema operacional...
           </p>
-
         </div>
-
       </div>
     );
   }
 
-  /*
-  =====================================================
-  LOGIN
-  =====================================================
-  */
-
   if (!user) {
-
     return (
       <DriverAuth />
     );
   }
 
-  /*
-  =====================================================
-  CADASTRO
-  =====================================================
-  */
-
   if (!driverData) {
-
     return (
       <DriverCadastro
         onFinish={() => {
-          window.location.reload();
+          setCheckingDriver(
+            true,
+          );
         }}
       />
     );
   }
 
-  /*
-  =====================================================
-  AGUARDANDO APROVAÇÃO
-  =====================================================
-  */
-
   if (
-    driverData.status !== 'aprovado'
+    driverData.status !==
+    'aprovado'
   ) {
-
     return (
-
       <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6">
-
         <div className="w-full max-w-md rounded-3xl border border-cyan-500/20 bg-slate-900 p-10 text-center">
-
           <h1 className="mb-4 text-3xl font-black text-white">
             Cadastro em análise
           </h1>
@@ -371,116 +676,80 @@ export default function Motorista() {
           <p className="text-slate-400">
             Aguarde aprovação do administrador.
           </p>
-
         </div>
-
       </div>
     );
   }
 
-  /*
-  =====================================================
-  MAIN
-  =====================================================
-  */
-
   return (
-
     <div className="min-h-screen bg-slate-950 text-white">
-
-      {/* HEADER */}
       <DriverHeader
         user={user}
       />
 
-      {/* DASHBOARD */}
-      <DriverDashboard
-        driver={driverData}
-      />
-
-      {/* RADAR */}
       <DriverRadar
-        isOnline={isOnline}
-        setIsOnline={setIsOnline}
+        isOnline={
+          isOnline
+        }
+        setIsOnline={
+          setIsOnline
+        }
         user={user}
-        driver={driverData}
+        driver={
+          driverData
+        }
       />
 
-      {/* OFERTA */}
-      <OfertaModal
-        open={exibindoOferta}
-        oferta={ofertaFrete}
-        onClose={() => {
-          setExibindoOferta(false);
-        }}
+      <DriverDashboardLayout
+        freights={
+          availableFreights
+        }
+        selectedFreight={
+          selectedFreight
+        }
+        activeFreight={
+          activeFreight
+        }
+        isOnline={
+          isOnline
+        }
+        loading={
+          radarLoading
+        }
+        driverCategory={
+          operationalCategory
+        }
+        onToggleOnline={
+          handleToggleOnline
+        }
+        onSelectFreight={
+          handleSelectFreight
+        }
+        onCloseFreight={
+          handleCloseFreight
+        }
+        onAcceptFreight={
+          handleAcceptFreight
+        }
+        onRejectFreight={
+          handleRejectFreight
+        }
       />
 
-      {/* FRETE ATIVO */}
-      {
-        activeFrete && (
-
-          <div className="mx-auto mt-10 max-w-6xl px-4">
-
-            <div className="rounded-[2rem] border border-cyan-500/20 bg-slate-900/80 p-8">
-
-              <h2 className="text-3xl font-black text-white">
-                Frete ativo encontrado
-              </h2>
-
-              <p className="mt-4 text-slate-400">
-                O sistema detectou uma entrega em andamento.
-              </p>
-
-              <div className="mt-8 grid gap-5 md:grid-cols-2">
-
-                <div className="rounded-2xl border border-white/5 bg-black/20 p-5">
-
-                  <p className="text-sm uppercase tracking-[0.2em] text-slate-500">
-                    Coleta
-                  </p>
-
-                  <h3 className="mt-3 text-xl font-black text-white">
-                    {activeFrete.enderecoColetaTexto || 'Não informado'}
-                  </h3>
-
-                </div>
-
-                <div className="rounded-2xl border border-white/5 bg-black/20 p-5">
-
-                  <p className="text-sm uppercase tracking-[0.2em] text-slate-500">
-                    Entrega
-                  </p>
-
-                  <h3 className="mt-3 text-xl font-black text-white">
-                    {activeFrete.enderecoEntregaTexto || 'Não informado'}
-                  </h3>
-
-                </div>
-
-              </div>
-
-            </div>
-
-          </div>
-        )
-      }
-
-      {/* CHAT */}
-      {
-        activeFrete?.id && (
-
-          <div className="mx-auto mt-10 max-w-4xl px-4 pb-20">
-
-            <ChatFrete
-              freteId={activeFrete.id}
-              tipoUsuario="motorista"
-              nome={driverData.nome || 'Motorista'}
-            />
-
-          </div>
-        )
-      }
-
+      {activeFreight?.id && (
+        <div className="mx-auto mt-10 max-w-4xl px-4 pb-20">
+          <ChatFrete
+            freteId={
+              activeFreight.id
+            }
+            tipoUsuario="motorista"
+            nome={
+              driverData.nome ||
+              'Motorista'
+            }
+          />
+        </div>
+      )}
     </div>
   );
 }
