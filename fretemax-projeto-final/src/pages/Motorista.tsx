@@ -1,3 +1,5 @@
+// ARQUIVO COMPLETO PRONTO PARA SUBSTITUIÇÃO
+
 import {
   useCallback,
   useEffect,
@@ -23,6 +25,8 @@ import {
   where,
 } from 'firebase/firestore';
 
+import DriverApp from '../components/DriverApp';
+
 import ChatFrete from '../components/ChatFrete';
 
 import DriverHeader from '../components/motorista/DriverHeader';
@@ -33,9 +37,23 @@ import DriverCadastro from '../components/motorista/DriverCadastro';
 
 import DriverRadar from '../components/motorista/DriverRadar';
 
-import DriverDashboardLayout, {
+import DriverActiveTrip from './DriverActiveTrip';
+
+import {
+  dispatchRealtimeService,
+} from '../services/dispatchRealtimeService';
+
+import {
+  useDriverRealtime,
+} from '../hooks/useDriverRealtime';
+
+import type {
   OperationalFreight,
 } from '../components/driver/dashboard/DriverDashboardLayout';
+
+/* =========================================================
+   TYPES
+========================================================= */
 
 interface DriverData {
   id?: string;
@@ -52,6 +70,10 @@ interface DriverData {
     | 'rejeitado';
 }
 
+/* =========================================================
+   CONSTANTS
+========================================================= */
+
 const CATEGORY_FEES: Record<
   string,
   number
@@ -67,12 +89,37 @@ const CATEGORY_FEES: Record<
 
 const ACTIVE_STATUSES = [
   'aceito',
-  'coleta',
-  'em_transito',
-  'entregando',
+  'indo_coleta',
+  'chegou_coleta',
+  'coletando',
+  'em_transporte',
+  'em_entrega',
+  'returning',
 ];
 
+/* =========================================================
+   COMPONENT
+========================================================= */
+
 export default function Motorista() {
+  const mountedRef =
+    useRef(false);
+
+  const heartbeatRef =
+    useRef<number | null>(
+      null,
+    );
+
+  const authReadyRef =
+    useRef(false);
+
+  const listenerRegistryRef =
+    useRef<{
+      freights?: () => void;
+      active?: () => void;
+      driver?: () => void;
+    }>({});
+
   const [user, setUser] =
     useState<any>(null);
 
@@ -81,6 +128,9 @@ export default function Motorista() {
 
   const [checkingDriver, setCheckingDriver] =
     useState(true);
+
+  const [runtimeReady, setRuntimeReady] =
+    useState(false);
 
   const [driverData, setDriverData] =
     useState<DriverData | null>(null);
@@ -106,12 +156,10 @@ export default function Motorista() {
   const [radarLoading, setRadarLoading] =
     useState(false);
 
-  const listenerRegistryRef =
-    useRef<{
-      freights?: () => void;
-      active?: () => void;
-      driver?: () => void;
-    }>({});
+  useDriverRealtime(
+    user?.uid,
+    isOnline,
+  );
 
   const operationalCategory =
     useMemo(() => {
@@ -234,14 +282,129 @@ export default function Motorista() {
       [],
     );
 
+  /* =========================================================
+     RUNTIME BOOTSTRAP
+  ========================================================= */
+
   useEffect(() => {
+    mountedRef.current =
+      true;
+
+    const frame =
+      requestAnimationFrame(
+        () => {
+          if (
+            mountedRef.current
+          ) {
+            setRuntimeReady(
+              true,
+            );
+          }
+        },
+      );
+
+    return () => {
+      mountedRef.current =
+        false;
+
+      cancelAnimationFrame(
+        frame,
+      );
+    };
+  }, []);
+
+  /* =========================================================
+     HEARTBEAT
+  ========================================================= */
+
+  useEffect(() => {
+    if (
+      !user?.uid ||
+      !isOnline
+    ) {
+      return;
+    }
+
+    if (
+      heartbeatRef.current
+    ) {
+      clearInterval(
+        heartbeatRef.current,
+      );
+    }
+
+    heartbeatRef.current =
+      window.setInterval(
+        async () => {
+          try {
+            await dispatchRealtimeService.atualizarTripRealtime(
+              user.uid,
+              {
+                heartbeat:
+                  Date.now(),
+              },
+            );
+          } catch (
+            error
+          ) {
+            console.error(
+              'HEARTBEAT ERROR:',
+              error,
+            );
+          }
+        },
+        30000,
+      );
+
+    return () => {
+      if (
+        heartbeatRef.current
+      ) {
+        clearInterval(
+          heartbeatRef.current,
+        );
+      }
+    };
+  }, [
+    user,
+    isOnline,
+  ]);
+
+  /* =========================================================
+     AUTH RUNTIME
+  ========================================================= */
+
+  useEffect(() => {
+    if (
+      authReadyRef.current
+    ) {
+      return;
+    }
+
+    authReadyRef.current =
+      true;
+
     const unsubscribe =
       auth.onAuthStateChanged(
-        (firebaseUser) => {
-          setUser(firebaseUser);
+        (
+          firebaseUser,
+        ) => {
+          if (
+            !mountedRef.current
+          ) {
+            return;
+          }
 
-          if (!firebaseUser) {
-            setDriverData(null);
+          setUser(
+            firebaseUser,
+          );
+
+          if (
+            !firebaseUser
+          ) {
+            setDriverData(
+              null,
+            );
 
             setAvailableFreights(
               [],
@@ -251,9 +414,11 @@ export default function Motorista() {
               null,
             );
 
-            setLoading(false);
-
             setCheckingDriver(
+              false,
+            );
+
+            setLoading(
               false,
             );
 
@@ -264,16 +429,27 @@ export default function Motorista() {
             true,
           );
 
-          const driverUnsubscribe =
+          if (
+            listenerRegistryRef
+              .current.driver
+          ) {
+            listenerRegistryRef.current.driver();
+          }
+
+          const unsubscribeDriver =
             onSnapshot(
               doc(
                 db,
                 'motoristas_cadastros',
                 firebaseUser.uid,
               ),
-              (
-                snapshot,
-              ) => {
+              snapshot => {
+                if (
+                  !mountedRef.current
+                ) {
+                  return;
+                }
+
                 if (
                   snapshot.exists()
                 ) {
@@ -292,25 +468,15 @@ export default function Motorista() {
                 setCheckingDriver(
                   false,
                 );
-              },
-              (
-                error,
-              ) => {
-                console.error(
-                  'DRIVER SNAPSHOT ERROR:',
-                  error,
-                );
 
-                setCheckingDriver(
+                setLoading(
                   false,
                 );
               },
             );
 
           listenerRegistryRef.current.driver =
-            driverUnsubscribe;
-
-          setLoading(false);
+            unsubscribeDriver;
         },
       );
 
@@ -320,7 +486,7 @@ export default function Motorista() {
       Object.values(
         listenerRegistryRef.current,
       ).forEach(
-        (unsubscribeFn) => {
+        unsubscribeFn => {
           if (
             typeof unsubscribeFn ===
             'function'
@@ -332,8 +498,13 @@ export default function Motorista() {
     };
   }, []);
 
+  /* =========================================================
+     AVAILABLE FREIGHTS
+  ========================================================= */
+
   useEffect(() => {
     if (
+      !runtimeReady ||
       !user?.uid ||
       !driverData ||
       !isOnline
@@ -342,17 +513,12 @@ export default function Motorista() {
         [],
       );
 
-      if (
-        listenerRegistryRef.current
-          .freights
-      ) {
-        listenerRegistryRef.current.freights();
-      }
-
       return;
     }
 
-    setRadarLoading(true);
+    setRadarLoading(
+      true,
+    );
 
     const freightsQuery =
       query(
@@ -384,34 +550,36 @@ export default function Motorista() {
     const unsubscribe =
       onSnapshot(
         freightsQuery,
-        (snapshot) => {
-          const freights =
+        snapshot => {
+          if (
+            !mountedRef.current
+          ) {
+            return;
+          }
+
+          const next =
             snapshot.docs
               .map(
-                (
-                  document,
-                ) =>
+                document =>
                   normalizeFreight(
                     document.id,
                     document.data(),
                   ),
               )
               .filter(
-                (
-                  freight,
-                ) =>
+                freight =>
                   !freight.motoristaId,
               );
 
           setAvailableFreights(
-            freights,
+            next,
           );
 
           setRadarLoading(
             false,
           );
         },
-        (error) => {
+        error => {
           console.error(
             'FREIGHTS REALTIME ERROR:',
             error,
@@ -430,6 +598,7 @@ export default function Motorista() {
       unsubscribe();
     };
   }, [
+    runtimeReady,
     user,
     driverData,
     isOnline,
@@ -437,8 +606,15 @@ export default function Motorista() {
     normalizeFreight,
   ]);
 
+  /* =========================================================
+     ACTIVE TRIP
+  ========================================================= */
+
   useEffect(() => {
-    if (!user?.uid) {
+    if (
+      !runtimeReady ||
+      !user?.uid
+    ) {
       setActiveFreight(
         null,
       );
@@ -465,13 +641,24 @@ export default function Motorista() {
           ACTIVE_STATUSES,
         ),
 
+        orderBy(
+          'updatedAt',
+          'desc',
+        ),
+
         limit(1),
       );
 
     const unsubscribe =
       onSnapshot(
         activeQuery,
-        (snapshot) => {
+        snapshot => {
+          if (
+            !mountedRef.current
+          ) {
+            return;
+          }
+
           if (
             snapshot.empty
           ) {
@@ -492,12 +679,6 @@ export default function Motorista() {
             ),
           );
         },
-        (error) => {
-          console.error(
-            'ACTIVE FREIGHT ERROR:',
-            error,
-          );
-        },
       );
 
     listenerRegistryRef.current.active =
@@ -507,20 +688,52 @@ export default function Motorista() {
       unsubscribe();
     };
   }, [
+    runtimeReady,
     user,
     normalizeFreight,
   ]);
 
+  /* =========================================================
+     ACTIONS
+  ========================================================= */
+
   const handleToggleOnline =
     useCallback(
-      (
-        nextState: boolean,
+      async (
+        next: boolean,
       ) => {
         setIsOnline(
-          nextState,
+          next,
         );
+
+        if (
+          !user?.uid
+        ) {
+          return;
+        }
+
+        try {
+          if (
+            next
+          ) {
+            await dispatchRealtimeService.setDriverOnline(
+              user.uid,
+            );
+          } else {
+            await dispatchRealtimeService.setDriverOffline(
+              user.uid,
+            );
+          }
+        } catch (
+          error
+        ) {
+          console.error(
+            'ONLINE TOGGLE ERROR:',
+            error,
+          );
+        }
       },
-      [],
+      [user],
     );
 
   const handleSelectFreight =
@@ -584,10 +797,17 @@ export default function Motorista() {
             },
           );
 
+          await dispatchRealtimeService.aceitarCorrida(
+            user.uid,
+            freight.id,
+          );
+
           setSelectedFreight(
             null,
           );
-        } catch (error) {
+        } catch (
+          error
+        ) {
           console.error(
             'ACCEPT FREIGHT ERROR:',
             error,
@@ -606,13 +826,9 @@ export default function Motorista() {
         freight: OperationalFreight,
       ) => {
         setAvailableFreights(
-          (
-            current,
-          ) =>
+          current =>
             current.filter(
-              (
-                item,
-              ) =>
+              item =>
                 item.id !==
                 freight.id,
             ),
@@ -625,19 +841,24 @@ export default function Motorista() {
       [],
     );
 
+  /* =========================================================
+     RUNTIME STATES
+  ========================================================= */
+
   if (
+    !runtimeReady ||
     loading ||
     checkingDriver
   ) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
+      <div className="flex min-h-screen items-center justify-center bg-[#020617] text-white">
         <div className="text-center">
-          <h1 className="text-3xl font-black">
+          <h1 className="text-4xl font-black">
             FRETOGO
           </h1>
 
           <p className="mt-4 text-slate-400">
-            Inicializando sistema operacional...
+            Inicializando central logística realtime...
           </p>
         </div>
       </div>
@@ -646,19 +867,23 @@ export default function Motorista() {
 
   if (!user) {
     return (
-      <DriverAuth />
+      <div className="min-h-screen bg-[#020617]">
+        <DriverAuth />
+      </div>
     );
   }
 
   if (!driverData) {
     return (
-      <DriverCadastro
-        onFinish={() => {
-          setCheckingDriver(
-            true,
-          );
-        }}
-      />
+      <div className="min-h-screen bg-[#020617]">
+        <DriverCadastro
+          onFinish={() => {
+            setCheckingDriver(
+              true,
+            );
+          }}
+        />
+      </div>
     );
   }
 
@@ -667,14 +892,14 @@ export default function Motorista() {
     'aprovado'
   ) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6">
-        <div className="w-full max-w-md rounded-3xl border border-cyan-500/20 bg-slate-900 p-10 text-center">
-          <h1 className="mb-4 text-3xl font-black text-white">
-            Cadastro em análise
+      <div className="flex min-h-screen items-center justify-center bg-[#020617] px-4">
+        <div className="w-full max-w-lg rounded-[2rem] border border-cyan-500/20 bg-slate-900/80 p-10 text-center backdrop-blur-xl">
+          <h1 className="text-4xl font-black text-white">
+            Cadastro operacional em análise
           </h1>
 
-          <p className="text-slate-400">
-            Aguarde aprovação do administrador.
+          <p className="mt-4 text-slate-400">
+            A central operacional está validando seus documentos.
           </p>
         </div>
       </div>
@@ -682,7 +907,7 @@ export default function Motorista() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-screen bg-[#020617] text-white">
       <DriverHeader
         user={user}
       />
@@ -700,7 +925,7 @@ export default function Motorista() {
         }
       />
 
-      <DriverDashboardLayout
+      <DriverApp
         freights={
           availableFreights
         }
@@ -719,6 +944,9 @@ export default function Motorista() {
         driverCategory={
           operationalCategory
         }
+        driverName={
+          driverData.nome
+        }
         onToggleOnline={
           handleToggleOnline
         }
@@ -734,22 +962,30 @@ export default function Motorista() {
         onRejectFreight={
           handleRejectFreight
         }
-      />
+      >
+        {activeFreight?.id && (
+          <div className="mx-auto mt-10 max-w-7xl px-4 pb-24 md:px-6">
+            <DriverActiveTrip
+              freteId={
+                activeFreight.id
+              }
+            />
 
-      {activeFreight?.id && (
-        <div className="mx-auto mt-10 max-w-4xl px-4 pb-20">
-          <ChatFrete
-            freteId={
-              activeFreight.id
-            }
-            tipoUsuario="motorista"
-            nome={
-              driverData.nome ||
-              'Motorista'
-            }
-          />
-        </div>
-      )}
+            <div className="mt-8">
+              <ChatFrete
+                freteId={
+                  activeFreight.id
+                }
+                tipoUsuario="motorista"
+                nome={
+                  driverData.nome ||
+                  'Motorista'
+                }
+              />
+            </div>
+          </div>
+        )}
+      </DriverApp>
     </div>
   );
 }
