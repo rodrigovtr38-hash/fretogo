@@ -33,6 +33,11 @@ const containerStyle = {
   borderRadius: '2rem',
 };
 
+const defaultCenter = {
+  lat: -23.55052,
+  lng: -46.633308,
+};
+
 const mapStyles = [
   {
     elementType: 'geometry',
@@ -136,6 +141,12 @@ function MapaCliente({
   const animationFrameRef =
     useRef<number>();
 
+  const googleReady =
+    typeof window !==
+      'undefined' &&
+    !!window.google &&
+    !!window.google.maps;
+
   const center =
     useMemo(() => {
       if (motoristaPos) {
@@ -146,10 +157,7 @@ function MapaCliente({
         return origem;
       }
 
-      return {
-        lat: -23.55052,
-        lng: -46.633308,
-      };
+      return defaultCenter;
     }, [
       motoristaPos,
       origem,
@@ -183,6 +191,7 @@ function MapaCliente({
 
   useEffect(() => {
     if (
+      !googleReady ||
       !mapRef.current ||
       routePath.length < 2
     ) {
@@ -190,7 +199,7 @@ function MapaCliente({
     }
 
     const bounds =
-      new google.maps.LatLngBounds();
+      new window.google.maps.LatLngBounds();
 
     routePath.forEach(pos => {
       bounds.extend(pos);
@@ -200,7 +209,10 @@ function MapaCliente({
       bounds,
       80,
     );
-  }, [routePath]);
+  }, [
+    googleReady,
+    routePath,
+  ]);
 
   useEffect(() => {
     if (!motoristaPos) {
@@ -296,6 +308,37 @@ function MapaCliente({
         Math.PI
       );
     }, [animatedPos]);
+
+  const driverIcon =
+    useMemo(() => {
+      if (!googleReady) {
+        return undefined;
+      }
+
+      return {
+        path:
+          window.google.maps
+            .SymbolPath
+            .FORWARD_CLOSED_ARROW,
+
+        scale: 7,
+
+        fillColor:
+          '#22d3ee',
+
+        fillOpacity: 1,
+
+        strokeWeight: 2,
+
+        strokeColor:
+          '#ffffff',
+
+        rotation: heading,
+      };
+    }, [
+      googleReady,
+      heading,
+    ]);
 
   return (
     <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950 shadow-2xl">
@@ -400,34 +443,17 @@ function MapaCliente({
           />
         )}
 
-        {animatedPos && (
-          <Marker
-            position={
-              animatedPos
-            }
-            icon={{
-              path:
-                window.google.maps
-                  .SymbolPath
-                  .FORWARD_CLOSED_ARROW,
-
-              scale: 7,
-
-              fillColor:
-                '#22d3ee',
-
-              fillOpacity: 1,
-
-              strokeWeight: 2,
-
-              strokeColor:
-                '#ffffff',
-
-              rotation:
-                heading,
-            }}
-          />
-        )}
+        {animatedPos &&
+          driverIcon && (
+            <Marker
+              position={
+                animatedPos
+              }
+              icon={
+                driverIcon
+              }
+            />
+          )}
       </GoogleMap>
     </div>
   );
