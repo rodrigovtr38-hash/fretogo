@@ -1,4 +1,96 @@
 import {
+  createContext,
+  useContext,
+  useState,
+  ReactNode,
+} from 'react';
+
+interface ClientContextData {
+  activeRequest: string | null;
+
+  destinationCode: string | null;
+
+  driverAccepted: boolean;
+
+  setActiveRequest: (
+    value: string | null,
+  ) => void;
+
+  setDestinationCode: (
+    value: string | null,
+  ) => void;
+
+  setDriverAccepted: (
+    value: boolean,
+  ) => void;
+}
+
+const ClientContext =
+  createContext<
+    ClientContextData | undefined
+  >(undefined);
+
+interface ClientProviderProps {
+  children: ReactNode;
+}
+
+export function ClientProvider({
+  children,
+}: ClientProviderProps) {
+
+  const [
+    activeRequest,
+    setActiveRequest,
+  ] = useState<string | null>(
+    null,
+  );
+
+  const [
+    destinationCode,
+    setDestinationCode,
+  ] = useState<string | null>(
+    null,
+  );
+
+  const [
+    driverAccepted,
+    setDriverAccepted,
+  ] = useState(false);
+
+  return (
+    <ClientContext.Provider
+      value={{
+        activeRequest,
+        destinationCode,
+        driverAccepted,
+
+        setActiveRequest,
+        setDestinationCode,
+        setDriverAccepted,
+      }}
+    >
+      {children}
+    </ClientContext.Provider>
+  );
+}
+
+export function useClientContext() {
+
+  const context =
+    useContext(ClientContext);
+
+  if (!context) {
+
+    throw new Error(
+      'useClientContext deve ser usado dentro de ClientProvider',
+    );
+
+  }
+
+  return context;
+}
+src/services/matchingEngine.ts
+import {
   collection,
   doc,
   getDocs,
@@ -68,34 +160,26 @@ export interface MotoristaMatch {
   score?: number;
 }
 
-/*
-=====================================================
-HELPERS
-=====================================================
-*/
-
 function normalizeCategoria(
   categoria?: string,
 ) {
+
   return (
     categoria
       ?.toLowerCase()
       .trim() || ''
   );
-}
 
-/*
-=====================================================
-BUSCAR MOTORISTAS
-=====================================================
-*/
+}
 
 export async function buscarMotoristasCompativeis(
   frete: FretePayload,
 ): Promise<
   MotoristaMatch[]
 > {
+
   try {
+
     const categoria =
       normalizeCategoria(
         frete.categoria,
@@ -125,6 +209,7 @@ export async function buscarMotoristasCompativeis(
     const motoristas =
       snapshot.docs
         .map(docSnap => {
+
           const data =
             docSnap.data();
 
@@ -158,9 +243,11 @@ export async function buscarMotoristasCompativeis(
                 data.score || 0,
               ),
           } as MotoristaMatch;
+
         })
         .filter(
           motorista => {
+
             const motoristaCategoria =
               normalizeCategoria(
                 motorista.categoria,
@@ -172,6 +259,7 @@ export async function buscarMotoristasCompativeis(
               categoria ===
                 'utilitario'
             );
+
           },
         )
         .sort(
@@ -181,27 +269,27 @@ export async function buscarMotoristasCompativeis(
         );
 
     return motoristas;
+
   } catch (error) {
+
     console.error(
       '[MATCHING] ERRO BUSCAR MOTORISTAS:',
       error,
     );
 
     return [];
-  }
-}
 
-/*
-=====================================================
-ENVIAR OFERTA
-=====================================================
-*/
+  }
+
+}
 
 export async function enviarOfertaMotorista(
   motoristaId: string,
   frete: FretePayload,
 ): Promise<boolean> {
+
   try {
+
     const motoristaRef =
       doc(
         db,
@@ -241,12 +329,16 @@ export async function enviarOfertaMotorista(
     );
 
     return true;
+
   } catch (error) {
+
     console.error(
       '[MATCHING] ERRO ENVIAR OFERTA:',
       error,
     );
 
     return false;
+
   }
+
 }
