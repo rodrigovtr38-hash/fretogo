@@ -50,12 +50,6 @@ import ClientDriverCard from '../components/client/ClientDriverCard';
 
 import MapaCliente from '../components/MapaCliente';
 
-/*
-=========================================================
-TIPOS
-=========================================================
-*/
-
 type OperationStep =
   | 1
   | 2
@@ -134,25 +128,8 @@ type RuntimeUser = {
   phoneNumber?: string | null;
 };
 
-/*
-=========================================================
-CONSTANTES
-=========================================================
-*/
-
 const STORAGE_KEY =
   'fretmax_cliente_runtime';
-
-const categories =
-  [
-    'moto',
-    'carro',
-    'utilitario',
-    'toco',
-    'truck',
-    'carreta',
-    'bitrem',
-  ] as const;
 
 const operationalMessages =
   [
@@ -234,12 +211,6 @@ const defaultForm =
     observacoes: '',
   });
 
-/*
-=========================================================
-COMPONENTE
-=========================================================
-*/
-
 export default function Cliente() {
   const navigate =
     useNavigate();
@@ -252,66 +223,6 @@ export default function Cliente() {
   } =
     useClientContext();
 
-  /*
-  =========================================================
-  AUTH RUNTIME
-  =========================================================
-  */
-
-  const [
-    runtimeUser,
-    setRuntimeUser,
-  ] =
-    useState<RuntimeUser | null>(
-      null,
-    );
-
-  useEffect(() => {
-    try {
-      const raw =
-        localStorage.getItem(
-          'fretmax_runtime_user',
-        );
-
-      if (!raw) {
-        return;
-      }
-
-      const parsed =
-        JSON.parse(raw);
-
-      if (
-        parsed?.uid
-      ) {
-        setRuntimeUser(
-          parsed,
-        );
-      }
-    } catch (error) {
-      console.error(
-        'CLIENT_AUTH_RUNTIME_ERROR',
-        error,
-      );
-    }
-  }, []);
-
-  const handleLogout =
-    useCallback(async () => {
-      localStorage.removeItem(
-        'fretmax_runtime_user',
-      );
-
-      navigate(
-        '/login',
-      );
-    }, [navigate]);
-
-  /*
-  =========================================================
-  REFS
-  =========================================================
-  */
-
   const mountedRef =
     useRef(true);
 
@@ -322,11 +233,13 @@ export default function Cliente() {
       > | null
     >(null);
 
-  /*
-  =========================================================
-  STATES
-  =========================================================
-  */
+  const [
+    runtimeUser,
+    setRuntimeUser,
+  ] =
+    useState<RuntimeUser | null>(
+      null,
+    );
 
   const [
     currentStep,
@@ -362,12 +275,6 @@ export default function Cliente() {
       defaultForm(),
     );
 
-  /*
-  =========================================================
-  SERVICES
-  =========================================================
-  */
-
   const {
     loadingPayment,
     isCancelling,
@@ -390,12 +297,6 @@ export default function Cliente() {
   } =
     useClientRealtime();
 
-  /*
-  =========================================================
-  LIFECYCLE
-  =========================================================
-  */
-
   useEffect(() => {
     mountedRef.current =
       true;
@@ -406,11 +307,34 @@ export default function Cliente() {
     };
   }, []);
 
-  /*
-  =========================================================
-  RUNTIME PERSISTENCE
-  =========================================================
-  */
+  useEffect(() => {
+    try {
+      const raw =
+        localStorage.getItem(
+          'fretmax_runtime_user',
+        );
+
+      if (!raw) {
+        return;
+      }
+
+      const parsed =
+        JSON.parse(raw);
+
+      if (
+        parsed?.uid
+      ) {
+        setRuntimeUser(
+          parsed,
+        );
+      }
+    } catch (error) {
+      console.error(
+        'CLIENT_RUNTIME_USER_ERROR',
+        error,
+      );
+    }
+  }, []);
 
   useEffect(() => {
     try {
@@ -472,12 +396,6 @@ export default function Cliente() {
     currentStep,
   ]);
 
-  /*
-  =========================================================
-  HEARTBEAT
-  =========================================================
-  */
-
   useEffect(() => {
     heartbeatRef.current =
       setInterval(
@@ -503,12 +421,6 @@ export default function Cliente() {
     };
   }, []);
 
-  /*
-  =========================================================
-  REALTIME FLAGS
-  =========================================================
-  */
-
   useEffect(() => {
     setRadarActive(
       true,
@@ -527,12 +439,6 @@ export default function Cliente() {
     setMatchingActive,
     setTrackingActive,
   ]);
-
-  /*
-  =========================================================
-  PRICING ENGINE
-  =========================================================
-  */
 
   const pricing =
     useMemo(() => {
@@ -613,56 +519,16 @@ export default function Cliente() {
       };
     }, [formData]);
 
-  /*
-  =========================================================
-  HELPERS
-  =========================================================
-  */
+  const handleLogout =
+    useCallback(async () => {
+      localStorage.removeItem(
+        'fretmax_runtime_user',
+      );
 
-  const updateAddress =
-    useCallback(
-      (
-        type:
-          | 'origem'
-          | 'destino',
-        key: keyof FormAddress,
-        value: unknown,
-      ) => {
-        setFormData(
-          previous => ({
-            ...previous,
-
-            [type]: {
-              ...previous[
-                type
-              ],
-
-              [key]:
-                value,
-            },
-          }),
-        );
-      },
-      [],
-    );
-
-  const updateField =
-    useCallback(
-      (
-        key: keyof ClientOperationForm,
-        value: unknown,
-      ) => {
-        setFormData(
-          previous => ({
-            ...previous,
-
-            [key]:
-              value,
-          }),
-        );
-      },
-      [],
-    );
+      navigate(
+        '/login',
+      );
+    }, [navigate]);
 
   const nextStep =
     useCallback(() => {
@@ -685,12 +551,6 @@ export default function Cliente() {
           ) as OperationStep,
       );
     }, []);
-
-  /*
-  =========================================================
-  CREATE FREIGHT
-  =========================================================
-  */
 
   const handleCreateFreight =
     useCallback(
@@ -834,12 +694,6 @@ export default function Cliente() {
       ],
     );
 
-  /*
-  =========================================================
-  CANCEL
-  =========================================================
-  */
-
   const handleCancel =
     useCallback(async () => {
       if (
@@ -870,7 +724,6 @@ export default function Cliente() {
 
   return (
     <div className="min-h-screen bg-[#050816] text-white">
-
       <ClientToast
         toast={toast}
       />
@@ -893,19 +746,13 @@ export default function Cliente() {
       />
 
       <header className="sticky top-0 z-50 border-b border-white/5 bg-black/40 backdrop-blur-xl">
-
         <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-5 lg:flex-row lg:items-center lg:justify-between">
-
           <div className="flex items-center gap-4">
-
             <div className="flex h-14 w-14 items-center justify-center rounded-3xl border border-cyan-500/20 bg-cyan-500/10">
-
               <Truck className="h-7 w-7 text-cyan-400" />
-
             </div>
 
             <div>
-
               <p className="text-[11px] font-black uppercase tracking-[0.3em] text-cyan-400">
                 Runtime Operacional
               </p>
@@ -913,40 +760,16 @@ export default function Cliente() {
               <h1 className="text-2xl font-black">
                 Central Logística Realtime
               </h1>
-
             </div>
-
           </div>
 
           <div className="flex flex-wrap items-center gap-4">
-
             <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-xs font-black uppercase tracking-wider text-cyan-300">
-
               {
                 realtime.connected
                   ? 'Radar operacional ativo'
                   : 'Reconectando runtime'
               }
-
-            </div>
-
-            <div className="hidden md:flex flex-col items-end">
-
-              <p className="text-sm font-bold">
-                {
-                  runtimeUser?.displayName ||
-                  'Cliente'
-                }
-              </p>
-
-              <p className="text-xs text-slate-400">
-                {
-                  isRealtimeReady
-                    ? 'Realtime sincronizado'
-                    : 'Sincronizando runtime'
-                }
-              </p>
-
             </div>
 
             <button
@@ -956,55 +779,15 @@ export default function Cliente() {
               }
               className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-black uppercase tracking-wider transition-all hover:bg-white/10"
             >
-
               <LogOut
                 size={16}
               />
 
               Sair
-
             </button>
-
           </div>
-
         </div>
-
       </header>
-
-      <main className="mx-auto grid max-w-7xl grid-cols-1 gap-8 px-4 py-8 xl:grid-cols-[1.3fr_0.7fr]">
-
-        <div className="space-y-6">
-
-          <div className="rounded-[2.5rem] border border-white/10 bg-slate-900/80 p-8 shadow-2xl backdrop-blur-xl">
-
-            <div className="mb-8 flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-
-              <div>
-
-                <p className="text-[11px] font-black uppercase tracking-[0.3em] text-cyan-400">
-                  Workflow Operacional
-                </p>
-
-                <h2 className="mt-2 text-3xl font-black">
-                  Solicitação Enterprise
-                </h2>
-
-              </div>
-
-              <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-5 py-3 text-sm font-black text-cyan-300">
-
-                ETAPA {currentStep}/7
-
-              </div>
-
-            </div>
-
-          </div>
-
-        </div>
-
-      </main>
-
     </div>
   );
 }
