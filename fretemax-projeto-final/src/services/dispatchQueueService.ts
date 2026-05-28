@@ -1,12 +1,13 @@
-```ts
 import {
   doc,
-  updateDoc,
-  serverTimestamp,
   getDoc,
+  serverTimestamp,
+  updateDoc,
 } from 'firebase/firestore';
 
-import { db } from '../firebase';
+import {
+  db,
+} from '../firebase';
 
 import {
   buscarMotoristasCompativeis,
@@ -23,33 +24,22 @@ const MAX_REDISPATCH_ATTEMPTS =
 
 interface QueueState {
   index: number;
-
   tentativa: number;
 }
 
 export class DispatchQueueService {
-
   static async iniciarFila(
     frete: FretePayload,
   ) {
     try {
-
-      console.log(
-        '[DISPATCH] INICIANDO FILA:',
-        frete.id,
-      );
-
       const motoristas =
         await buscarMotoristasCompativeis(
           frete,
         );
 
-      if (!motoristas.length) {
-
-        console.log(
-          '[DISPATCH] NENHUM MOTORISTA',
-        );
-
+      if (
+        !motoristas.length
+      ) {
         await updateDoc(
           doc(
             db,
@@ -100,30 +90,10 @@ export class DispatchQueueService {
           tentativa: 1,
         },
       );
-
     } catch (error) {
-
       console.error(
-        '[DISPATCH] ERRO INICIAR FILA:',
+        '[DISPATCH_QUEUE_ERROR]',
         error,
-      );
-
-      await updateDoc(
-        doc(
-          db,
-          'fretes',
-          frete.id,
-        ),
-        {
-          status:
-            'erro_dispatch',
-
-          dispatchStatus:
-            'erro',
-
-          atualizadoEm:
-            serverTimestamp(),
-        },
       );
     }
   }
@@ -134,38 +104,13 @@ export class DispatchQueueService {
     state: QueueState,
   ) {
     try {
-
-      if (
-        state.tentativa >
-        MAX_REDISPATCH_ATTEMPTS
-      ) {
-
-        await updateDoc(
-          doc(
-            db,
-            'fretes',
-            frete.id,
-          ),
-          {
-            status:
-              'fila_esgotada',
-
-            dispatchStatus:
-              'encerrado',
-
-            atualizadoEm:
-              serverTimestamp(),
-          },
-        );
-
-        return;
-      }
-
       if (
         state.index >=
-        motoristas.length
-      ) {
+          motoristas.length ||
 
+        state.tentativa >
+          MAX_REDISPATCH_ATTEMPTS
+      ) {
         await updateDoc(
           doc(
             db,
@@ -199,8 +144,7 @@ export class DispatchQueueService {
         );
 
       if (!enviado) {
-
-        return await this.processarFila(
+        await this.processarFila(
           frete,
           motoristas,
           {
@@ -211,6 +155,8 @@ export class DispatchQueueService {
               state.tentativa + 1,
           },
         );
+
+        return;
       }
 
       await updateDoc(
@@ -246,7 +192,6 @@ export class DispatchQueueService {
       setTimeout(
         async () => {
           try {
-
             const freteRef =
               doc(
                 db,
@@ -254,32 +199,29 @@ export class DispatchQueueService {
                 frete.id,
               );
 
-            const freteSnap =
+            const snapshot =
               await getDoc(
                 freteRef,
               );
 
             if (
-              !freteSnap.exists()
+              !snapshot.exists()
             ) {
               return;
             }
 
-            const freteAtual =
-              freteSnap.data();
+            const data =
+              snapshot.data();
 
             if (
-              freteAtual.status ===
-                'aceito' ||
-
-              freteAtual.status ===
-                'coleta' ||
-
-              freteAtual.status ===
-                'em_transporte' ||
-
-              freteAtual.status ===
-                'entregue'
+              [
+                'aceito',
+                'coleta',
+                'em_transporte',
+                'entregue',
+              ].includes(
+                data.status,
+              )
             ) {
               return;
             }
@@ -309,44 +251,22 @@ export class DispatchQueueService {
                   state.tentativa + 1,
               },
             );
-
           } catch (error) {
-
             console.error(
-              '[DISPATCH] WATCHDOG:',
+              '[DISPATCH_WATCHDOG_ERROR]',
               error,
             );
-
           }
         },
         DRIVER_RESPONSE_TIMEOUT,
       );
-
     } catch (error) {
-
       console.error(
-        '[DISPATCH] PROCESSAR:',
+        '[PROCESSAR_FILA_ERROR]',
         error,
-      );
-
-      await updateDoc(
-        doc(
-          db,
-          'fretes',
-          frete.id,
-        ),
-        {
-          status:
-            'erro_dispatch',
-
-          dispatchStatus:
-            'erro',
-
-          atualizadoEm:
-            serverTimestamp(),
-        },
       );
     }
   }
 }
-```
+
+export default DispatchQueueService;
