@@ -1,5 +1,3 @@
-// src/pages/Cliente.tsx
-
 import {
   useCallback,
   useEffect,
@@ -16,7 +14,6 @@ import {
   Clock3,
   Loader2,
   LogOut,
-  MapPin,
   Navigation,
   Radar,
   Route,
@@ -29,11 +26,17 @@ import {
 
 import { useNavigate } from 'react-router-dom';
 
-import { useAuth } from '../contexts/AuthContext';
+import {
+  useClientContext,
+} from '../context/ClientContext';
 
-import { useClientRealtime } from '../hooks/useClientRealtime';
+import {
+  useClientRealtime,
+} from '../hooks/useClientRealtime';
 
-import { useClientFreight } from '../hooks/useClientFreight';
+import {
+  useClientFreight,
+} from '../hooks/useClientFreight';
 
 import ClientToast, {
   ClientToastData,
@@ -46,6 +49,12 @@ import ClientStatusCard from '../components/client/ClientStatusCard';
 import ClientDriverCard from '../components/client/ClientDriverCard';
 
 import MapaCliente from '../components/MapaCliente';
+
+/*
+=========================================================
+TIPOS
+=========================================================
+*/
 
 type OperationStep =
   | 1
@@ -82,49 +91,57 @@ type FormAddress = {
   lng: number;
 };
 
-type ClientOperationForm =
-  {
-    contratarAgora: boolean;
+type ClientOperationForm = {
+  contratarAgora: boolean;
+  agendarOperacao: boolean;
+  dataAgendamento: string;
 
-    agendarOperacao: boolean;
+  origem: FormAddress;
+  destino: FormAddress;
 
-    dataAgendamento: string;
+  categoria: CategoriaOperacional;
 
-    origem: FormAddress;
+  tipoCarga: string;
 
-    destino: FormAddress;
+  pesoKg: number;
 
-    categoria: CategoriaOperacional;
+  cubagem: number;
 
-    tipoCarga: string;
+  volumes: number;
 
-    pesoKg: number;
+  prioridade: PriorityType;
 
-    cubagem: number;
+  retornoDisponivel: boolean;
 
-    volumes: number;
+  multiplasEntregas: boolean;
 
-    prioridade: PriorityType;
+  transbordo: boolean;
 
-    retornoDisponivel: boolean;
+  roteiroRegional: boolean;
 
-    multiplasEntregas: boolean;
+  roteiroNacional: boolean;
 
-    transbordo: boolean;
+  marketplace: boolean;
 
-    roteiroRegional: boolean;
+  cargaPesada: boolean;
 
-    roteiroNacional: boolean;
+  observacoes: string;
+};
 
-    marketplace: boolean;
+type RuntimeUser = {
+  uid: string;
+  displayName?: string | null;
+  phoneNumber?: string | null;
+};
 
-    cargaPesada: boolean;
-
-    observacoes: string;
-  };
+/*
+=========================================================
+CONSTANTES
+=========================================================
+*/
 
 const STORAGE_KEY =
-  'fretogo_client_runtime';
+  'fretmax_cliente_runtime';
 
 const categories =
   [
@@ -217,23 +234,99 @@ const defaultForm =
     observacoes: '',
   });
 
+/*
+=========================================================
+COMPONENTE
+=========================================================
+*/
+
 export default function Cliente() {
   const navigate =
     useNavigate();
 
-  const { user, logout } =
-    useAuth();
+  const {
+    realtime,
+    setRadarActive,
+    setMatchingActive,
+    setTrackingActive,
+  } =
+    useClientContext();
+
+  /*
+  =========================================================
+  AUTH RUNTIME
+  =========================================================
+  */
+
+  const [
+    runtimeUser,
+    setRuntimeUser,
+  ] =
+    useState<RuntimeUser | null>(
+      null,
+    );
+
+  useEffect(() => {
+    try {
+      const raw =
+        localStorage.getItem(
+          'fretmax_runtime_user',
+        );
+
+      if (!raw) {
+        return;
+      }
+
+      const parsed =
+        JSON.parse(raw);
+
+      if (
+        parsed?.uid
+      ) {
+        setRuntimeUser(
+          parsed,
+        );
+      }
+    } catch (error) {
+      console.error(
+        'CLIENT_AUTH_RUNTIME_ERROR',
+        error,
+      );
+    }
+  }, []);
+
+  const handleLogout =
+    useCallback(async () => {
+      localStorage.removeItem(
+        'fretmax_runtime_user',
+      );
+
+      navigate(
+        '/login',
+      );
+    }, [navigate]);
+
+  /*
+  =========================================================
+  REFS
+  =========================================================
+  */
 
   const mountedRef =
     useRef(true);
 
   const heartbeatRef =
     useRef<
-      NodeJS.Timeout | null
+      ReturnType<
+        typeof setInterval
+      > | null
     >(null);
 
-  const reconnectRef =
-    useRef(false);
+  /*
+  =========================================================
+  STATES
+  =========================================================
+  */
 
   const [
     currentStep,
@@ -269,45 +362,37 @@ export default function Cliente() {
       defaultForm(),
     );
 
+  /*
+  =========================================================
+  SERVICES
+  =========================================================
+  */
+
   const {
     loadingPayment,
-
     isCancelling,
-
     createFreight,
-
     cancelFreight,
   } =
     useClientFreight();
 
   const {
     connected,
-
     orderData,
-
     isWaitingDriver,
-
-    isDriverAccepted,
-
     isInTransit,
-
     isCompleted,
-
     isCancelled,
-
     driverFound,
-
     tripFinished,
-
     isRedispatching,
-
     isRealtimeReady,
   } =
     useClientRealtime();
 
   /*
   =========================================================
-  RUNTIME PERSISTENCE
+  LIFECYCLE
   =========================================================
   */
 
@@ -321,19 +406,25 @@ export default function Cliente() {
     };
   }, []);
 
+  /*
+  =========================================================
+  RUNTIME PERSISTENCE
+  =========================================================
+  */
+
   useEffect(() => {
     try {
-      const saved =
+      const storage =
         localStorage.getItem(
           STORAGE_KEY,
         );
 
-      if (!saved) {
+      if (!storage) {
         return;
       }
 
       const parsed =
-        JSON.parse(saved);
+        JSON.parse(storage);
 
       if (
         parsed?.formData
@@ -352,7 +443,7 @@ export default function Cliente() {
       }
     } catch (error) {
       console.error(
-        'RUNTIME HYDRATION ERROR:',
+        'CLIENT_RUNTIME_HYDRATION_ERROR',
         error,
       );
     }
@@ -372,7 +463,7 @@ export default function Cliente() {
       );
     } catch (error) {
       console.error(
-        'RUNTIME PERSIST ERROR:',
+        'CLIENT_RUNTIME_PERSISTENCE_ERROR',
         error,
       );
     }
@@ -392,8 +483,8 @@ export default function Cliente() {
       setInterval(
         () => {
           setOperationalMessageIndex(
-            prev =>
-              (prev +
+            previous =>
+              (previous +
                 1) %
               operationalMessages.length,
           );
@@ -414,59 +505,28 @@ export default function Cliente() {
 
   /*
   =========================================================
-  RECONNECT
+  REALTIME FLAGS
   =========================================================
   */
 
   useEffect(() => {
-    const onOnline =
-      () => {
-        reconnectRef.current =
-          false;
-
-        setToast({
-          msg:
-            'Runtime operacional reconectado.',
-          type:
-            'success',
-        });
-      };
-
-    const onOffline =
-      () => {
-        reconnectRef.current =
-          true;
-
-        setToast({
-          msg:
-            'Sem conexão. Runtime operacional em modo persistente.',
-          type:
-            'warning',
-        });
-      };
-
-    window.addEventListener(
-      'online',
-      onOnline,
+    setRadarActive(
+      true,
     );
 
-    window.addEventListener(
-      'offline',
-      onOffline,
+    setMatchingActive(
+      true,
     );
 
-    return () => {
-      window.removeEventListener(
-        'online',
-        onOnline,
-      );
-
-      window.removeEventListener(
-        'offline',
-        onOffline,
-      );
-    };
-  }, []);
+    setTrackingActive(
+      connected,
+    );
+  }, [
+    connected,
+    setRadarActive,
+    setMatchingActive,
+    setTrackingActive,
+  ]);
 
   /*
   =========================================================
@@ -544,17 +604,11 @@ export default function Cliente() {
 
       return {
         kmColeta,
-
         kmEntrega,
-
         kmTotal,
-
         eta,
-
         pedagio,
-
         bruto,
-
         liquido,
       };
     }, [formData]);
@@ -572,14 +626,14 @@ export default function Cliente() {
           | 'origem'
           | 'destino',
         key: keyof FormAddress,
-        value: any,
+        value: unknown,
       ) => {
         setFormData(
-          prev => ({
-            ...prev,
+          previous => ({
+            ...previous,
 
             [type]: {
-              ...prev[
+              ...previous[
                 type
               ],
 
@@ -596,11 +650,11 @@ export default function Cliente() {
     useCallback(
       (
         key: keyof ClientOperationForm,
-        value: any,
+        value: unknown,
       ) => {
         setFormData(
-          prev => ({
-            ...prev,
+          previous => ({
+            ...previous,
 
             [key]:
               value,
@@ -613,10 +667,10 @@ export default function Cliente() {
   const nextStep =
     useCallback(() => {
       setCurrentStep(
-        prev =>
+        previous =>
           Math.min(
             7,
-            prev + 1,
+            previous + 1,
           ) as OperationStep,
       );
     }, []);
@@ -624,10 +678,10 @@ export default function Cliente() {
   const previousStep =
     useCallback(() => {
       setCurrentStep(
-        prev =>
+        previous =>
           Math.max(
             1,
-            prev - 1,
+            previous - 1,
           ) as OperationStep,
       );
     }, []);
@@ -641,10 +695,12 @@ export default function Cliente() {
   const handleCreateFreight =
     useCallback(
       async () => {
-        if (!user?.uid) {
+        if (
+          !runtimeUser?.uid
+        ) {
           setToast({
             msg:
-              'Usuário não autenticado.',
+              'Cliente não autenticado.',
             type:
               'error',
           });
@@ -658,14 +714,14 @@ export default function Cliente() {
               freightData:
                 {
                   clienteId:
-                    user.uid,
+                    runtimeUser.uid,
 
                   clienteNome:
-                    user.displayName ||
+                    runtimeUser.displayName ||
                     'Cliente',
 
                   clienteTelefone:
-                    user.phoneNumber ||
+                    runtimeUser.phoneNumber ||
                     '',
 
                   origem:
@@ -748,7 +804,9 @@ export default function Cliente() {
                 },
 
               onError:
-                message => {
+                (
+                  message: string,
+                ) => {
                   setToast(
                     {
                       msg:
@@ -768,7 +826,7 @@ export default function Cliente() {
         }
       },
       [
-        user,
+        runtimeUser,
         formData,
         pricing,
         createFreight,
@@ -810,30 +868,6 @@ export default function Cliente() {
       cancelFreight,
     ]);
 
-  /*
-  =========================================================
-  LOGOUT
-  =========================================================
-  */
-
-  const handleLogout =
-    useCallback(async () => {
-      await logout();
-
-      navigate(
-        '/login',
-      );
-    }, [
-      logout,
-      navigate,
-    ]);
-
-  /*
-  =========================================================
-  RENDER
-  =========================================================
-  */
-
   return (
     <div className="min-h-screen bg-[#050816] text-white">
 
@@ -858,15 +892,13 @@ export default function Cliente() {
         }
       />
 
-      {/* HEADER */}
-
       <header className="sticky top-0 z-50 border-b border-white/5 bg-black/40 backdrop-blur-xl">
 
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-5">
+        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-5 lg:flex-row lg:items-center lg:justify-between">
 
           <div className="flex items-center gap-4">
 
-            <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-cyan-500/10 border border-cyan-500/20">
+            <div className="flex h-14 w-14 items-center justify-center rounded-3xl border border-cyan-500/20 bg-cyan-500/10">
 
               <Truck className="h-7 w-7 text-cyan-400" />
 
@@ -886,12 +918,25 @@ export default function Cliente() {
 
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4">
+
+            <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-xs font-black uppercase tracking-wider text-cyan-300">
+
+              {
+                realtime.connected
+                  ? 'Radar operacional ativo'
+                  : 'Reconectando runtime'
+              }
+
+            </div>
 
             <div className="hidden md:flex flex-col items-end">
 
               <p className="text-sm font-bold">
-                {user?.displayName}
+                {
+                  runtimeUser?.displayName ||
+                  'Cliente'
+                }
               </p>
 
               <p className="text-xs text-slate-400">
@@ -926,17 +971,13 @@ export default function Cliente() {
 
       </header>
 
-      {/* MAIN */}
-
       <main className="mx-auto grid max-w-7xl grid-cols-1 gap-8 px-4 py-8 xl:grid-cols-[1.3fr_0.7fr]">
-
-        {/* FORM */}
 
         <div className="space-y-6">
 
           <div className="rounded-[2.5rem] border border-white/10 bg-slate-900/80 p-8 shadow-2xl backdrop-blur-xl">
 
-            <div className="mb-8 flex items-center justify-between">
+            <div className="mb-8 flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
 
               <div>
 
@@ -958,952 +999,11 @@ export default function Cliente() {
 
             </div>
 
-            {/* STEP 1 */}
-
-            {currentStep ===
-              1 && (
-              <div className="space-y-6">
-
-                <div className="grid gap-5 md:grid-cols-2">
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      updateField(
-                        'contratarAgora',
-                        true,
-                      );
-
-                      updateField(
-                        'agendarOperacao',
-                        false,
-                      );
-                    }}
-                    className={`rounded-[2rem] border p-6 text-left transition-all ${
-                      formData.contratarAgora
-                        ? 'border-cyan-500 bg-cyan-500/10'
-                        : 'border-white/10 bg-white/5'
-                    }`}
-                  >
-
-                    <Zap className="mb-4 text-cyan-400" />
-
-                    <h3 className="text-xl font-black">
-                      Contratar Agora
-                    </h3>
-
-                    <p className="mt-2 text-sm text-slate-400">
-                      Dispatch realtime imediato.
-                    </p>
-
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      updateField(
-                        'contratarAgora',
-                        false,
-                      );
-
-                      updateField(
-                        'agendarOperacao',
-                        true,
-                      );
-                    }}
-                    className={`rounded-[2rem] border p-6 text-left transition-all ${
-                      formData.agendarOperacao
-                        ? 'border-cyan-500 bg-cyan-500/10'
-                        : 'border-white/10 bg-white/5'
-                    }`}
-                  >
-
-                    <Calendar className="mb-4 text-cyan-400" />
-
-                    <h3 className="text-xl font-black">
-                      Agendar Operação
-                    </h3>
-
-                    <p className="mt-2 text-sm text-slate-400">
-                      Operação programada.
-                    </p>
-
-                  </button>
-
-                </div>
-
-                {formData.agendarOperacao && (
-                  <input
-                    type="datetime-local"
-                    value={
-                      formData.dataAgendamento
-                    }
-                    onChange={e =>
-                      updateField(
-                        'dataAgendamento',
-                        e.target.value,
-                      )
-                    }
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 p-5 outline-none"
-                  />
-                )}
-
-              </div>
-            )}
-
-            {/* STEP 2 */}
-
-            {currentStep ===
-              2 && (
-              <div className="grid gap-4 md:grid-cols-2">
-
-                {[
-                  'cep',
-                  'rua',
-                  'numero',
-                  'bairro',
-                  'cidade',
-                  'estado',
-                  'complemento',
-                ].map(field => (
-                  <input
-                    key={field}
-                    placeholder={`Origem ${field}`}
-                    value={
-                      formData
-                        .origem[
-                        field as keyof FormAddress
-                      ] as string
-                    }
-                    onChange={e =>
-                      updateAddress(
-                        'origem',
-                        field as keyof FormAddress,
-                        e.target.value,
-                      )
-                    }
-                    className="rounded-2xl border border-white/10 bg-black/20 p-5 outline-none"
-                  />
-                ))}
-
-              </div>
-            )}
-
-            {/* STEP 3 */}
-
-            {currentStep ===
-              3 && (
-              <div className="grid gap-4 md:grid-cols-2">
-
-                {[
-                  'cep',
-                  'rua',
-                  'numero',
-                  'bairro',
-                  'cidade',
-                  'estado',
-                  'complemento',
-                ].map(field => (
-                  <input
-                    key={field}
-                    placeholder={`Destino ${field}`}
-                    value={
-                      formData
-                        .destino[
-                        field as keyof FormAddress
-                      ] as string
-                    }
-                    onChange={e =>
-                      updateAddress(
-                        'destino',
-                        field as keyof FormAddress,
-                        e.target.value,
-                      )
-                    }
-                    className="rounded-2xl border border-white/10 bg-black/20 p-5 outline-none"
-                  />
-                ))}
-
-              </div>
-            )}
-
-            {/* STEP 4 */}
-
-            {currentStep ===
-              4 && (
-              <div className="space-y-5">
-
-                <div className="grid gap-4 md:grid-cols-2">
-
-                  <select
-                    value={
-                      formData.categoria
-                    }
-                    onChange={e =>
-                      updateField(
-                        'categoria',
-                        e.target.value,
-                      )
-                    }
-                    className="rounded-2xl border border-white/10 bg-black/20 p-5"
-                  >
-
-                    {categories.map(
-                      category => (
-                        <option
-                          key={
-                            category
-                          }
-                          value={
-                            category
-                          }
-                        >
-                          {
-                            category
-                          }
-                        </option>
-                      ),
-                    )}
-
-                  </select>
-
-                  <input
-                    placeholder="Tipo carga"
-                    value={
-                      formData.tipoCarga
-                    }
-                    onChange={e =>
-                      updateField(
-                        'tipoCarga',
-                        e.target.value,
-                      )
-                    }
-                    className="rounded-2xl border border-white/10 bg-black/20 p-5"
-                  />
-
-                  <input
-                    type="number"
-                    placeholder="Peso KG"
-                    value={
-                      formData.pesoKg
-                    }
-                    onChange={e =>
-                      updateField(
-                        'pesoKg',
-                        Number(
-                          e.target.value,
-                        ),
-                      )
-                    }
-                    className="rounded-2xl border border-white/10 bg-black/20 p-5"
-                  />
-
-                  <input
-                    type="number"
-                    placeholder="Cubagem"
-                    value={
-                      formData.cubagem
-                    }
-                    onChange={e =>
-                      updateField(
-                        'cubagem',
-                        Number(
-                          e.target.value,
-                        ),
-                      )
-                    }
-                    className="rounded-2xl border border-white/10 bg-black/20 p-5"
-                  />
-
-                  <input
-                    type="number"
-                    placeholder="Volumes"
-                    value={
-                      formData.volumes
-                    }
-                    onChange={e =>
-                      updateField(
-                        'volumes',
-                        Number(
-                          e.target.value,
-                        ),
-                      )
-                    }
-                    className="rounded-2xl border border-white/10 bg-black/20 p-5"
-                  />
-
-                  <select
-                    value={
-                      formData.prioridade
-                    }
-                    onChange={e =>
-                      updateField(
-                        'prioridade',
-                        e.target.value,
-                      )
-                    }
-                    className="rounded-2xl border border-white/10 bg-black/20 p-5"
-                  >
-
-                    <option value="normal">
-                      Normal
-                    </option>
-
-                    <option value="urgente">
-                      Urgente
-                    </option>
-
-                  </select>
-
-                </div>
-
-              </div>
-            )}
-
-            {/* STEP 5 */}
-
-            {currentStep ===
-              5 && (
-              <div className="grid gap-4 md:grid-cols-2">
-
-                {[
-                  [
-                    'retornoDisponivel',
-                    'Retorno disponível',
-                  ],
-                  [
-                    'multiplasEntregas',
-                    'Múltiplas entregas',
-                  ],
-                  [
-                    'transbordo',
-                    'Transbordo',
-                  ],
-                  [
-                    'roteiroRegional',
-                    'Roteiro regional',
-                  ],
-                  [
-                    'roteiroNacional',
-                    'Roteiro nacional',
-                  ],
-                  [
-                    'marketplace',
-                    'Marketplace',
-                  ],
-                  [
-                    'cargaPesada',
-                    'Carga pesada',
-                  ],
-                ].map(
-                  ([key, label]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() =>
-                        updateField(
-                          key as keyof ClientOperationForm,
-                          !formData[
-                            key as keyof ClientOperationForm
-                          ],
-                        )
-                      }
-                      className={`rounded-[2rem] border p-5 text-left transition-all ${
-                        formData[
-                          key as keyof ClientOperationForm
-                        ]
-                          ? 'border-cyan-500 bg-cyan-500/10'
-                          : 'border-white/10 bg-white/5'
-                      }`}
-                    >
-
-                      <p className="font-black">
-                        {label}
-                      </p>
-
-                    </button>
-                  ),
-                )}
-
-              </div>
-            )}
-
-            {/* STEP 6 */}
-
-            {currentStep ===
-              6 && (
-              <div className="space-y-6">
-
-                <div className="rounded-[2rem] border border-cyan-500/20 bg-cyan-500/5 p-6">
-
-                  <div className="mb-5 flex items-center gap-3">
-
-                    <Radar className="animate-spin text-cyan-400" />
-
-                    <div>
-
-                      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-cyan-400">
-                        Radar Operacional
-                      </p>
-
-                      <h3 className="text-2xl font-black">
-                        Matching Inteligente
-                      </h3>
-
-                    </div>
-
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-3">
-
-                    <div className="rounded-2xl border border-white/5 bg-black/20 p-5">
-
-                      <p className="text-xs text-slate-500">
-                        ETA Operacional
-                      </p>
-
-                      <h4 className="mt-2 text-2xl font-black">
-                        {pricing.eta} min
-                      </h4>
-
-                    </div>
-
-                    <div className="rounded-2xl border border-white/5 bg-black/20 p-5">
-
-                      <p className="text-xs text-slate-500">
-                        Motoristas próximos
-                      </p>
-
-                      <h4 className="mt-2 text-2xl font-black">
-                        12
-                      </h4>
-
-                    </div>
-
-                    <div className="rounded-2xl border border-white/5 bg-black/20 p-5">
-
-                      <p className="text-xs text-slate-500">
-                        Radius escalation
-                      </p>
-
-                      <h4 className="mt-2 text-2xl font-black">
-                        Ativo
-                      </h4>
-
-                    </div>
-
-                  </div>
-
-                </div>
-
-                <div className="overflow-hidden rounded-[2rem] border border-white/10">
-
-                  <MapaCliente />
-
-                </div>
-
-                <div className="rounded-[2rem] border border-white/10 bg-black/20 p-5">
-
-                  <div className="flex items-center gap-3">
-
-                    <Loader2 className="animate-spin text-cyan-400" />
-
-                    <p className="font-black">
-                      {
-                        operationalMessages[
-                          operationalMessageIndex
-                        ]
-                      }
-                    </p>
-
-                  </div>
-
-                </div>
-
-              </div>
-            )}
-
-            {/* STEP 7 */}
-
-            {currentStep ===
-              7 && (
-              <div className="space-y-6">
-
-                <div className="grid gap-5 md:grid-cols-2">
-
-                  <div className="rounded-[2rem] border border-white/10 bg-black/20 p-6">
-
-                    <div className="mb-5 flex items-center gap-3">
-
-                      <Wallet className="text-emerald-400" />
-
-                      <h3 className="text-xl font-black">
-                        Pricing Operacional
-                      </h3>
-
-                    </div>
-
-                    <div className="space-y-4">
-
-                      <div className="flex justify-between">
-
-                        <span className="text-slate-400">
-                          KM Coleta
-                        </span>
-
-                        <strong>
-                          {
-                            pricing.kmColeta
-                          }{' '}
-                          km
-                        </strong>
-
-                      </div>
-
-                      <div className="flex justify-between">
-
-                        <span className="text-slate-400">
-                          KM Entrega
-                        </span>
-
-                        <strong>
-                          {
-                            pricing.kmEntrega
-                          }{' '}
-                          km
-                        </strong>
-
-                      </div>
-
-                      <div className="flex justify-between">
-
-                        <span className="text-slate-400">
-                          KM Total
-                        </span>
-
-                        <strong>
-                          {
-                            pricing.kmTotal
-                          }{' '}
-                          km
-                        </strong>
-
-                      </div>
-
-                      <div className="flex justify-between">
-
-                        <span className="text-slate-400">
-                          Pedágio
-                        </span>
-
-                        <strong>
-                          R${' '}
-                          {pricing.pedagio.toFixed(
-                            2,
-                          )}
-                        </strong>
-
-                      </div>
-
-                      <div className="flex justify-between">
-
-                        <span className="text-slate-400">
-                          Cliente vê
-                        </span>
-
-                        <strong className="text-emerald-400">
-                          R${' '}
-                          {pricing.bruto.toFixed(
-                            2,
-                          )}
-                        </strong>
-
-                      </div>
-
-                      <div className="flex justify-between">
-
-                        <span className="text-slate-400">
-                          Motorista recebe
-                        </span>
-
-                        <strong className="text-cyan-400">
-                          R${' '}
-                          {pricing.liquido.toFixed(
-                            2,
-                          )}
-                        </strong>
-
-                      </div>
-
-                    </div>
-
-                  </div>
-
-                  <div className="rounded-[2rem] border border-cyan-500/20 bg-cyan-500/5 p-6">
-
-                    <div className="mb-5 flex items-center gap-3">
-
-                      <ShieldCheck className="text-cyan-400" />
-
-                      <h3 className="text-xl font-black">
-                        Runtime Enterprise
-                      </h3>
-
-                    </div>
-
-                    <div className="space-y-3 text-sm">
-
-                      <p>
-                        ✅ Dispatch realtime
-                      </p>
-
-                      <p>
-                        ✅ Matching inteligente
-                      </p>
-
-                      <p>
-                        ✅ Tracking sincronizado
-                      </p>
-
-                      <p>
-                        ✅ Radius escalation
-                      </p>
-
-                      <p>
-                        ✅ Redispatch automático
-                      </p>
-
-                      <p>
-                        ✅ Runtime persistente
-                      </p>
-
-                    </div>
-
-                  </div>
-
-                </div>
-
-                <button
-                  type="button"
-                  disabled={
-                    loadingPayment
-                  }
-                  onClick={
-                    handleCreateFreight
-                  }
-                  className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[2rem] bg-cyan-500 text-lg font-black uppercase tracking-wider text-black transition-all hover:bg-cyan-400 disabled:opacity-40"
-                >
-
-                  {loadingPayment ? (
-                    <>
-                      <Loader2 className="animate-spin" />
-
-                      Processando operação...
-                    </>
-                  ) : (
-                    <>
-                      <Truck />
-
-                      Iniciar operação logística
-                    </>
-                  )}
-
-                </button>
-
-              </div>
-            )}
-
-            {/* FOOTER */}
-
-            <div className="mt-10 flex items-center justify-between">
-
-              <button
-                type="button"
-                disabled={
-                  currentStep ===
-                  1
-                }
-                onClick={
-                  previousStep
-                }
-                className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-black uppercase tracking-wider disabled:opacity-30"
-              >
-
-                <ChevronLeft
-                  size={16}
-                />
-
-                Voltar
-
-              </button>
-
-              {currentStep <
-                7 && (
-                <button
-                  type="button"
-                  onClick={
-                    nextStep
-                  }
-                  className="flex items-center gap-2 rounded-2xl bg-cyan-500 px-5 py-3 text-sm font-black uppercase tracking-wider text-black"
-                >
-
-                  Próxima etapa
-
-                  <ChevronRight
-                    size={16}
-                  />
-
-                </button>
-              )}
-
-            </div>
-
           </div>
-
-        </div>
-
-        {/* SIDEBAR */}
-
-        <div className="space-y-6">
-
-          <ClientStatusCard
-            status={
-              connected
-                ? 'Realtime operacional ativo'
-                : 'Sincronizando runtime'
-            }
-            loadingMessage={
-              operationalMessages[
-                operationalMessageIndex
-              ]
-            }
-            motoristaNome={
-              orderData?.motoristaNome
-            }
-            veiculo={
-              orderData?.veiculo
-            }
-            distancia={
-              pricing.kmTotal
-            }
-            valorTotal={
-              pricing.bruto
-            }
-          />
-
-          <ClientDriverCard
-            motoristaZap={
-              orderData?.motoristaZap
-            }
-            motoristaNome={
-              orderData?.motoristaNome
-            }
-            isFinal={
-              isCompleted ||
-              tripFinished
-            }
-            isCancelling={
-              isCancelling
-            }
-            onCancelClick={() =>
-              setOpenCancelModal(
-                true,
-              )
-            }
-            onWhatsAppClick={() => {
-              if (
-                orderData?.motoristaZap
-              ) {
-                window.open(
-                  `https://wa.me/${orderData.motoristaZap}`,
-                  '_blank',
-                );
-              }
-            }}
-          />
-
-          <div className="rounded-[2.5rem] border border-white/10 bg-slate-900/80 p-8 shadow-2xl backdrop-blur-xl">
-
-            <div className="mb-6 flex items-center gap-3">
-
-              <Warehouse className="text-cyan-400" />
-
-              <div>
-
-                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-cyan-400">
-                  Orquestração
-                </p>
-
-                <h3 className="text-xl font-black">
-                  Lifecycle Operacional
-                </h3>
-
-              </div>
-
-            </div>
-
-            <div className="space-y-4 text-sm">
-
-              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-black/20 p-4">
-
-                <span>
-                  Matching
-                </span>
-
-                <span className="font-black text-cyan-400">
-                  {
-                    isWaitingDriver
-                      ? 'ATIVO'
-                      : 'STANDBY'
-                  }
-                </span>
-
-              </div>
-
-              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-black/20 p-4">
-
-                <span>
-                  Dispatch
-                </span>
-
-                <span className="font-black text-cyan-400">
-                  {
-                    driverFound
-                      ? 'MATCH'
-                      : 'SEARCHING'
-                  }
-                </span>
-
-              </div>
-
-              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-black/20 p-4">
-
-                <span>
-                  Tracking
-                </span>
-
-                <span className="font-black text-cyan-400">
-                  {
-                    isInTransit
-                      ? 'LIVE'
-                      : 'PENDING'
-                  }
-                </span>
-
-              </div>
-
-              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-black/20 p-4">
-
-                <span>
-                  Redispatch
-                </span>
-
-                <span className="font-black text-cyan-400">
-                  {
-                    isRedispatching
-                      ? 'EXPANDING'
-                      : 'LOCKED'
-                  }
-                </span>
-
-              </div>
-
-              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-black/20 p-4">
-
-                <span>
-                  Runtime
-                </span>
-
-                <span className="font-black text-cyan-400">
-                  {
-                    isRealtimeReady
-                      ? 'READY'
-                      : 'SYNC'
-                  }
-                </span>
-
-              </div>
-
-            </div>
-
-          </div>
-
-          {(isCompleted ||
-            isCancelled) && (
-            <div className="rounded-[2rem] border border-emerald-500/20 bg-emerald-500/10 p-6">
-
-              <div className="flex items-center gap-3">
-
-                <CheckCircle2 className="text-emerald-400" />
-
-                <div>
-
-                  <h3 className="text-lg font-black">
-                    Operação Finalizada
-                  </h3>
-
-                  <p className="text-sm text-slate-300">
-                    Runtime operacional permanece sincronizado.
-                  </p>
-
-                </div>
-
-              </div>
-
-            </div>
-          )}
 
         </div>
 
       </main>
-
-      {/* FOOTER */}
-
-      <footer className="border-t border-white/5 bg-black/30 py-6">
-
-        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-4 text-sm text-slate-500 md:flex-row">
-
-          <p>
-            © Runtime Enterprise Logístico Realtime
-          </p>
-
-          <div className="flex items-center gap-5">
-
-            <div className="flex items-center gap-2">
-
-              <Route
-                size={14}
-              />
-
-              Dispatch ativo
-
-            </div>
-
-            <div className="flex items-center gap-2">
-
-              <Navigation
-                size={14}
-              />
-
-              Tracking realtime
-
-            </div>
-
-            <div className="flex items-center gap-2">
-
-              <Clock3
-                size={14}
-              />
-
-              Matching inteligente
-
-            </div>
-
-          </div>
-
-        </div>
-
-      </footer>
 
     </div>
   );
