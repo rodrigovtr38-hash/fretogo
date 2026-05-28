@@ -29,47 +29,574 @@ import {
   AppTripState,
 } from '../state/tripStateMachine';
 
-type CreateFreightPayload =
-  {
-    clienteId: string;
+type CategoriaOperacional =
+  | 'moto'
+  | 'carro'
+  | 'utilitario'
+  | 'toco'
+  | 'truck'
+  | 'carreta'
+  | 'bitrem';
 
-    origem: any;
+type PrioridadeOperacional =
+  | 'normal'
+  | 'urgente';
 
-    destino: any;
+type OperationMode =
+  | 'marketplace'
+  | 'regional'
+  | 'nacional'
+  | 'retorno'
+  | 'transbordo'
+  | 'multipla_entrega'
+  | 'carga_pesada';
 
-    categoria: string;
+type Coordinates = {
+  lat: number;
+  lng: number;
+};
 
-    tipoCarga: string;
+type AddressPayload = {
+  cep?: string;
+  rua?: string;
+  numero?: string;
+  bairro?: string;
+  cidade?: string;
+  estado?: string;
+  complemento?: string;
+  enderecoFormatado?: string;
+  lat: number;
+  lng: number;
+};
 
-    pesoKg: number;
+type CreateFreightPayload = {
+  clienteId: string;
 
-    volumes: number;
+  origem: AddressPayload;
 
-    prioridade:
-      | 'normal'
-      | 'urgente';
+  destino: AddressPayload;
 
-    observacoes?: string;
+  categoria: CategoriaOperacional;
 
-    distancia: number;
+  tipoCarga: string;
 
-    valorTotal: number;
+  pesoKg: number;
 
-    agendado?: boolean;
+  cubagem?: number;
 
-    dataAgendamento?: string;
+  volumes: number;
 
-    retornoDisponivel?: boolean;
-  };
+  prioridade: PrioridadeOperacional;
+
+  observacoes?: string;
+
+  distancia?: number;
+
+  kmColeta?: number;
+
+  kmEntrega?: number;
+
+  kmTotal?: number;
+
+  valorTotal?: number;
+
+  agendado?: boolean;
+
+  dataAgendamento?: string;
+
+  retornoDisponivel?: boolean;
+
+  multiplasEntregas?: boolean;
+
+  transbordo?: boolean;
+
+  roteiroRegional?: boolean;
+
+  roteiroNacional?: boolean;
+
+  marketplace?: boolean;
+
+  cargaPesada?: boolean;
+
+  pedagio?: number;
+
+  clienteNome?: string;
+
+  clienteTelefone?: string;
+};
+
+type PricingMetadata = {
+  taxaPlataformaPercentual: number;
+
+  valorBruto: number;
+
+  valorLiquidoMotorista: number;
+
+  pedagioIncluso: number;
+
+  kmColeta: number;
+
+  kmEntrega: number;
+
+  kmTotal: number;
+
+  etaMinutos: number;
+
+  modoOperacional: OperationMode;
+
+  categoria: CategoriaOperacional;
+};
+
+type CreateFreightResponse = {
+  success: boolean;
+
+  freteId?: string;
+
+  error?: string;
+};
+
+const HEAVY_CATEGORIES: CategoriaOperacional[] =
+  [
+    'toco',
+    'truck',
+    'carreta',
+    'bitrem',
+  ];
+
+const LIGHT_CATEGORIES: CategoriaOperacional[] =
+  [
+    'moto',
+    'carro',
+    'utilitario',
+  ];
+
+const inflightRegistry =
+  new Set<string>();
 
 class ClientFreightService {
-  async criarFrete(
+  /*
+  =========================================================
+  HELPERS
+  =========================================================
+  */
+
+  private normalizeNumber(
+    value: unknown,
+    fallback = 0,
+  ) {
+    const parsed =
+      Number(value);
+
+    if (
+      Number.isNaN(parsed)
+    ) {
+      return fallback;
+    }
+
+    return parsed;
+  }
+
+  private round(
+    value: number,
+  ) {
+    return Number(
+      value.toFixed(2),
+    );
+  }
+
+  private buildInflightKey(
     payload: CreateFreightPayload,
   ) {
+    return JSON.stringify(
+      {
+        clienteId:
+          payload.clienteId,
+
+        origem:
+          payload.origem
+            ?.enderecoFormatado,
+
+        destino:
+          payload.destino
+            ?.enderecoFormatado,
+
+        categoria:
+          payload.categoria,
+
+        pesoKg:
+          payload.pesoKg,
+
+        volumes:
+          payload.volumes,
+      },
+    );
+  }
+
+  private calculateDistanceKm(
+    origin: Coordinates,
+    destination: Coordinates,
+  ) {
+    const R = 6371;
+
+    const dLat =
+      ((destination.lat -
+        origin.lat) *
+        Math.PI) /
+      180;
+
+    const dLon =
+      ((destination.lng -
+        origin.lng) *
+        Math.PI) /
+      180;
+
+    const a =
+      Math.sin(dLat / 2) *
+        Math.sin(dLat / 2) +
+      Math.cos(
+        (origin.lat *
+          Math.PI) /
+          180,
+      ) *
+        Math.cos(
+          (destination.lat *
+            Math.PI) /
+            180,
+        ) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+
+    const c =
+      2 *
+      Math.atan2(
+        Math.sqrt(a),
+        Math.sqrt(1 - a),
+      );
+
+    return this.round(R * c);
+  }
+
+  private calculatePedagio(
+    payload: CreateFreightPayload,
+    kmTotal: number,
+  ) {
+    const isHeavy =
+      HEAVY_CATEGORIES.includes(
+        payload.categoria,
+      );
+
+    if (!isHeavy) {
+      return 0;
+    }
+
+    return this.round(
+      kmTotal * 0.45,
+    );
+  }
+
+  private resolveOperationMode(
+    payload: CreateFreightPayload,
+  ): OperationMode {
+    if (
+      payload.transbordo
+    ) {
+      return 'transbordo';
+    }
+
+    if (
+      payload.multiplasEntregas
+    ) {
+      return 'multipla_entrega';
+    }
+
+    if (
+      payload.cargaPesada
+    ) {
+      return 'carga_pesada';
+    }
+
+    if (
+      payload.retornoDisponivel
+    ) {
+      return 'retorno';
+    }
+
+    if (
+      payload.roteiroNacional
+    ) {
+      return 'nacional';
+    }
+
+    if (
+      payload.roteiroRegional
+    ) {
+      return 'regional';
+    }
+
+    return 'marketplace';
+  }
+
+  private calculateBasePrice(
+    payload: CreateFreightPayload,
+    kmTotal: number,
+  ) {
+    const categoryBase =
+      {
+        moto: 1.8,
+        carro: 2.4,
+        utilitario: 3.5,
+        toco: 6.2,
+        truck: 8.5,
+        carreta: 11,
+        bitrem: 15,
+      }[
+        payload.categoria
+      ] || 2;
+
+    const urgencyFactor =
+      payload.prioridade ===
+      'urgente'
+        ? 1.35
+        : 1;
+
+    const weightFactor =
+      Math.max(
+        1,
+        payload.pesoKg /
+          100,
+      );
+
+    const volumeFactor =
+      Math.max(
+        1,
+        payload.volumes *
+          0.15,
+      );
+
+    return this.round(
+      kmTotal *
+        categoryBase *
+        urgencyFactor *
+        weightFactor *
+        volumeFactor,
+    );
+  }
+
+  private calculateETA(
+    kmTotal: number,
+    payload: CreateFreightPayload,
+  ) {
+    const avgSpeed =
+      HEAVY_CATEGORIES.includes(
+        payload.categoria,
+      )
+        ? 58
+        : 75;
+
+    return Math.max(
+      15,
+      Math.round(
+        (kmTotal /
+          avgSpeed) *
+          60,
+      ),
+    );
+  }
+
+  private normalizePayload(
+    payload: CreateFreightPayload,
+  ) {
+    const kmEntrega =
+      payload.kmEntrega ||
+      payload.distancia ||
+      this.calculateDistanceKm(
+        payload.origem,
+        payload.destino,
+      );
+
+    const kmColeta =
+      payload.kmColeta ||
+      Math.max(
+        2,
+        Math.round(
+          kmEntrega *
+            0.12,
+        ),
+      );
+
+    const kmTotal =
+      payload.kmTotal ||
+      this.round(
+        kmEntrega +
+          kmColeta,
+      );
+
+    const pedagio =
+      payload.pedagio ||
+      this.calculatePedagio(
+        payload,
+        kmTotal,
+      );
+
+    const valorBase =
+      payload.valorTotal ||
+      this.calculateBasePrice(
+        payload,
+        kmTotal,
+      );
+
+    const taxaPercentual =
+      HEAVY_CATEGORIES.includes(
+        payload.categoria,
+      )
+        ? 15
+        : 20;
+
+    const valorBruto =
+      this.round(
+        valorBase +
+          pedagio,
+      );
+
+    const taxaPlataforma =
+      this.round(
+        (valorBruto *
+          taxaPercentual) /
+          100,
+      );
+
+    const valorLiquidoMotorista =
+      this.round(
+        valorBruto -
+          taxaPlataforma,
+      );
+
+    const etaMinutos =
+      this.calculateETA(
+        kmTotal,
+        payload,
+      );
+
+    const mode =
+      this.resolveOperationMode(
+        payload,
+      );
+
+    const pricingMetadata: PricingMetadata =
+      {
+        taxaPlataformaPercentual:
+          taxaPercentual,
+
+        valorBruto,
+
+        valorLiquidoMotorista,
+
+        pedagioIncluso:
+          pedagio,
+
+        kmColeta,
+
+        kmEntrega,
+
+        kmTotal,
+
+        etaMinutos,
+
+        modoOperacional:
+          mode,
+
+        categoria:
+          payload.categoria,
+      };
+
+    return {
+      normalizedPayload: {
+        ...payload,
+
+        kmColeta,
+
+        kmEntrega,
+
+        kmTotal,
+
+        valorTotal:
+          valorBruto,
+
+        valorLiquidoMotorista,
+
+        pedagio,
+
+        etaMinutos,
+
+        operationMode:
+          mode,
+      },
+
+      pricingMetadata,
+    };
+  }
+
+  /*
+  =========================================================
+  CREATE FREIGHT
+  =========================================================
+  */
+
+  async criarFrete(
+    payload: CreateFreightPayload,
+  ): Promise<CreateFreightResponse> {
+    const inflightKey =
+      this.buildInflightKey(
+        payload,
+      );
+
+    if (
+      inflightRegistry.has(
+        inflightKey,
+      )
+    ) {
+      return {
+        success: false,
+        error:
+          'OPERACAO_EM_PROCESSAMENTO',
+      };
+    }
+
+    inflightRegistry.add(
+      inflightKey,
+    );
+
     try {
+      const {
+        normalizedPayload,
+        pricingMetadata,
+      } =
+        this.normalizePayload(
+          payload,
+        );
+
       /*
       =========================================================
-      CREATE FREIGHT FIRST
+      STALE VALIDATION
+      =========================================================
+      */
+
+      if (
+        !normalizedPayload
+          .origem?.lat ||
+        !normalizedPayload
+          .destino?.lat
+      ) {
+        return {
+          success: false,
+          error:
+            'COORDENADAS_INVALIDAS',
+        };
+      }
+
+      /*
+      =========================================================
+      CREATE FREIGHT
       =========================================================
       */
 
@@ -81,56 +608,151 @@ class ClientFreightService {
           ),
           {
             clienteId:
-              payload.clienteId,
+              normalizedPayload.clienteId,
+
+            clienteNome:
+              normalizedPayload.clienteNome ||
+              null,
+
+            clienteTelefone:
+              normalizedPayload.clienteTelefone ||
+              null,
 
             origem:
-              payload.origem,
+              normalizedPayload.origem,
 
             destino:
-              payload.destino,
+              normalizedPayload.destino,
 
             categoria:
-              payload.categoria,
+              normalizedPayload.categoria,
 
             tipoCarga:
-              payload.tipoCarga,
+              normalizedPayload.tipoCarga,
 
             pesoKg:
-              payload.pesoKg,
+              normalizedPayload.pesoKg,
+
+            cubagem:
+              normalizedPayload.cubagem ||
+              0,
 
             volumes:
-              payload.volumes,
+              normalizedPayload.volumes,
 
             prioridade:
-              payload.prioridade,
+              normalizedPayload.prioridade,
 
             observacoes:
-              payload.observacoes ||
+              normalizedPayload.observacoes ||
               '',
 
-            distancia:
-              payload.distancia,
-
-            valorTotal:
-              payload.valorTotal,
-
             agendado:
-              payload.agendado ||
+              normalizedPayload.agendado ||
               false,
 
             dataAgendamento:
-              payload.dataAgendamento ||
+              normalizedPayload.dataAgendamento ||
               null,
 
             retornoDisponivel:
-              payload.retornoDisponivel ||
+              normalizedPayload.retornoDisponivel ||
               false,
+
+            multiplasEntregas:
+              normalizedPayload.multiplasEntregas ||
+              false,
+
+            transbordo:
+              normalizedPayload.transbordo ||
+              false,
+
+            roteiroRegional:
+              normalizedPayload.roteiroRegional ||
+              false,
+
+            roteiroNacional:
+              normalizedPayload.roteiroNacional ||
+              false,
+
+            marketplace:
+              normalizedPayload.marketplace ||
+              false,
+
+            cargaPesada:
+              normalizedPayload.cargaPesada ||
+              false,
+
+            operationMode:
+              normalizedPayload.operationMode,
+
+            kmColeta:
+              pricingMetadata.kmColeta,
+
+            kmEntrega:
+              pricingMetadata.kmEntrega,
+
+            kmTotal:
+              pricingMetadata.kmTotal,
+
+            etaMinutos:
+              pricingMetadata.etaMinutos,
+
+            pedagio:
+              pricingMetadata.pedagioIncluso,
+
+            taxaPlataformaPercentual:
+              pricingMetadata.taxaPlataformaPercentual,
+
+            valorTotal:
+              pricingMetadata.valorBruto,
+
+            valorLiquidoMotorista:
+              pricingMetadata.valorLiquidoMotorista,
 
             pagamentoStatus:
               'pendente',
 
+            dispatchStatus:
+              'aguardando_dispatch',
+
+            trackingStatus:
+              'aguardando_tracking',
+
+            matchingStatus:
+              'aguardando_matching',
+
+            queuePersisted:
+              true,
+
             status:
               AppTripState.PENDENTE,
+
+            runtimeMetadata:
+              {
+                createdFrom:
+                  'client_runtime_enterprise',
+
+                realtime:
+                  true,
+
+                pricingSynchronized:
+                  true,
+
+                dispatchSynchronized:
+                  true,
+
+                trackingSynchronized:
+                  true,
+
+                matchingSynchronized:
+                  true,
+
+                operationalMode:
+                  pricingMetadata.modoOperacional,
+              },
+
+            pricingMetadata,
 
             criadoEm:
               serverTimestamp(),
@@ -150,13 +772,13 @@ class ClientFreightService {
         await paymentService.processarPagamento(
           {
             valor:
-              payload.valorTotal,
+              pricingMetadata.valorBruto,
 
             descricao:
-              'Pagamento Frete',
+              `Frete ${normalizedPayload.categoria}`,
 
             clienteId:
-              payload.clienteId,
+              normalizedPayload.clienteId,
 
             freteId:
               freteRef.id,
@@ -181,6 +803,9 @@ class ClientFreightService {
           {
             pagamentoStatus:
               'falhou',
+
+            rollbackReason:
+              'payment_failed',
 
             status:
               AppTripState.CANCELADO,
@@ -216,6 +841,15 @@ class ClientFreightService {
           transactionId:
             pagamento.transactionId,
 
+          dispatchStatus:
+            'dispatch_ready',
+
+          matchingStatus:
+            'matching_ready',
+
+          trackingStatus:
+            'tracking_ready',
+
           status:
             AppTripState.PROCURANDO_MOTORISTA,
 
@@ -226,7 +860,7 @@ class ClientFreightService {
 
       /*
       =========================================================
-      DISPATCH
+      DISPATCH ORCHESTRATION
       =========================================================
       */
 
@@ -234,19 +868,23 @@ class ClientFreightService {
         freteRef.id,
         {
           categoria:
-            payload.categoria,
+            normalizedPayload.categoria,
 
           origemLat:
-            payload.origem.lat,
+            normalizedPayload
+              .origem.lat,
 
           origemLng:
-            payload.origem.lng,
+            normalizedPayload
+              .origem.lng,
 
           destinoLat:
-            payload.destino.lat,
+            normalizedPayload
+              .destino.lat,
 
           destinoLng:
-            payload.destino.lng,
+            normalizedPayload
+              .destino.lng,
         },
       );
 
@@ -261,6 +899,14 @@ class ClientFreightService {
         {
           freteId:
             freteRef.id,
+
+          categoria:
+            normalizedPayload.categoria,
+
+          operationMode:
+            normalizedPayload.operationMode,
+
+          pricingMetadata,
         },
       );
 
@@ -281,8 +927,18 @@ class ClientFreightService {
         error:
           'ERRO_CRIAR_FRETE',
       };
+    } finally {
+      inflightRegistry.delete(
+        inflightKey,
+      );
     }
   }
+
+  /*
+  =========================================================
+  CANCEL FREIGHT
+  =========================================================
+  */
 
   async cancelarFrete(
     freteId: string,
@@ -299,6 +955,15 @@ class ClientFreightService {
         {
           status:
             AppTripState.CANCELADO,
+
+          dispatchStatus:
+            'cancelado',
+
+          trackingStatus:
+            'cancelado',
+
+          matchingStatus:
+            'cancelado',
 
           atualizadoEm:
             serverTimestamp(),
@@ -322,6 +987,12 @@ class ClientFreightService {
       return false;
     }
   }
+
+  /*
+  =========================================================
+  UPDATE FREIGHT
+  =========================================================
+  */
 
   async atualizarFrete(
     freteId: string,
@@ -358,6 +1029,12 @@ class ClientFreightService {
     }
   }
 
+  /*
+  =========================================================
+  GET FREIGHT
+  =========================================================
+  */
+
   async buscarFrete(
     freteId: string,
   ) {
@@ -393,6 +1070,12 @@ class ClientFreightService {
     }
   }
 
+  /*
+  =========================================================
+  FINISH FREIGHT
+  =========================================================
+  */
+
   async finalizarFrete(
     freteId: string,
   ) {
@@ -424,6 +1107,15 @@ class ClientFreightService {
             {
               status:
                 AppTripState.ENTREGUE,
+
+              dispatchStatus:
+                'finalizado',
+
+              trackingStatus:
+                'finalizado',
+
+              matchingStatus:
+                'finalizado',
 
               atualizadoEm:
                 serverTimestamp(),
