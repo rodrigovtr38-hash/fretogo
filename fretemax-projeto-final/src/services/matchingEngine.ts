@@ -1,95 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useState,
-  ReactNode,
-} from 'react';
-
-interface ClientContextData {
-  activeRequest: string | null;
-
-  destinationCode: string | null;
-
-  driverAccepted: boolean;
-
-  setActiveRequest: (
-    value: string | null,
-  ) => void;
-
-  setDestinationCode: (
-    value: string | null,
-  ) => void;
-
-  setDriverAccepted: (
-    value: boolean,
-  ) => void;
-}
-
-const ClientContext =
-  createContext<
-    ClientContextData | undefined
-  >(undefined);
-
-interface ClientProviderProps {
-  children: ReactNode;
-}
-
-export function ClientProvider({
-  children,
-}: ClientProviderProps) {
-
-  const [
-    activeRequest,
-    setActiveRequest,
-  ] = useState<string | null>(
-    null,
-  );
-
-  const [
-    destinationCode,
-    setDestinationCode,
-  ] = useState<string | null>(
-    null,
-  );
-
-  const [
-    driverAccepted,
-    setDriverAccepted,
-  ] = useState(false);
-
-  return (
-    <ClientContext.Provider
-      value={{
-        activeRequest,
-        destinationCode,
-        driverAccepted,
-
-        setActiveRequest,
-        setDestinationCode,
-        setDriverAccepted,
-      }}
-    >
-      {children}
-    </ClientContext.Provider>
-  );
-}
-
-export function useClientContext() {
-
-  const context =
-    useContext(ClientContext);
-
-  if (!context) {
-
-    throw new Error(
-      'useClientContext deve ser usado dentro de ClientProvider',
-    );
-
-  }
-
-  return context;
-}
-src/services/matchingEngine.ts
+```ts
 import {
   collection,
   doc,
@@ -163,13 +72,11 @@ export interface MotoristaMatch {
 function normalizeCategoria(
   categoria?: string,
 ) {
-
   return (
     categoria
       ?.toLowerCase()
       .trim() || ''
   );
-
 }
 
 export async function buscarMotoristasCompativeis(
@@ -177,7 +84,6 @@ export async function buscarMotoristasCompativeis(
 ): Promise<
   MotoristaMatch[]
 > {
-
   try {
 
     const categoria =
@@ -256,6 +162,7 @@ export async function buscarMotoristasCompativeis(
             return (
               motoristaCategoria ===
                 categoria ||
+
               categoria ===
                 'utilitario'
             );
@@ -280,14 +187,12 @@ export async function buscarMotoristasCompativeis(
     return [];
 
   }
-
 }
 
 export async function enviarOfertaMotorista(
   motoristaId: string,
   frete: FretePayload,
 ): Promise<boolean> {
-
   try {
 
     const motoristaRef =
@@ -340,5 +245,5 @@ export async function enviarOfertaMotorista(
     return false;
 
   }
-
 }
+```
