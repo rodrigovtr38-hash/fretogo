@@ -1,18 +1,14 @@
 import {
+  collection,
   doc,
-  updateDoc,
+  getDocs,
+  query,
   serverTimestamp,
+  updateDoc,
+  where,
 } from 'firebase/firestore';
 
 import { db } from '../firebase';
-
-import {
-  DriverMatchingService,
-} from './driverMatchingService';
-
-import {
-  DispatchQueueService,
-} from './dispatchQueueService';
 
 export type CategoriaVeiculo =
   | 'moto'
@@ -54,100 +50,203 @@ export interface FretePayload {
   descricao: string;
 }
 
-async function atualizarFreteStatus(
-  freteId: string,
-  status: string,
-  motoristaId?: string,
+export interface MotoristaMatch {
+  id: string;
+
+  nome: string;
+
+  telefone?: string;
+
+  categoria?: string;
+
+  latitude?: number;
+
+  longitude?: number;
+
+  online?: boolean;
+
+  score?: number;
+}
+
+/*
+=====================================================
+HELPERS
+=====================================================
+*/
+
+function normalizeCategoria(
+  categoria?: string,
 ) {
+  return (
+    categoria
+      ?.toLowerCase()
+      .trim() || ''
+  );
+}
+
+/*
+=====================================================
+BUSCAR MOTORISTAS
+=====================================================
+*/
+
+export async function buscarMotoristasCompativeis(
+  frete: FretePayload,
+): Promise<
+  MotoristaMatch[]
+> {
   try {
-    const freteRef = doc(
-      db,
-      'fretes',
-      freteId,
+    const categoria =
+      normalizeCategoria(
+        frete.categoria,
+      );
+
+    const motoristasRef =
+      collection(
+        db,
+        'motoristas',
+      );
+
+    const motoristasQuery =
+      query(
+        motoristasRef,
+        where(
+          'online',
+          '==',
+          true,
+        ),
+      );
+
+    const snapshot =
+      await getDocs(
+        motoristasQuery,
+      );
+
+    const motoristas =
+      snapshot.docs
+        .map(docSnap => {
+          const data =
+            docSnap.data();
+
+          return {
+            id:
+              docSnap.id,
+
+            nome:
+              data.nome ||
+              'Motorista',
+
+            telefone:
+              data.telefone ||
+              '',
+
+            categoria:
+              data.categoria ||
+              '',
+
+            latitude:
+              data.latitude,
+
+            longitude:
+              data.longitude,
+
+            online:
+              data.online,
+
+            score:
+              Number(
+                data.score || 0,
+              ),
+          } as MotoristaMatch;
+        })
+        .filter(
+          motorista => {
+            const motoristaCategoria =
+              normalizeCategoria(
+                motorista.categoria,
+              );
+
+            return (
+              motoristaCategoria ===
+                categoria ||
+              categoria ===
+                'utilitario'
+            );
+          },
+        )
+        .sort(
+          (a, b) =>
+            (b.score || 0) -
+            (a.score || 0),
+        );
+
+    return motoristas;
+  } catch (error) {
+    console.error(
+      '[MATCHING] ERRO BUSCAR MOTORISTAS:',
+      error,
     );
 
-    await updateDoc(
-      freteRef,
-      {
-        status,
+    return [];
+  }
+}
 
-        motoristaId:
-          motoristaId || null,
+/*
+=====================================================
+ENVIAR OFERTA
+=====================================================
+*/
+
+export async function enviarOfertaMotorista(
+  motoristaId: string,
+  frete: FretePayload,
+): Promise<boolean> {
+  try {
+    const motoristaRef =
+      doc(
+        db,
+        'motoristas',
+        motoristaId,
+      );
+
+    await updateDoc(
+      motoristaRef,
+      {
+        ofertaAtual: {
+          freteId:
+            frete.id,
+
+          categoria:
+            frete.categoria,
+
+          valor:
+            frete.valor,
+
+          origem:
+            frete.origem,
+
+          destino:
+            frete.destino,
+
+          enviadaEm:
+            serverTimestamp(),
+        },
+
+        status:
+          'MATCHING',
 
         atualizadoEm:
           serverTimestamp(),
       },
     );
+
+    return true;
   } catch (error) {
     console.error(
-      'ERRO AO ATUALIZAR FRETE:',
-      error,
-    );
-  }
-}
-
-export async function iniciarMatchingFrete(
-  frete: FretePayload,
-) {
-  try {
-    await atualizarFreteStatus(
-      frete.id,
-      'buscando_motorista',
-    );
-
-    const motoristas =
-      await DriverMatchingService.buscarMotoristas(
-        {
-          categoria:
-            frete.categoria,
-
-          origem: {
-            lat: frete.origem.lat,
-            lng: frete.origem.lng,
-          },
-        },
-      );
-
-    if (!motoristas.length) {
-      await atualizarFreteStatus(
-        frete.id,
-        'sem_motorista',
-      );
-
-      return {
-        sucesso: false,
-
-        motivo:
-          'SEM_MOTORISTA',
-      };
-    }
-
-    await DispatchQueueService.iniciarFila(
-      frete,
-    );
-
-    return {
-      sucesso: true,
-
-      motoristas:
-        motoristas.length,
-    };
-  } catch (error) {
-    console.error(
-      'ERRO MATCHING:',
+      '[MATCHING] ERRO ENVIAR OFERTA:',
       error,
     );
 
-    await atualizarFreteStatus(
-      frete.id,
-      'erro_matching',
-    );
-
-    return {
-      sucesso: false,
-
-      motivo:
-        'ERRO_INTERNO',
-    };
+    return false;
   }
 }
