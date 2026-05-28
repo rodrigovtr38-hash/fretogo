@@ -76,12 +76,16 @@ export function ClientProvider({
   const [
     activeRequest,
     setActiveRequestState,
-  ] = useState<string | null>(null);
+  ] = useState<string | null>(
+    null,
+  );
 
   const [
     destinationCode,
     setDestinationCodeState,
-  ] = useState<string | null>(null);
+  ] = useState<string | null>(
+    null,
+  );
 
   const [
     driverAccepted,
@@ -150,76 +154,6 @@ export function ClientProvider({
         error,
       );
     }
-  }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        CLIENT_RUNTIME_STORAGE,
-        JSON.stringify({
-          activeRequest,
-          destinationCode,
-          driverAccepted,
-          realtime,
-        }),
-      );
-    } catch (error) {
-      console.error(
-        'CLIENT_CONTEXT_PERSISTENCE_ERROR',
-        error,
-      );
-    }
-  }, [
-    activeRequest,
-    destinationCode,
-    driverAccepted,
-    realtime,
-  ]);
-
-  useEffect(() => {
-    const handleOnline =
-      () => {
-        setRealtime(
-          previous => ({
-            ...previous,
-            connected: true,
-            reconnecting: false,
-          }),
-        );
-      };
-
-    const handleOffline =
-      () => {
-        setRealtime(
-          previous => ({
-            ...previous,
-            connected: false,
-            reconnecting: true,
-          }),
-        );
-      };
-
-    window.addEventListener(
-      'online',
-      handleOnline,
-    );
-
-    window.addEventListener(
-      'offline',
-      handleOffline,
-    );
-
-    return () => {
-      window.removeEventListener(
-        'online',
-        handleOnline,
-      );
-
-      window.removeEventListener(
-        'offline',
-        handleOffline,
-      );
-    };
   }, []);
 
   const setRealtimeConnected =
@@ -311,54 +245,10 @@ export function ClientProvider({
         false,
       );
 
-      setRealtime({
-        connected: true,
-        reconnecting: false,
-        radarActive: true,
-        matchingActive: true,
-        trackingActive: true,
-      });
-
       localStorage.removeItem(
         CLIENT_RUNTIME_STORAGE,
       );
     }, []);
-
-  const setActiveRequest =
-    useCallback(
-      (
-        value: string | null,
-      ) => {
-        setActiveRequestState(
-          value,
-        );
-      },
-      [],
-    );
-
-  const setDestinationCode =
-    useCallback(
-      (
-        value: string | null,
-      ) => {
-        setDestinationCodeState(
-          value,
-        );
-      },
-      [],
-    );
-
-  const setDriverAccepted =
-    useCallback(
-      (
-        value: boolean,
-      ) => {
-        setDriverAcceptedState(
-          value,
-        );
-      },
-      [],
-    );
 
   const value =
     useMemo(
@@ -369,14 +259,23 @@ export function ClientProvider({
 
         realtime,
 
-        setActiveRequest,
-        setDestinationCode,
-        setDriverAccepted,
+        setActiveRequest:
+          setActiveRequestState,
+
+        setDestinationCode:
+          setDestinationCodeState,
+
+        setDriverAccepted:
+          setDriverAcceptedState,
 
         setRealtimeConnected,
+
         setRealtimeReconnecting,
+
         setRadarActive,
+
         setMatchingActive,
+
         setTrackingActive,
 
         resetClientRuntime,
@@ -386,10 +285,6 @@ export function ClientProvider({
         destinationCode,
         driverAccepted,
         realtime,
-
-        setActiveRequest,
-        setDestinationCode,
-        setDriverAccepted,
 
         setRealtimeConnected,
         setRealtimeReconnecting,
