@@ -1,3 +1,4 @@
+```ts
 import {
   doc,
   updateDoc,
@@ -14,45 +15,23 @@ import {
   MotoristaMatch,
 } from './matchingEngine';
 
-/*
-=====================================================
-CONFIG
-=====================================================
-*/
+const DRIVER_RESPONSE_TIMEOUT =
+  15000;
 
-const DRIVER_RESPONSE_TIMEOUT = 15000;
-
-const MAX_REDISPATCH_ATTEMPTS = 10;
-
-/*
-=====================================================
-TIPOS
-=====================================================
-*/
+const MAX_REDISPATCH_ATTEMPTS =
+  10;
 
 interface QueueState {
   index: number;
+
   tentativa: number;
 }
 
-/*
-=====================================================
-SERVICE
-=====================================================
-*/
-
 export class DispatchQueueService {
-
-  /*
-  =====================================================
-  START
-  =====================================================
-  */
 
   static async iniciarFila(
     frete: FretePayload,
   ) {
-
     try {
 
       console.log(
@@ -60,22 +39,10 @@ export class DispatchQueueService {
         frete.id,
       );
 
-      /*
-      ============================================
-      BUSCA MOTORISTAS
-      ============================================
-      */
-
       const motoristas =
         await buscarMotoristasCompativeis(
           frete,
         );
-
-      /*
-      ============================================
-      SEM MOTORISTA
-      ============================================
-      */
 
       if (!motoristas.length) {
 
@@ -84,7 +51,11 @@ export class DispatchQueueService {
         );
 
         await updateDoc(
-          doc(db, 'fretes', frete.id),
+          doc(
+            db,
+            'fretes',
+            frete.id,
+          ),
           {
             status:
               'sem_motorista',
@@ -100,14 +71,12 @@ export class DispatchQueueService {
         return;
       }
 
-      /*
-      ============================================
-      STATUS INICIAL
-      ============================================
-      */
-
       await updateDoc(
-        doc(db, 'fretes', frete.id),
+        doc(
+          db,
+          'fretes',
+          frete.id,
+        ),
         {
           status:
             'buscando_motorista',
@@ -122,12 +91,6 @@ export class DispatchQueueService {
             serverTimestamp(),
         },
       );
-
-      /*
-      ============================================
-      PROCESSA FILA
-      ============================================
-      */
 
       await this.processarFila(
         frete,
@@ -146,7 +109,11 @@ export class DispatchQueueService {
       );
 
       await updateDoc(
-        doc(db, 'fretes', frete.id),
+        doc(
+          db,
+          'fretes',
+          frete.id,
+        ),
         {
           status:
             'erro_dispatch',
@@ -158,41 +125,27 @@ export class DispatchQueueService {
             serverTimestamp(),
         },
       );
-
     }
   }
-
-  /*
-  =====================================================
-  PROCESSAR FILA
-  =====================================================
-  */
 
   static async processarFila(
     frete: FretePayload,
     motoristas: MotoristaMatch[],
     state: QueueState,
   ) {
-
     try {
-
-      /*
-      ============================================
-      LIMITADOR
-      ============================================
-      */
 
       if (
         state.tentativa >
         MAX_REDISPATCH_ATTEMPTS
       ) {
 
-        console.log(
-          '[DISPATCH] LIMITE REDISPATCH',
-        );
-
         await updateDoc(
-          doc(db, 'fretes', frete.id),
+          doc(
+            db,
+            'fretes',
+            frete.id,
+          ),
           {
             status:
               'fila_esgotada',
@@ -207,24 +160,18 @@ export class DispatchQueueService {
 
         return;
       }
-
-      /*
-      ============================================
-      FIM FILA
-      ============================================
-      */
 
       if (
         state.index >=
         motoristas.length
       ) {
 
-        console.log(
-          '[DISPATCH] FILA ESGOTADA',
-        );
-
         await updateDoc(
-          doc(db, 'fretes', frete.id),
+          doc(
+            db,
+            'fretes',
+            frete.id,
+          ),
           {
             status:
               'fila_esgotada',
@@ -240,25 +187,10 @@ export class DispatchQueueService {
         return;
       }
 
-      /*
-      ============================================
-      MOTORISTA
-      ============================================
-      */
-
       const motorista =
-        motoristas[state.index];
-
-      console.log(
-        '[DISPATCH] ENVIANDO:',
-        motorista.nome,
-      );
-
-      /*
-      ============================================
-      ENVIA OFERTA
-      ============================================
-      */
+        motoristas[
+          state.index
+        ];
 
       const enviado =
         await enviarOfertaMotorista(
@@ -266,17 +198,7 @@ export class DispatchQueueService {
           frete,
         );
 
-      /*
-      ============================================
-      FALHA ENVIO
-      ============================================
-      */
-
       if (!enviado) {
-
-        console.log(
-          '[DISPATCH] FALHA ENVIO',
-        );
 
         return await this.processarFila(
           frete,
@@ -291,14 +213,12 @@ export class DispatchQueueService {
         );
       }
 
-      /*
-      ============================================
-      STATUS AGUARDANDO
-      ============================================
-      */
-
       await updateDoc(
-        doc(db, 'fretes', frete.id),
+        doc(
+          db,
+          'fretes',
+          frete.id,
+        ),
         {
           status:
             'aguardando_motorista',
@@ -323,20 +243,8 @@ export class DispatchQueueService {
         },
       );
 
-      console.log(
-        '[DISPATCH] AGUARDANDO:',
-        motorista.nome,
-      );
-
-      /*
-      ============================================
-      TIMEOUT WATCHDOG
-      ============================================
-      */
-
       setTimeout(
         async () => {
-
           try {
 
             const freteRef =
@@ -351,27 +259,14 @@ export class DispatchQueueService {
                 freteRef,
               );
 
-            /*
-            ======================================
-            FRETE REMOVIDO
-            ======================================
-            */
-
             if (
               !freteSnap.exists()
             ) {
-
               return;
             }
 
             const freteAtual =
               freteSnap.data();
-
-            /*
-            ======================================
-            MOTORISTA ACEITOU
-            ======================================
-            */
 
             if (
               freteAtual.status ===
@@ -386,23 +281,8 @@ export class DispatchQueueService {
               freteAtual.status ===
                 'entregue'
             ) {
-
-              console.log(
-                '[DISPATCH] MOTORISTA ACEITOU',
-              );
-
               return;
             }
-
-            /*
-            ======================================
-            REDISPATCH
-            ======================================
-            */
-
-            console.log(
-              '[DISPATCH] TIMEOUT REDISPATCH',
-            );
 
             await updateDoc(
               freteRef,
@@ -417,12 +297,6 @@ export class DispatchQueueService {
                   serverTimestamp(),
               },
             );
-
-            /*
-            ======================================
-            PRÓXIMO MOTORISTA
-            ======================================
-            */
 
             await this.processarFila(
               frete,
@@ -444,7 +318,6 @@ export class DispatchQueueService {
             );
 
           }
-
         },
         DRIVER_RESPONSE_TIMEOUT,
       );
@@ -457,7 +330,11 @@ export class DispatchQueueService {
       );
 
       await updateDoc(
-        doc(db, 'fretes', frete.id),
+        doc(
+          db,
+          'fretes',
+          frete.id,
+        ),
         {
           status:
             'erro_dispatch',
@@ -469,7 +346,7 @@ export class DispatchQueueService {
             serverTimestamp(),
         },
       );
-
     }
   }
 }
+```
