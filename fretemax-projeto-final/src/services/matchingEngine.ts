@@ -1,4 +1,4 @@
-```ts
+
 import {
   collection,
   doc,
