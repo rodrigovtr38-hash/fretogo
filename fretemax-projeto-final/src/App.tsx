@@ -23,6 +23,10 @@ import Motorista from './pages/Motorista';
 
 import Admin from './pages/Admin';
 
+import {
+  ClientProvider,
+} from './context/ClientContext';
+
 /* =========================================================
    RUNTIME TYPES
 ========================================================= */
@@ -229,7 +233,11 @@ export default function App() {
 
             <Route
               path="/cliente"
-              element={<Cliente />}
+              element={
+                <ClientProvider>
+                  <Cliente />
+                </ClientProvider>
+              }
             />
 
             {/* ======================================================
