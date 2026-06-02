@@ -60,6 +60,7 @@ export default function Cliente() {
 
   const [nome, setNome] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
+  const [documento, setDocumento] = useState(''); // 🔥 NOVO: CPF ou CNPJ obrigatório
   const [coleta, setColeta] = useState<AddressData>({ cep: '', bairro: '', rua: '', num: '' });
   const [entrega, setEntrega] = useState<AddressData>({ cep: '', bairro: '', rua: '', num: '' });
   const [peso, setPeso] = useState('');
@@ -82,7 +83,8 @@ export default function Cliente() {
   const valorTotalBruto = useMemo(() => (32 + validDistancia * 3.8) * fatorVeiculo, [validDistancia, fatorVeiculo]);
   const valorAncora = valorTotalBruto * 1.42;
 
-  const isFormValid = nome.trim() !== '' && whatsapp.length >= 10 && coleta.rua.trim() !== '' && entrega.rua.trim() !== '' && peso.trim() !== '' && qtdVolumes.trim() !== '';
+  // 🔥 REGRA BRUTAL DE VALIDAÇÃO: Exige documento com mínimo 11 dígitos (CPF/CNPJ sem pontuação)
+  const isFormValid = nome.trim() !== '' && whatsapp.length >= 10 && documento.replace(/\D/g, '').length >= 11 && coleta.rua.trim() !== '' && entrega.rua.trim() !== '' && peso.trim() !== '' && qtdVolumes.trim() !== '';
 
   const showToast = (msg: string, type: 'error' | 'success' | 'warning' = 'error') => {
     setToast({ msg, type });
@@ -107,15 +109,15 @@ export default function Cliente() {
         setNome(data.nome || ''); setColeta(data.coleta || coleta); setEntrega(data.entrega || entrega);
         setPeso(data.peso || ''); setQtdVolumes(data.qtdVolumes || ''); setTipoMaterial(data.tipoMaterial || '');
         setVehicle(data.vehicle || 'carro_pequeno'); setTipoFrete(data.tipoFrete || 'imediato');
-        setDataAgendada(data.dataAgendada || ''); setWhatsapp(data.whatsapp || '');
+        setDataAgendada(data.dataAgendada || ''); setWhatsapp(data.whatsapp || ''); setDocumento(data.documento || '');
       } catch { localStorage.removeItem('fretogo_form_backup'); }
     }
     if (savedOrder && savedOrder !== 'null') { setCurrentOrderId(savedOrder); setStep('busca'); }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('fretogo_form_backup', JSON.stringify({ nome, coleta, entrega, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp }));
-  }, [nome, coleta, entrega, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp]);
+    localStorage.setItem('fretogo_form_backup', JSON.stringify({ nome, coleta, entrega, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp, documento }));
+  }, [nome, coleta, entrega, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp, documento]);
 
   useEffect(() => {
     if (!currentOrderId) return;
@@ -167,13 +169,17 @@ export default function Cliente() {
       const c1 = await getValidCoords(`${coleta.rua}, ${coleta.num}, ${coleta.bairro}, Brazil`, coleta.cep);
       const c2 = await getValidCoords(`${entrega.rua}, ${entrega.num}, ${entrega.bairro}, Brazil`, entrega.cep);
       
+      const documentoLimpo = documento.replace(/\D/g, ''); // Limpa pontuação para a API
+
       const docRef = await addDoc(collection(db, 'fretes'), {
         distancia: validDistancia, veiculo: vehicle, valorTotal: Number(valorTotalBruto.toFixed(2)),
         valorMotorista: Number((valorTotalBruto * 0.8).toFixed(2)), lucroPlataforma: Number((valorTotalBruto * 0.2).toFixed(2)),
         cidadeOrigem: coleta.bairro, cidadeDestino: entrega.bairro,
         enderecoColetaTexto: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`, enderecoEntregaTexto: `${entrega.rua}, ${entrega.num} - ${entrega.bairro}`,
         peso: peso || 'Não informado', qtdVolumes: qtdVolumes || 'Não informado', tipoMaterial: tipoMaterial || 'Carga geral',
-        clienteNome: nome || 'Anônimo', clienteZap: whatsapp, coleta, entrega,
+        clienteNome: nome || 'Anônimo', clienteZap: whatsapp, 
+        clienteDocumento: documentoLimpo, // 🔥 NOVO: Inserido no BD
+        coleta, entrega,
         origemLat: c1.lat, originsLng: c1.lng, destinoLat: c2.lat, destinoLng: c2.lng, tipoFrete,
         dataAgendada: tipoFrete === 'agendado' ? new Date(dataAgendada) : null,
         status: tipoFrete === 'agendado' ? 'agendado' : TripState.AGUARDANDO_PAGAMENTO,
@@ -184,6 +190,7 @@ export default function Cliente() {
 
       if (tipoFrete === 'imediato') {
         try {
+          // A API de pagamento puxará os dados direto do Firestore, mas garantimos enviando o ID
           const res = await fetch('/api/pagamento', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ titulo: `FRETOGO - ${VEHICLE_CONFIG[vehicle].nome}`, idPedido: docRef.id }),
@@ -197,13 +204,9 @@ export default function Cliente() {
              throw new Error('Link inválido');
           }
         } catch (apiError) {
-   showToast(
-      "Erro ao processar pagamento. Tente novamente.",
-      "error"
-   );
-}
-        
-    } else { 
+           showToast("Erro ao processar pagamento. Tente novamente.", "error");
+        }
+      } else { 
         setStep('busca'); 
       }
     } catch (e: any) {
@@ -289,9 +292,11 @@ export default function Cliente() {
               <h2 className="mb-4 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-400">
                 <User className="h-4 w-4 text-cyan-400" /> Contato Responsável
               </h2>
-              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+              {/* 🔥 NOVO: Grid ajustado para 3 colunas para acomodar o CPF/CNPJ harmoniosamente */}
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
                 <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-base md:text-lg font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="Seu Nome Completo" value={nome} onChange={(e) => setNome(e.target.value)} />
                 <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-base md:text-lg font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="WhatsApp (DDD)" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
+                <input className="w-full rounded-2xl border border-white/10 bg-slate-950/50 p-5 text-base md:text-lg font-bold text-white transition-all placeholder:text-slate-600 focus:border-cyan-500/50 outline-none" placeholder="CPF ou CNPJ" value={documento} onChange={(e) => setDocumento(e.target.value)} />
               </div>
             </div>
 
@@ -354,7 +359,7 @@ export default function Cliente() {
             {!isFormValid && (
               <div className="mb-8 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-5 text-center shadow-inner">
                 <p className="flex items-center justify-center gap-2 text-xs font-black uppercase tracking-widest text-amber-400">
-                  <AlertTriangle size={18}/> Preencha todos os campos para prosseguir
+                  <AlertTriangle size={18}/> Preencha todos os campos (incluindo documento) para prosseguir
                 </p>
               </div>
             )}
