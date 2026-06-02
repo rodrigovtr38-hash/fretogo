@@ -202,8 +202,8 @@ export default function Cliente() {
       "error"
    );
 }
-        }
-      } else { 
+        
+    } else { 
         setStep('busca'); 
       }
     } catch (e: any) {
