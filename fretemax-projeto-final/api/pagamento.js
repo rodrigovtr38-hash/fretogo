@@ -43,6 +43,27 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Valor do frete inválido' });
     }
 
+    // 🔥 EXTRAÇÃO DO DOCUMENTO PARA LIBERAR O PIX NO MERCADO PAGO
+    const clienteNome = freteData.clienteNome || 'Cliente Fretogo';
+    const clienteDocumento = freteData.clienteDocumento || '';
+    
+    // Identifica dinamicamente se é CPF ou CNPJ baseado no tamanho da string (limpa de pontuação)
+    const docType = clienteDocumento.length > 11 ? 'CNPJ' : 'CPF';
+
+    // Montagem do objeto do pagador blindado
+    const payerData = {
+      email: `cliente_${idPedido}@fretogo.com`, // E-mail gerado dinamicamente
+      name: clienteNome,
+    };
+
+    // Só injeta o node de identificação se o documento existir, evitando quebrar a API do MP
+    if (clienteDocumento) {
+      payerData.identification = {
+        type: docType,
+        number: clienteDocumento
+      };
+    }
+
     // 🚀 GERAÇÃO DO LINK DO MERCADO PAGO
     const response = await fetch('https://api.mercadopago.com/checkout/preferences', {
       method: 'POST',
@@ -59,9 +80,7 @@ export default async function handler(req, res) {
             unit_price: valorReal // Valor seguro, tirado diretamente do Firestore
           }
         ],
-        payer: {
-          email: `cliente_${idPedido}@fretogo.com`, // E-mail gerado dinamicamente para o MP
-        },
+        payer: payerData, // 🔥 Objeto atualizado com Identificação Fiscal (Libera PIX)
         external_reference: idPedido, // Crucial para o Webhook saber qual frete liberar
         notification_url: `https://${req.headers.host}/api/webhook`, 
         payment_methods: {
