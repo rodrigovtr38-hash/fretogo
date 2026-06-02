@@ -197,9 +197,11 @@ export default function Cliente() {
              throw new Error('Link inválido');
           }
         } catch (apiError) {
-           console.warn("Bypass ativado: Pulando API de Pagamento diretamente para Dispatch Logístico.");
-           await executeDispatch(docRef.id, { categoria: vehicle, origemLat: c1.lat, origemLng: c1.lng, destinoLat: c2.lat, destinoLng: c2.lng });
-           setStep('busca');
+   showToast(
+      "Erro ao processar pagamento. Tente novamente.",
+      "error"
+   );
+}
         }
       } else { 
         setStep('busca'); 
