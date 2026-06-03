@@ -1,3 +1,4 @@
+// api/webhook.js
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import crypto from 'crypto';
@@ -19,7 +20,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).send('Método não permitido');
 
   try {
-    // 🛡️ ALERTA A2 RESOLVIDO: Validação de Assinatura HMAC (Antifraude do Mercado Pago)
+    // 🛡️ Validação de Assinatura HMAC (Antifraude do Mercado Pago)
     const xSignature = req.headers['x-signature'];
     const xRequestId = req.headers['x-request-id'];
     const dataId = req.query?.['data.id'] || req.body?.data?.id;
@@ -79,19 +80,26 @@ export default async function handler(req, res) {
           return res.status(200).send('OK'); 
         }
 
-        // 🔥 PAGAMENTO APROVADO
+        // 🔥 PAGAMENTO APROVADO OPERACIONAL
         if (paymentData.status === 'approved' && paymentData.status_detail === 'accredited') {
           
           if (!['disponivel', 'aceito', 'em_transporte', 'entregue'].includes(freteData.status)) {
             
-            // 🔴 CRÍTICO C1 RESOLVIDO: Gravando o recibo do MP para permitir o estorno automático!
+            // Atualiza o banco com os recibos financeiros de auditoria de 24h
             await freteRef.update({
               status: 'disponivel',
+              pagamentoStatus: 'aprovado',
+              dispatchStatus: 'dispatch_ready',
               pagoEm: FieldValue.serverTimestamp(),
               pagamentoId: paymentId,
-              pagamentoValor: paymentData.transaction_amount
+              pagamentoValor: paymentData.transaction_amount,
+              atualizadoEm: FieldValue.serverTimestamp()
             });
-            console.log(`[WEBHOOK SUCESSO] Frete ${pedidoId} no Radar! Recibo salvo: ${paymentId}`);
+            
+            console.log(`[WEBHOOK SUCESSO] Frete ${pedidoId} liberado e marcado como dispatch_ready. Recibo: ${paymentId}`);
+            
+            // O gatilho de disparo da fila (DispatchQueueService) será invocado pela Cloud Function 
+            // de escuta em tempo real ou pelo ciclo assíncrono do Orchestrator.
           }
         }
       } else {
