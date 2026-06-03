@@ -66,7 +66,8 @@ export default function Home() {
               <button onClick={goToClient} className="flex h-16 w-full sm:w-auto items-center justify-center gap-3 rounded-[1.25rem] bg-blue-600 px-8 text-sm font-black uppercase tracking-widest text-white shadow-xl shadow-blue-600/30 transition-all hover:scale-105 hover:bg-blue-700 active:scale-95">
                 <Truck size={20} /> Fazer Cotação Agora
               </button>
-              <button onClick={goToDriver} className="flex h-16 w-full sm:w-auto items-center justify-center gap-3 rounded-[1.25rem] border-2 border-slate-200 bg-white px-8 text-sm font-black uppercase tracking-widest text-slate-700 transition-all hover:border-slate-300 hover:bg-slate-50">
+              {/* 🔥 BOTÃO AJUSTADO PARA ALTO CONTRASTE */}
+              <button onClick={goToDriver} className="flex h-16 w-full sm:w-auto items-center justify-center gap-3 rounded-[1.25rem] border-2 border-slate-900 bg-transparent px-8 text-sm font-black uppercase tracking-widest text-slate-900 transition-all hover:bg-slate-900 hover:text-white active:scale-95">
                 <Smartphone size={20} /> Quero ser Parceiro
               </button>
             </div>
