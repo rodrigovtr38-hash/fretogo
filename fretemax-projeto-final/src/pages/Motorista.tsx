@@ -11,6 +11,7 @@ import DriverActiveTrip from './DriverActiveTrip';
 import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
 import { useDriverRealtime } from '../hooks/useDriverRealtime';
 import type { OperationalFreight } from '../components/driver/dashboard/DriverDashboardLayout';
+import { Download, Flame, MapPin } from 'lucide-react'; // 🔥 Novos ícones para o Marketing
 
 interface DriverData { id?: string; nome?: string; whatsapp?: string; categoria?: string; status?: 'pendente' | 'aprovado' | 'rejeitado'; }
 
@@ -34,12 +35,49 @@ export default function Motorista() {
   const [isOnline, setIsOnline] = useState(false);
   const [radarLoading, setRadarLoading] = useState(false);
 
+  // 🔥 FASE 4: Variáveis de Retenção (PWA) e Marketing
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+  const [demandStats, setDemandStats] = useState({ active: 0, radius: 15 });
+
   useDriverRealtime(user?.uid, isOnline);
 
   const operationalCategory = useMemo(() => {
     if (!driverData?.categoria) return 'carro';
     return driverData.categoria.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   }, [driverData]);
+
+  // 🔥 FASE 4: Captura o evento de instalação PWA do Navegador
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsInstallable(true);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setIsInstallable(false);
+    }
+    setDeferredPrompt(null);
+  };
+
+  // 🔥 FASE 4: Gera a Demanda Simulada baseada na categoria
+  useEffect(() => {
+    if(operationalCategory) {
+      const isHeavy = ['toco', 'truck', 'carretals', 'bitremcegonha', 'carreta'].some(t => operationalCategory.includes(t));
+      setDemandStats({
+         active: Math.floor(Math.random() * 20) + (isHeavy ? 8 : 25),
+         radius: isHeavy ? 50 : 15
+      });
+    }
+  }, [operationalCategory]);
 
   const normalizeFreight = useCallback((id: string, data: any): OperationalFreight => {
     const feePercent = CATEGORY_FEES[data.categoria] ?? 0.2;
@@ -201,9 +239,53 @@ export default function Motorista() {
   }
 
   return (
-    <div className="min-h-screen bg-[#020617] text-white">
+    <div className="min-h-screen bg-[#020617] text-white pb-10">
+      
+      {/* 🔥 BANNER PWA INSTALAÇÃO (Só aparece se o navegador permitir) */}
+      {isInstallable && (
+        <div className="sticky top-0 z-[100] w-full bg-cyan-600 px-4 py-3 flex items-center justify-between shadow-[0_4px_20px_rgba(8,145,178,0.3)]">
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest text-white">Baixe o Aplicativo</p>
+            <p className="text-[10px] text-cyan-100 font-medium mt-0.5">Instale o FRETOGO e receba fretes mais rápido.</p>
+          </div>
+          <button 
+            onClick={handleInstallClick}
+            className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-colors shrink-0"
+          >
+            <Download size={14} /> Instalar
+          </button>
+        </div>
+      )}
+
       <DriverHeader user={user} />
+
+      {/* 🔥 GATILHOS DE MARKETING PARA O MOTORISTA */}
+      <div className="max-w-7xl mx-auto px-4 mt-6">
+        <div className="flex flex-col md:flex-row gap-4 mb-2">
+          <div className="flex-1 bg-slate-900/60 border border-white/5 rounded-2xl p-4 flex items-center gap-3 backdrop-blur-sm">
+            <div className="w-10 h-10 bg-cyan-500/10 rounded-full flex items-center justify-center border border-cyan-500/20 shrink-0">
+              <MapPin className="text-cyan-400 w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Radar Geográfico</p>
+              <p className="text-sm font-bold text-slate-200">Buscando cargas no raio de <span className="text-cyan-400">{demandStats.radius}km</span></p>
+            </div>
+          </div>
+
+          <div className="flex-1 bg-slate-900/60 border border-white/5 rounded-2xl p-4 flex items-center gap-3 backdrop-blur-sm">
+            <div className="w-10 h-10 bg-amber-500/10 rounded-full flex items-center justify-center border border-amber-500/20 shrink-0">
+              <Flame className="text-amber-500 w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Demanda Estimada Hoje</p>
+              <p className="text-sm font-bold text-slate-200"><span className="text-amber-400">{demandStats.active} fretes</span> para o seu veículo</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <DriverRadar isOnline={isOnline} setIsOnline={setIsOnline} user={user} driver={driverData} />
+      
       <DriverApp freights={availableFreights} selectedFreight={selectedFreight} activeFreight={activeFreight} isOnline={isOnline} loading={radarLoading} driverCategory={operationalCategory} driverName={driverData.nome} onToggleOnline={handleToggleOnline} onSelectFreight={handleSelectFreight} onCloseFreight={handleCloseFreight} onAcceptFreight={handleAcceptFreight} onRejectFreight={handleRejectFreight}>
         {activeFreight?.id && (
           <div className="mx-auto mt-10 max-w-7xl px-4 pb-24 md:px-6">
