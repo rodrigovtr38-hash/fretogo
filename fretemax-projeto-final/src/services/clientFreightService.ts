@@ -75,6 +75,9 @@ type CreateFreightPayload = {
   origem: AddressPayload;
 
   destino: AddressPayload;
+  
+  // 🔥 NOVO: Suporte para múltiplas paradas
+  paradas?: AddressPayload[];
 
   categoria: CategoriaOperacional;
 
@@ -123,6 +126,8 @@ type CreateFreightPayload = {
   clienteNome?: string;
 
   clienteTelefone?: string;
+  
+  clienteDocumento?: string;
 };
 
 type PricingMetadata = {
@@ -176,9 +181,14 @@ const inflightRegistry =
 class ClientFreightService {
   /*
   =========================================================
-  HELPERS
+  HELPERS & SECURITY (PIN)
   =========================================================
   */
+
+  // 🔥 NOVO: Gerador de PIN de segurança (4 dígitos)
+  private generatePin(): string {
+    return Math.floor(1000 + Math.random() * 9000).toString();
+  }
 
   private normalizeNumber(
     value: unknown,
@@ -304,13 +314,13 @@ class ClientFreightService {
     }
 
     if (
-      payload.multiplasEntregas
+      payload.multiplasEntregas || (payload.paradas && payload.paradas.length > 1)
     ) {
       return 'multipla_entrega';
     }
 
     if (
-      payload.cargaPesada
+      payload.cargaPesada || HEAVY_CATEGORIES.includes(payload.categoria)
     ) {
       return 'carga_pesada';
     }
@@ -336,23 +346,12 @@ class ClientFreightService {
     return 'marketplace';
   }
 
+  // 🔥 NOVO: Arquitetura Dual Engine (Last-Mile vs Pesados)
   private calculateBasePrice(
     payload: CreateFreightPayload,
     kmTotal: number,
+    qtdParadas: number,
   ) {
-    const categoryBase =
-      {
-        moto: 1.8,
-        carro: 2.4,
-        utilitario: 3.5,
-        toco: 6.2,
-        truck: 8.5,
-        carreta: 11,
-        bitrem: 15,
-      }[
-        payload.categoria
-      ] || 2;
-
     const urgencyFactor =
       payload.prioridade ===
       'urgente'
@@ -366,20 +365,28 @@ class ClientFreightService {
           100,
       );
 
-    const volumeFactor =
-      Math.max(
-        1,
-        payload.volumes *
-          0.15,
-      );
+    const isHeavy = HEAVY_CATEGORIES.includes(payload.categoria);
 
-    return this.round(
-      kmTotal *
-        categoryBase *
-        urgencyFactor *
-        weightFactor *
-        volumeFactor,
-    );
+    if (isHeavy) {
+        // MOTOR PESADO (Viagens longas, galpões)
+        const basesPesadas = { toco: 6.2, truck: 8.5, carreta: 11.0, bitrem: 15.0 };
+        const taxaKm = basesPesadas[payload.categoria as keyof typeof basesPesadas] || 8.5;
+        
+        const base = kmTotal * taxaKm * urgencyFactor * weightFactor;
+        return this.round(Math.max(250, base)); // Frete Mínimo Blindado (R$ 250)
+    } else {
+        // MOTOR LAST-MILE (Urbano, Múltiplas entregas, E-commerce)
+        const basesLeves = { moto: 1.8, carro: 2.4, utilitario: 3.5 };
+        const taxaKm = basesLeves[payload.categoria as keyof typeof basesLeves] || 2.4;
+        
+        const volumeFactor = Math.max(1, payload.volumes * 0.15);
+        
+        // Cobra R$ 8,00 por cada parada extra (além da primeira)
+        const custoParadasExtras = Math.max(0, qtdParadas - 1) * 8.00;
+
+        const base = (kmTotal * taxaKm * urgencyFactor * volumeFactor) + custoParadasExtras;
+        return this.round(Math.max(15, base)); // Frete Mínimo Blindado (R$ 15)
+    }
   }
 
   private calculateETA(
@@ -406,12 +413,16 @@ class ClientFreightService {
   private normalizePayload(
     payload: CreateFreightPayload,
   ) {
+    // 🔥 Avalia se há múltiplas paradas ou apenas um destino
+    const paradasArray = payload.paradas && payload.paradas.length > 0 ? payload.paradas : [payload.destino];
+    const qtdParadas = paradasArray.length;
+
     const kmEntrega =
       payload.kmEntrega ||
       payload.distancia ||
       this.calculateDistanceKm(
         payload.origem,
-        payload.destino,
+        payload.destino, // Mantemos o último ponto para KM total estimado
       );
 
     const kmColeta =
@@ -443,6 +454,7 @@ class ClientFreightService {
       this.calculateBasePrice(
         payload,
         kmTotal,
+        qtdParadas,
       );
 
     const taxaPercentual =
@@ -530,6 +542,8 @@ class ClientFreightService {
 
         operationMode:
           mode,
+          
+        paradasTratadas: paradasArray,
       },
 
       pricingMetadata,
@@ -596,6 +610,16 @@ class ClientFreightService {
 
       /*
       =========================================================
+      SECURITY: GERAÇÃO DE PINS
+      =========================================================
+      */
+      
+      const pinColeta = this.generatePin();
+      // Cria um array de PINs de acordo com o número de paradas
+      const pinEntregas = normalizedPayload.paradasTratadas.map(() => this.generatePin());
+
+      /*
+      =========================================================
       CREATE FREIGHT
       =========================================================
       */
@@ -617,12 +641,20 @@ class ClientFreightService {
             clienteTelefone:
               normalizedPayload.clienteTelefone ||
               null,
+              
+            clienteDocumento:
+              normalizedPayload.clienteDocumento ||
+              null,
 
             origem:
               normalizedPayload.origem,
 
             destino:
               normalizedPayload.destino,
+              
+            // Injeta o array de múltiplas entregas no Firestore
+            paradas: 
+              normalizedPayload.paradasTratadas,
 
             categoria:
               normalizedPayload.categoria,
@@ -661,7 +693,7 @@ class ClientFreightService {
 
             multiplasEntregas:
               normalizedPayload.multiplasEntregas ||
-              false,
+              (normalizedPayload.paradasTratadas.length > 1),
 
             transbordo:
               normalizedPayload.transbordo ||
@@ -681,7 +713,7 @@ class ClientFreightService {
 
             cargaPesada:
               normalizedPayload.cargaPesada ||
-              false,
+              HEAVY_CATEGORIES.includes(normalizedPayload.categoria),
 
             operationMode:
               normalizedPayload.operationMode,
@@ -710,6 +742,10 @@ class ClientFreightService {
             valorLiquidoMotorista:
               pricingMetadata.valorLiquidoMotorista,
 
+            // 🔥 INJEÇÃO DA SEGURANÇA (PINS)
+            pinColeta: pinColeta,
+            pinEntregas: pinEntregas,
+            
             pagamentoStatus:
               'pendente',
 
