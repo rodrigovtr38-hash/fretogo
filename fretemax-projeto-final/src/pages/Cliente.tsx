@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Radar, Sparkles, User, Package, CalendarDays } from 'lucide-react';
+import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Radar, Sparkles, User, Package, CalendarDays, Plus, Trash2 } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import ChatFrete from '../components/ChatFrete';
 
@@ -13,7 +13,7 @@ import ChatFrete from '../components/ChatFrete';
 import { TripState } from '../state/tripStateMachine';
 import { executeDispatch } from '../services/orchestrator';
 
-interface AddressData { cep: string; bairro: string; rua: string; num: string; }
+interface AddressData { cep: string; bairro: string; rua: string; num: string; lat?: number; lng?: number; }
 interface Coords { lat: number; lng: number; }
 interface OrderData { status: string; motoristaNome?: string; motoristaZap?: string; rotaInteligente?: boolean; motoristaId?: string; }
 type VehicleType = 'moto' | 'carro_pequeno' | 'utilitario' | 'toco' | 'truck' | 'carreta_ls' | 'bi_trem_cegonha';
@@ -62,7 +62,10 @@ export default function Cliente() {
   const [whatsapp, setWhatsapp] = useState('');
   const [documento, setDocumento] = useState('');
   const [coleta, setColeta] = useState<AddressData>({ cep: '', bairro: '', rua: '', num: '' });
-  const [entrega, setEntrega] = useState<AddressData>({ cep: '', bairro: '', rua: '', num: '' });
+  
+  // 🔥 ARRAY DE ENTREGAS (MULTI-DROP PARA LEVES E CARGA FRACIONADA PARA PESADOS)
+  const [entregas, setEntregas] = useState<AddressData[]>([{ cep: '', bairro: '', rua: '', num: '' }]);
+  
   const [peso, setPeso] = useState('');
   const [qtdVolumes, setQtdVolumes] = useState('');
   const [tipoMaterial, setTipoMaterial] = useState('');
@@ -78,13 +81,32 @@ export default function Cliente() {
   const coordsCache = useRef<Record<string, Coords>>({});
   const isProcessingPayment = useRef(false);
 
-  const validDistancia = useMemo(() => Number.isNaN(distanciaReal) || distanciaReal <= 0 ? 5 : distanciaReal, [distanciaReal]);
-  const fatorVeiculo = VEHICLE_CONFIG[vehicle]?.fator || 1;
-  const valorTotalBruto = useMemo(() => (32 + validDistancia * 3.8) * fatorVeiculo, [validDistancia, fatorVeiculo]);
+  const validDistancia = useMemo(() => Number.isNaN(distanciaReal) || distanciaReal <= 0 ? (5 * entregas.length) : distanciaReal, [distanciaReal, entregas.length]);
+
+  const valorTotalBruto = useMemo(() => {
+    const isHeavy = ['toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(vehicle);
+    const urgencyFactor = 1;
+    const weightFactor = Math.max(1, (parseInt(peso.replace(/\D/g, ''), 10) || 0) / 100);
+    const volumeFactor = Math.max(1, (parseInt(qtdVolumes.replace(/\D/g, ''), 10) || 1) * 0.15);
+
+    if (isHeavy) {
+      const taxasPesadas: any = { toco: 6.2, truck: 8.5, carreta_ls: 11.0, bi_trem_cegonha: 15.0 };
+      const taxa = taxasPesadas[vehicle] || 8.5;
+      const custoParadasExtrasPesado = Math.max(0, entregas.length - 1) * 150.0; // R$ 150 por parada extra (Transbordo)
+      const base = (validDistancia * taxa * urgencyFactor * weightFactor) + custoParadasExtrasPesado;
+      return Math.max(250, base); // PISO MÍNIMO CAMINHÃO
+    } else {
+      const taxasLeves: any = { moto: 1.8, carro_pequeno: 2.4, utilitario: 3.5 };
+      const taxa = taxasLeves[vehicle] || 2.4;
+      const custoParadasExtrasLeve = Math.max(0, entregas.length - 1) * 8.0; // R$ 8 por parada extra
+      const base = (validDistancia * taxa * urgencyFactor * volumeFactor) + custoParadasExtrasLeve;
+      return Math.max(15, base); // PISO MÍNIMO MOTO
+    }
+  }, [validDistancia, vehicle, entregas.length, peso, qtdVolumes]);
+
   const valorAncora = valorTotalBruto * 1.42;
 
-  // 🔥 REGRA BRUTAL DE VALIDAÇÃO COM DATA AGENDADA CORRIGIDA
-  const isFormValid = nome.trim() !== '' && whatsapp.length >= 10 && documento.replace(/\D/g, '').length >= 11 && coleta.rua.trim() !== '' && entrega.rua.trim() !== '' && peso.trim() !== '' && qtdVolumes.trim() !== '' && (tipoFrete === 'imediato' || (tipoFrete === 'agendado' && dataAgendada.trim() !== ''));
+  const isFormValid = nome.trim() !== '' && whatsapp.length >= 10 && documento.replace(/\D/g, '').length >= 11 && coleta.rua.trim() !== '' && entregas.every(e => e.rua.trim() !== '') && peso.trim() !== '' && qtdVolumes.trim() !== '' && (tipoFrete === 'imediato' || (tipoFrete === 'agendado' && dataAgendada.trim() !== ''));
 
   const showToast = (msg: string, type: 'error' | 'success' | 'warning' = 'error') => {
     setToast({ msg, type });
@@ -106,7 +128,8 @@ export default function Cliente() {
     if (savedForm) {
       try {
         const data = JSON.parse(savedForm);
-        setNome(data.nome || ''); setColeta(data.coleta || coleta); setEntrega(data.entrega || entrega);
+        setNome(data.nome || ''); setColeta(data.coleta || coleta); 
+        setEntregas(data.entregas || (data.entrega ? [data.entrega] : [{ cep: '', bairro: '', rua: '', num: '' }]));
         setPeso(data.peso || ''); setQtdVolumes(data.qtdVolumes || ''); setTipoMaterial(data.tipoMaterial || '');
         setVehicle(data.vehicle || 'carro_pequeno'); setTipoFrete(data.tipoFrete || 'imediato');
         setDataAgendada(data.dataAgendada || ''); setWhatsapp(data.whatsapp || ''); setDocumento(data.documento || '');
@@ -116,18 +139,37 @@ export default function Cliente() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('fretogo_form_backup', JSON.stringify({ nome, coleta, entrega, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp, documento }));
-  }, [nome, coleta, entrega, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp, documento]);
+    localStorage.setItem('fretogo_form_backup', JSON.stringify({ nome, coleta, entregas, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp, documento }));
+  }, [nome, coleta, entregas, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp, documento]);
 
   useEffect(() => {
     if (!currentOrderId) return;
     const unsubscribe = onSnapshot(doc(db, 'fretes', currentOrderId), (snap) => {
-      if (!snap.exists()) return;
+      if (!snap.exists()) {
+        localStorage.removeItem('fretogo_current_order'); 
+        setCurrentOrderId(null); 
+        setStep('form');
+        return;
+      }
+      
       const data = snap.data() as OrderData;
       setOrderData(data);
+
+      const params = new URLSearchParams(window.location.search);
+      const isReturningFromPayment = params.has('status') || params.has('collection_status') || params.has('preference_id');
+
+      if (data.status === TripState.AGUARDANDO_PAGAMENTO && !isReturningFromPayment) {
+        localStorage.removeItem('fretogo_current_order');
+        setCurrentOrderId(null);
+        setStep('form');
+        return;
+      }
+
       if ([TripState.CANCELADO, TripState.EXPIRADO, 'erro_pagamento', 'sem_motorista'].includes(data.status as any)) {
         showToast(data.status === TripState.CANCELADO ? 'Frete cancelado.' : 'Sem motoristas na região.', 'warning');
-        localStorage.removeItem('fretogo_current_order'); setCurrentOrderId(null); setStep('form');
+        localStorage.removeItem('fretogo_current_order'); 
+        setCurrentOrderId(null); 
+        setStep('form');
       }
     });
     return () => unsubscribe();
@@ -140,16 +182,24 @@ export default function Cliente() {
       showToast(`Peso excede o limite da categoria.`, 'error'); return;
     }
     setLoadingRoute(true);
+    if (entregas.length > 1) showToast('Mapeando múltiplas rotas. Isso pode levar alguns segundos...', 'warning');
+    
     try {
-      const distanceResult = await callWithRetryAndTimeout<number | string>('getDistance', { 
-        origin: `${coleta.rua}, ${coleta.num}, ${coleta.bairro}, Brazil`, destination: `${entrega.rua}, ${entrega.num}, ${entrega.bairro}, Brazil` 
-      });
-      const km = Number(distanceResult);
-      if (Number.isNaN(km) || km <= 0) throw new Error('INVALID_DISTANCE');
-      setDistanciaReal(km); setStep('preview');
+      let totalKm = 0;
+      let lastOrigin = `${coleta.rua}, ${coleta.num}, ${coleta.bairro}, Brazil`;
+
+      for (const stop of entregas) {
+        const dest = `${stop.rua}, ${stop.num}, ${stop.bairro}, Brazil`;
+        const distanceResult = await callWithRetryAndTimeout<number | string>('getDistance', { origin: lastOrigin, destination: dest });
+        const km = Number(distanceResult);
+        if (Number.isNaN(km) || km <= 0) throw new Error('INVALID_DISTANCE');
+        totalKm += km;
+        lastOrigin = dest;
+      }
+      setDistanciaReal(totalKm); setStep('preview');
     } catch {
       showToast('Calculando rota por estimativa.', 'warning');
-      setDistanciaReal(15); setStep('preview');
+      setDistanciaReal(15 * entregas.length); setStep('preview');
     } finally { setLoadingRoute(false); }
   };
 
@@ -167,20 +217,32 @@ export default function Cliente() {
     isProcessingPayment.current = true; setLoadingPayment(true);
     try {
       const c1 = await getValidCoords(`${coleta.rua}, ${coleta.num}, ${coleta.bairro}, Brazil`, coleta.cep);
-      const c2 = await getValidCoords(`${entrega.rua}, ${entrega.num}, ${entrega.bairro}, Brazil`, entrega.cep);
+      
+      const coordsEntregas = [];
+      for (const e of entregas) {
+         const c = await getValidCoords(`${e.rua}, ${e.num}, ${e.bairro}, Brazil`, e.cep);
+         coordsEntregas.push({ ...e, lat: c.lat, lng: c.lng });
+      }
+      const destinoFinal = coordsEntregas[coordsEntregas.length - 1];
       
       const documentoLimpo = documento.replace(/\D/g, ''); 
+      
+      const pinColeta = Math.floor(1000 + Math.random() * 9000).toString();
+      const pinEntregas = entregas.map(() => Math.floor(1000 + Math.random() * 9000).toString());
 
       const docRef = await addDoc(collection(db, 'fretes'), {
         distancia: validDistancia, veiculo: vehicle, valorTotal: Number(valorTotalBruto.toFixed(2)),
         valorMotorista: Number((valorTotalBruto * 0.8).toFixed(2)), lucroPlataforma: Number((valorTotalBruto * 0.2).toFixed(2)),
-        cidadeOrigem: coleta.bairro, cidadeDestino: entrega.bairro,
-        enderecoColetaTexto: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`, enderecoEntregaTexto: `${entrega.rua}, ${entrega.num} - ${entrega.bairro}`,
+        cidadeOrigem: coleta.bairro, cidadeDestino: destinoFinal.bairro,
+        enderecoColetaTexto: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`, enderecoEntregaTexto: `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}`,
         peso: peso || 'Não informado', qtdVolumes: qtdVolumes || 'Não informado', tipoMaterial: tipoMaterial || 'Carga geral',
         clienteNome: nome || 'Anônimo', clienteZap: whatsapp, 
         clienteDocumento: documentoLimpo,
-        coleta, entrega,
-        origemLat: c1.lat, originsLng: c1.lng, destinoLat: c2.lat, destinoLng: c2.lng, tipoFrete,
+        coleta, 
+        entrega: destinoFinal, 
+        paradas: coordsEntregas,
+        pinColeta, pinEntregas, multiplasEntregas: entregas.length > 1,
+        origemLat: c1.lat, originsLng: c1.lng, destinoLat: destinoFinal.lat, destinoLng: destinoFinal.lng, tipoFrete,
         dataAgendada: tipoFrete === 'agendado' ? new Date(dataAgendada) : null,
         status: tipoFrete === 'agendado' ? 'agendado' : TripState.AGUARDANDO_PAGAMENTO,
         createdAt: serverTimestamp(),
@@ -235,18 +297,26 @@ export default function Cliente() {
     setStep('form');
   };
 
+  const handleAddEntrega = () => {
+    if (entregas.length < 5) setEntregas([...entregas, { cep: '', bairro: '', rua: '', num: '' }]);
+    else showToast('Limite máximo de 5 paradas atingido no aplicativo.', 'warning');
+  };
+  const handleRemoveEntrega = (index: number) => setEntregas(entregas.filter((_, i) => i !== index));
+  const updateEntrega = (index: number, field: string, value: string) => {
+    const newEntregas = [...entregas];
+    newEntregas[index] = { ...newEntregas[index], [field]: value };
+    setEntregas(newEntregas);
+  };
+
   return (
     <div className="relative min-h-screen w-full flex flex-col bg-slate-50 text-slate-800 font-sans selection:bg-blue-500/20">
       
-      {/* BACKGROUND LIGHT CORPORATE */}
       <div className="pointer-events-none fixed inset-0 z-0">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-white via-slate-50 to-slate-100"></div>
-        {/* Soft corporate gradients */}
         <div className="absolute left-[-10%] top-[-5%] h-[40rem] w-[40rem] rounded-full bg-blue-100/40 blur-[100px]" />
         <div className="absolute right-[-10%] top-[10%] h-[35rem] w-[35rem] rounded-full bg-cyan-100/40 blur-[120px]" />
       </div>
 
-      {/* NAVBAR LIGHT */}
       <header className="relative z-50 w-full border-b border-slate-200 bg-white/80 backdrop-blur-xl shadow-sm">
         <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
           <div className="flex items-center gap-4">
@@ -279,7 +349,6 @@ export default function Cliente() {
               </h1>
             </div>
 
-            {/* CONTATO */}
             <div className="mb-8">
               <h2 className="mb-4 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
                 <User className="h-4 w-4 text-blue-500" /> Contato Responsável
@@ -291,7 +360,6 @@ export default function Cliente() {
               </div>
             </div>
 
-            {/* ENDEREÇOS */}
             <div className="relative mb-8 grid grid-cols-1 gap-10 lg:grid-cols-2">
               <div className="absolute bottom-4 left-1/2 top-10 hidden w-px -translate-x-1/2 bg-slate-200 lg:block"></div>
               
@@ -309,22 +377,39 @@ export default function Cliente() {
                 </div>
               </div>
 
+              {/* MÚLTIPLAS ENTREGAS (MULTI-DROP) */}
               <div className="space-y-5">
-                <h2 className="mb-3 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
-                  <Truck className="h-4 w-4 text-emerald-500" /> Endereço de Destino
-                </h2>
-                <div className="grid grid-cols-3 gap-4">
-                  <input className="col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 outline-none" placeholder="Rua da Entrega" value={entrega.rua} onChange={e => setEntrega({...entrega, rua: e.target.value})} />
-                  <input className="col-span-1 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 outline-none" placeholder="Nº" value={entrega.num} onChange={e => setEntrega({...entrega, num: e.target.value})} />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <input className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 outline-none" placeholder="Bairro" value={entrega.bairro} onChange={e => setEntrega({...entrega, bairro: e.target.value})} />
-                  <input className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 outline-none" placeholder="CEP" value={entrega.cep} onChange={e => setEntrega({...entrega, cep: e.target.value})} />
-                </div>
+                {entregas.map((entrega, index) => (
+                  <div key={index} className={`relative rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-4 transition-all ${index > 0 ? 'border-blue-200 bg-blue-50/50' : ''}`}>
+                    <div className="flex justify-between items-center mb-4">
+                      <h2 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
+                        <Truck className="h-4 w-4 text-emerald-500" /> Destino {entregas.length > 1 ? index + 1 : ''}
+                      </h2>
+                      {index > 0 && (
+                        <button onClick={() => handleRemoveEntrega(index)} className="text-red-400 hover:text-red-600 transition-colors">
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-3 gap-4 mb-4">
+                      <input className="col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10 outline-none" placeholder="Rua da Entrega" value={entrega.rua} onChange={e => updateEntrega(index, 'rua', e.target.value)} />
+                      <input className="col-span-1 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10 outline-none" placeholder="Nº" value={entrega.num} onChange={e => updateEntrega(index, 'num', e.target.value)} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <input className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10 outline-none" placeholder="Bairro" value={entrega.bairro} onChange={e => updateEntrega(index, 'bairro', e.target.value)} />
+                      <input className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10 outline-none" placeholder="CEP" value={entrega.cep} onChange={e => updateEntrega(index, 'cep', e.target.value)} />
+                    </div>
+                  </div>
+                ))}
+
+                {entregas.length < 5 && (
+                  <button onClick={handleAddEntrega} className="flex items-center gap-2 text-sm font-bold text-blue-600 hover:text-blue-800 transition-colors w-full justify-center py-2 border border-dashed border-blue-300 rounded-xl bg-blue-50/50">
+                    <Plus size={16} /> Adicionar Parada Extra
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* ESPECIFICAÇÕES */}
             <div className="mb-10 rounded-[2rem] border border-slate-200 bg-slate-50 p-6 md:p-8">
               <h2 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
                 <Package className="h-4 w-4 text-amber-500" /> Especificações da Carga
@@ -340,7 +425,6 @@ export default function Cliente() {
                 <input className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="O que é? (Móveis)" value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)} />
               </div>
               
-              {/* AGENDAMENTO */}
               <div className="border-t border-slate-200 pt-8">
                 <div className="mb-4 flex items-center gap-2">
                   <CalendarDays className="h-4 w-4 text-purple-500" />
@@ -388,9 +472,9 @@ export default function Cliente() {
                 </div>
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
                   <Truck className="mb-4 h-6 w-6 text-emerald-500" />
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Veículo e Carga</p>
-                  <p className="mt-2 text-base font-bold uppercase italic text-slate-900">{VEHICLE_CONFIG[vehicle].nome}</p>
-                  <p className="mt-1 text-sm text-slate-500">{peso} • {qtdVolumes} volumes</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Destino Final</p>
+                  <p className="mt-2 text-base font-bold uppercase italic text-slate-900">{entregas[entregas.length - 1].rua}, {entregas[entregas.length - 1].num}</p>
+                  <p className="mt-1 text-sm font-bold text-blue-600">{entregas.length > 1 ? `+ ${entregas.length - 1} paradas no trajeto` : entregas[0].bairro}</p>
                 </div>
               </div>
 
@@ -422,8 +506,8 @@ export default function Cliente() {
                   <strong className="text-[10px] font-black uppercase tracking-widest text-blue-600">{tipoFrete}</strong>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="font-bold">Material</span>
-                  <strong className="max-w-[140px] truncate text-right text-slate-900 font-bold">{tipoMaterial || 'N/A'}</strong>
+                  <span className="font-bold">Veículo</span>
+                  <strong className="max-w-[140px] truncate text-right text-slate-900 font-bold">{VEHICLE_CONFIG[vehicle].nome}</strong>
                 </div>
               </div>
 
