@@ -8,8 +8,9 @@ import {
   MotoristaMatch 
 } from './matchingEngine';
 
-// 🔥 FASE 3: REDISPATCH AUTOMÁTICO (60 Segundos cravados)
-const DRIVER_RESPONSE_TIMEOUT = 60000; 
+// 🔥 FASE 4: REDISPATCH AUTOMÁTICO TURBINADO (30 Segundos cravados)
+// Reduzido de 60s para 30s conforme auditoria para acelerar a resposta ao cliente
+const DRIVER_RESPONSE_TIMEOUT = 30000; 
 const MAX_REDISPATCH_ATTEMPTS = 10;
 
 interface QueueState {
@@ -82,7 +83,7 @@ export class DispatchQueueService {
         atualizadoEm: serverTimestamp(),
       });
 
-      // 🔥 A BOMBA RELÓGIO (60 SEGUNDOS)
+      // 🔥 A BOMBA RELÓGIO (AGORA EM 30 SEGUNDOS)
       setTimeout(async () => {
         try {
           const freteRef = doc(db, 'fretes', frete.id);
@@ -96,7 +97,7 @@ export class DispatchQueueService {
             return;
           }
 
-          // Ninguém aceitou. O tempo acabou. Retira a oferta e passa pro próximo.
+          // Ninguém aceitou. O tempo acabou (30s). Retira a oferta e passa pro próximo.
           await updateDoc(freteRef, {
             aguardandoResposta: false,
             atualizadoEm: serverTimestamp(),
