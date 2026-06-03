@@ -1,4 +1,4 @@
-import { Zap, Truck, ShieldCheck, ArrowRight, MapPin, Clock, BarChart3, Smartphone } from 'lucide-react';
+import { Zap, Truck, ShieldCheck, ArrowRight, MapPin, Clock, BarChart3, Smartphone, CheckCircle, Radar } from 'lucide-react';
 
 export default function Home() {
   const goToClient = () => {
