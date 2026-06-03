@@ -372,7 +372,10 @@ class ClientFreightService {
         const basesPesadas = { toco: 6.2, truck: 8.5, carreta: 11.0, bitrem: 15.0 };
         const taxaKm = basesPesadas[payload.categoria as keyof typeof basesPesadas] || 8.5;
         
-        const base = kmTotal * taxaKm * urgencyFactor * weightFactor;
+        // 🔥 NOVO: R$ 150 por parada extra para caminhões (Transbordo)
+        const custoParadasExtrasPesado = Math.max(0, qtdParadas - 1) * 150.00;
+        
+        const base = (kmTotal * taxaKm * urgencyFactor * weightFactor) + custoParadasExtrasPesado;
         return this.round(Math.max(250, base)); // Frete Mínimo Blindado (R$ 250)
     } else {
         // MOTOR LAST-MILE (Urbano, Múltiplas entregas, E-commerce)
