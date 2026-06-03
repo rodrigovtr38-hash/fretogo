@@ -1,11 +1,10 @@
 rules_version = '2';
 
 service cloud.firestore {
-
   match /databases/{database}/documents {
 
     // =========================================================
-    // 🔐 HELPERS
+    // 🔐 HELPERS E SEGURANÇA MESTRE
     // =========================================================
 
     function isAuthenticated() {
@@ -13,203 +12,86 @@ service cloud.firestore {
     }
 
     function isOwner(userId) {
-      return isAuthenticated() &&
-             request.auth.uid == userId;
+      return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // 🔥 ADMINS OFICIAIS
+    // 🔥 SUA CHAVE MESTRA INJETADA
     function isAdmin() {
-      return isAuthenticated() &&
-        request.auth.uid in [
-          "SEU_UID_ADMIN_AQUI"
-        ];
+      return isAuthenticated() && request.auth.uid in [
+        "uV1yeZoGfhZTRWDVL1CnMW6b6NY2"
+      ];
     }
 
     // =========================================================
-    // 🚚 MOTORISTAS CADASTROS
+    // 🚚 MOTORISTAS CADASTROS (APROVAÇÃO)
     // =========================================================
 
     match /motoristas_cadastros/{userId} {
-
       allow read: if isAuthenticated();
-
       allow create: if isOwner(userId);
-
       allow update: if
-
-        // 👤 Dono atualizando perfil limitado
-        (
-          isOwner(userId) &&
-
-          !request.resource.data
-            .diff(resource.data)
-            .affectedKeys()
-            .hasAny([
-              'score',
-              'taxaAceite',
-              'totalCorridas',
-              'aprovado',
-              'status',
-              'riscoFraude',
-              'validacaoManual'
-            ])
-        )
-
-        ||
-
-        // 🛡️ Admin validando motorista
-        isAdmin();
-
+        (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'score', 'taxaAceite', 'totalCorridas', 'aprovado', 'status', 'riscoFraude', 'validacaoManual'
+        ])) 
+        || isAdmin();
       allow delete: if false;
     }
 
     // =========================================================
-    // 📡 MOTORISTAS ONLINE
+    // 📡 MOTORISTAS ONLINE (RADAR)
     // =========================================================
 
     match /motoristas_online/{userId} {
-
       allow read: if isAuthenticated();
-
-      allow create, update: if
-
-        isOwner(userId)
-
-        &&
-
-        request.resource.data.keys().hasAll([
-          'lat',
-          'lng',
-          'status'
-        ]);
-
-      allow delete: if
-        isOwner(userId)
-        || isAdmin();
+      allow create, update: if isOwner(userId) && request.resource.data.keys().hasAll(['lat', 'lng', 'status']);
+      allow delete: if isOwner(userId) || isAdmin();
     }
 
     // =========================================================
-    // 📦 FRETES
+    // 📦 FRETES (BLINDAGEM CONTRA ROUBO DE DADOS)
     // =========================================================
 
     match /fretes/{freteId} {
-
-      // 🔒 Apenas usuários autenticados leem
       allow read: if isAuthenticated();
 
-      // 🟢 Cliente cria frete
-      allow create: if
-
-        request.resource.data.keys().hasAll([
-          'status',
-          'valorTotal',
-          'cidadeOrigem',
-          'cidadeDestino',
-          'createdAt'
-        ]);
-
-      // =====================================================
-      // 🔄 UPDATE
-      // =====================================================
+      allow create: if request.resource.data.keys().hasAll([
+        'status', 'valorTotal', 'cidadeOrigem', 'cidadeDestino', 'createdAt'
+      ]);
 
       allow update: if
-
-        // =================================================
-        // 🚚 MOTORISTA ACEITANDO FRETE
-        // =================================================
-
-        (
-          isAuthenticated()
-
-          &&
-
-          resource.data.status == 'disponivel'
-
-          &&
-
-          request.resource.data.status == 'aceito'
-
-          &&
-
-          request.resource.data.motoristaId == request.auth.uid
-        )
-
+        // 1. Motorista aceitando frete do radar
+        (isAuthenticated() && resource.data.status == 'disponivel' && request.resource.data.status == 'aceito' && request.resource.data.motoristaId == request.auth.uid)
         ||
-
-        // =================================================
-        // 🚚 MOTORISTA ATUALIZANDO PRÓPRIO FRETE
-        // =================================================
-
-        (
-          isAuthenticated()
-
-          &&
-
-          resource.data.motoristaId == request.auth.uid
-
-          &&
-
-          !request.resource.data
-            .diff(resource.data)
-            .affectedKeys()
-            .hasAny([
-              'valorTotal',
-              'valorMotorista',
-              'lucroPlataforma',
-              'clienteNome',
-              'clienteZap'
-            ])
-        )
-
+        // 2. Motorista rodando com a carga (não pode alterar o valor do dinheiro)
+        (isAuthenticated() && resource.data.motoristaId == request.auth.uid && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'valorTotal', 'valorMotorista', 'lucroPlataforma', 'clienteNome', 'clienteZap'
+        ]))
         ||
-
-        // =================================================
-        // 🛡️ ADMIN TOTAL
-        // =================================================
-
+        // 3. Admin Mestre
         isAdmin();
 
       allow delete: if false;
     }
 
     // =========================================================
-    // 🎯 OFERTAS
+    // 🎯 OFERTAS E FILAS
     // =========================================================
 
     match /ofertas/{ofertaId} {
-
       allow read: if isAuthenticated();
-
-      allow update: if
-
-        isAuthenticated()
-
-        &&
-
-        resource.data.motoristaId == request.auth.uid;
-
-      allow create: if false;
-
-      allow delete: if false;
+      allow update: if isAuthenticated() && resource.data.motoristaId == request.auth.uid;
+      allow create, delete: if false;
     }
 
-    // =========================================================
-    // 📊 ANALYTICS
-    // =========================================================
-
     match /analytics_demand/{docId} {
-
       allow read: if isAdmin();
-
       allow write: if false;
     }
 
     // =========================================================
-    // 🛡️ FALLBACK GLOBAL
+    // 🛡️ FALLBACK GLOBAL (SE TENTAR INVADIR OUTRA TABELA, BLOQUEIA)
     // =========================================================
-
     match /{document=**} {
-
       allow read, write: if false;
     }
   }
