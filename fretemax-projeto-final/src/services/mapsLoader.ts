@@ -129,6 +129,7 @@ class MapsLoaderService {
     this.status =
       'loading';
 
+    // 🔥 Puxa a chave da Vercel ou da configuração manual
     const apiKey =
       config?.apiKey ||
       import.meta.env
@@ -139,7 +140,7 @@ class MapsLoaderService {
         'error';
 
       throw new Error(
-        'VITE_GOOGLE_MAPS_API_KEY ausente.',
+        '❌ CHAVE DO GOOGLE MAPS NÃO ENCONTRADA. Adicione VITE_GOOGLE_MAPS_API_KEY nas Environment Variables da Vercel.',
       );
     }
 
@@ -157,10 +158,13 @@ class MapsLoaderService {
           config?.region ||
           'BR',
 
+        // 🔥 INJETADO: Bibliotecas necessárias para Rotas e Marcadores Múltiplos
         libraries:
           config?.libraries || [
             'places',
             'geometry',
+            'routes',
+            'marker'
           ],
       });
 
@@ -198,7 +202,7 @@ class MapsLoaderService {
         true;
 
       console.log(
-        '✅ Google Maps runtime carregado.',
+        '✅ Google Maps runtime carregado com sucesso.',
       );
 
       return window.google;
