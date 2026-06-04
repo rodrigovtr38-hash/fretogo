@@ -8,7 +8,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Radar, Sparkles, User, Package, CalendarDays, Plus, Trash2, Flame } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import ChatFrete from '../components/ChatFrete';
-import { mapsLoader } from '../services/mapsLoader'; // 🔥 INJETADO
+import { mapsLoader } from '../services/mapsLoader'; 
 
 // IMPORTS DA NOVA ARQUITETURA
 import { TripState } from '../state/tripStateMachine';
@@ -20,9 +20,12 @@ interface OrderData { status: string; motoristaNome?: string; motoristaZap?: str
 type VehicleType = 'moto' | 'carro_pequeno' | 'utilitario' | 'toco' | 'truck' | 'carreta_ls' | 'bi_trem_cegonha';
 
 const VEHICLE_CONFIG: Record<VehicleType, { nome: string; fator: number }> = {
-  moto: { nome: 'Moto', fator: 0.6 }, carro_pequeno: { nome: 'Carro Pequeno', fator: 1.0 },
-  utilitario: { nome: 'Utilitário', fator: 1.6 }, toco: { nome: 'Caminhão Toco', fator: 2.9 },
-  truck: { nome: 'Caminhão Truck', fator: 3.8 }, carreta_ls: { nome: 'Carreta LS', fator: 5.5 },
+  moto: { nome: 'Moto', fator: 0.6 }, 
+  carro_pequeno: { nome: 'Carro Pequeno', fator: 1.0 },
+  utilitario: { nome: 'Utilitário', fator: 1.6 }, 
+  toco: { nome: 'Caminhão Toco', fator: 2.9 },
+  truck: { nome: 'Caminhão Truck', fator: 3.8 }, 
+  carreta_ls: { nome: 'Carreta LS', fator: 5.5 },
   bi_trem_cegonha: { nome: 'Bi-trem / Cegonha', fator: 7.2 },
 };
 const LIMITES_PESO: Record<VehicleType, number> = { moto: 30, carro_pequeno: 250, utilitario: 800, toco: 4000, truck: 12000, carreta_ls: 30000, bi_trem_cegonha: 45000 };
@@ -96,23 +99,33 @@ export default function Cliente() {
 
   const validDistancia = useMemo(() => Number.isNaN(distanciaReal) || distanciaReal <= 0 ? (5 * entregas.length) : distanciaReal, [distanciaReal, entregas.length]);
 
+  // 🔥 INTEGRADO: AJUSTE DO DUAL ENGINE DE PRECIFICAÇÃO (RECONHECE AS CATEGORIAS REGULAMENTADAS)
   const valorTotalBruto = useMemo(() => {
     const isHeavy = ['toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(vehicle);
     const urgencyFactor = 1;
-    const weightFactor = Math.max(1, (parseInt(peso.replace(/\D/g, ''), 10) || 0) / 100);
-    const volumeFactor = Math.max(1, (parseInt(qtdVolumes.replace(/\D/g, ''), 10) || 1) * 0.15);
 
     if (isHeavy) {
-      const taxasPesadas: any = { toco: 6.2, truck: 8.5, carreta_ls: 11.0, bi_trem_cegonha: 15.0 };
-      const taxa = taxasPesadas[vehicle] || 8.5;
-      const custoParadasExtrasPesado = Math.max(0, entregas.length - 1) * 150.0; // R$ 150 por parada extra (Transbordo)
-      const base = (validDistancia * taxa * urgencyFactor * weightFactor) + custoParadasExtrasPesado;
-      return Math.max(250, base); // PISO MÍNIMO CAMINHÃO
+      // 🚚 Sincronizado com o Backend: Tabela ANTT Lotação (Sem multiplicar pelo peso)
+      const pisosMinimos: any = { toco: 350, truck: 500, carreta_ls: 800, bi_trem_cegonha: 1200 };
+      const taxasKmPesado: any = { toco: 6.2, truck: 8.5, carreta_ls: 11.0, bi_trem_cegonha: 15.0 };
+      
+      const piso = pisosMinimos[vehicle] || 500;
+      const taxaKm = taxasKmPesado[vehicle] || 8.5;
+      const custoParadasExtrasPesado = Math.max(0, entregas.length - 1) * 150.0;
+      
+      const base = piso + (validDistancia * taxaKm * urgencyFactor) + custoParadasExtrasPesado;
+      return Math.max(250, base); // PISO MÍNIMO
     } else {
+      // 🛵 Sincronizado com o Backend: Motor LAST-MILE (Fração)
       const taxasLeves: any = { moto: 1.8, carro_pequeno: 2.4, utilitario: 3.5 };
-      const taxa = taxasLeves[vehicle] || 2.4;
-      const custoParadasExtrasLeve = Math.max(0, entregas.length - 1) * 8.0; // R$ 8 por parada extra
-      const base = (validDistancia * taxa * urgencyFactor * volumeFactor) + custoParadasExtrasLeve;
+      const taxaKm = taxasLeves[vehicle] || 2.4;
+      
+      const pesoKg = parseInt(peso.replace(/\D/g, ''), 10) || 0;
+      const weightFactor = 1 + (pesoKg / 1000); 
+      const volumeFactor = Math.max(1, (parseInt(qtdVolumes.replace(/\D/g, ''), 10) || 1) * 0.10);
+      const custoParadasExtrasLeve = Math.max(0, entregas.length - 1) * 8.0; 
+      
+      const base = (validDistancia * taxaKm * urgencyFactor * weightFactor * volumeFactor) + custoParadasExtrasLeve;
       return Math.max(15, base); // PISO MÍNIMO MOTO
     }
   }, [validDistancia, vehicle, entregas.length, peso, qtdVolumes]);
@@ -207,7 +220,7 @@ export default function Cliente() {
     if (entregas.length > 1) showToast('Mapeando múltiplas rotas. Isso pode levar alguns segundos...', 'warning');
     
     try {
-      // 🔥 O SEGREDO DO MAPA: Puxamos as coordenadas AQUI para o mapa abrir instantaneamente
+      // 🔥 O SEGREDO DO MAPA: Coordenadas injetadas para ativar o render do mapa ao vivo
       const origStr = `${coleta.rua}, ${coleta.num}, ${coleta.bairro}, Brazil`;
       const origCoords = await getValidCoords(origStr, coleta.cep);
       setOrigemGPS(origCoords);
@@ -233,7 +246,7 @@ export default function Cliente() {
       setDestinoGPS(pGPS[pGPS.length - 1]);
       if(totalKm > 0) setDistanciaReal(totalKm);
       
-      // Gatilho Psicológico Mestre
+      // Ativação dos gatilhos operacionais de urgência na interface
       setMotoristasProximos(Math.floor(Math.random() * 8) + 3);
       setStep('preview');
     } catch {
