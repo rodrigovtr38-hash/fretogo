@@ -1,281 +1,80 @@
-import {
-  Award,
-  DollarSign,
-  Star,
-  TrendingUp,
-  Truck,
-  ShieldCheck,
-} from 'lucide-react';
+// src/components/motorista/DriverStats.tsx
+import { DollarSign, Truck, Star, Award } from 'lucide-react';
 
-export default function DriverStats() {
+interface DriverDashboardProps {
+  driver?: any;
+}
+
+export default function DriverDashboard({
+  driver,
+}: DriverDashboardProps) {
+  
+  const isPremium = driver?.score >= 4.8 || driver?.categoria === 'carreta';
+
   return (
-    <section className="relative w-full">
+    <div className="mx-auto w-full max-w-7xl px-4 py-6">
 
-      {/* GRID */}
-      <div
-        className="
-          grid
-          gap-5
-          md:grid-cols-2
-          xl:grid-cols-4
-        "
-      >
-
-        {/* GANHOS */}
-        <div
-          className="
-            group
-            relative
-            overflow-hidden
-            rounded-[2rem]
-            border
-            border-cyan-500/10
-            bg-[#020817]
-            p-6
-            transition-all
-            duration-300
-            hover:border-cyan-400/30
-            hover:shadow-[0_0_40px_rgba(6,182,212,0.12)]
-          "
-        >
-          {/* GLOW */}
-          <div
-            className="
-              absolute
-              right-[-2rem]
-              top-[-2rem]
-              h-32
-              w-32
-              rounded-full
-              bg-cyan-500/10
-              blur-3xl
-            "
-          />
-
-          <div
-            className="
-              flex
-              h-14
-              w-14
-              items-center
-              justify-center
-              rounded-2xl
-              bg-cyan-500/10
-            "
-          >
-            <DollarSign
-              size={28}
-              className="text-cyan-400"
-            />
-          </div>
-
-          <p className="mt-6 text-xs font-black uppercase tracking-[0.3em] text-slate-500">
-            Ganhos hoje
-          </p>
-
-          <h2 className="mt-2 text-4xl font-black text-white">
-            R$ 480
-          </h2>
-
-          <div className="mt-5 flex items-center gap-2">
-            <TrendingUp
-              size={16}
-              className="text-emerald-400"
-            />
-
-            <span className="text-sm font-semibold text-emerald-400">
-              +18% hoje
+      {/* HERO SECTION - Responsivo */}
+      <div className="overflow-hidden rounded-[2rem] border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 via-slate-900 to-slate-950 p-6 md:p-8">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <span className="mb-4 inline-flex rounded-full border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-cyan-300">
+              CENTRAL OPERACIONAL
             </span>
-          </div>
-        </div>
-
-        {/* ENTREGAS */}
-        <div
-          className="
-            group
-            relative
-            overflow-hidden
-            rounded-[2rem]
-            border
-            border-emerald-500/10
-            bg-[#020817]
-            p-6
-            transition-all
-            duration-300
-            hover:border-emerald-400/30
-            hover:shadow-[0_0_40px_rgba(16,185,129,0.12)]
-          "
-        >
-          <div
-            className="
-              absolute
-              left-[-2rem]
-              top-[-2rem]
-              h-32
-              w-32
-              rounded-full
-              bg-emerald-500/10
-              blur-3xl
-            "
-          />
-
-          <div
-            className="
-              flex
-              h-14
-              w-14
-              items-center
-              justify-center
-              rounded-2xl
-              bg-emerald-500/10
-            "
-          >
-            <Truck
-              size={28}
-              className="text-emerald-400"
-            />
+            <h1 className="text-2xl md:text-4xl lg:text-5xl font-black leading-tight text-white">
+              Bem-vindo ao radar FRETOGO
+            </h1>
           </div>
 
-          <p className="mt-6 text-xs font-black uppercase tracking-[0.3em] text-slate-500">
-            Entregas
-          </p>
-
-          <h2 className="mt-2 text-4xl font-black text-white">
-            24
-          </h2>
-
-          <p className="mt-4 text-sm text-slate-400">
-            Finalizadas nas últimas 24h
-          </p>
-        </div>
-
-        {/* REPUTAÇÃO */}
-        <div
-          className="
-            group
-            relative
-            overflow-hidden
-            rounded-[2rem]
-            border
-            border-yellow-500/10
-            bg-[#020817]
-            p-6
-            transition-all
-            duration-300
-            hover:border-yellow-400/30
-            hover:shadow-[0_0_40px_rgba(234,179,8,0.12)]
-          "
-        >
-          <div
-            className="
-              absolute
-              right-[-2rem]
-              bottom-[-2rem]
-              h-32
-              w-32
-              rounded-full
-              bg-yellow-500/10
-              blur-3xl
-            "
-          />
-
-          <div
-            className="
-              flex
-              h-14
-              w-14
-              items-center
-              justify-center
-              rounded-2xl
-              bg-yellow-500/10
-            "
-          >
-            <Star
-              size={28}
-              className="text-yellow-400"
-            />
-          </div>
-
-          <p className="mt-6 text-xs font-black uppercase tracking-[0.3em] text-slate-500">
-            Avaliação
-          </p>
-
-          <h2 className="mt-2 text-4xl font-black text-white">
-            4.9
-          </h2>
-
-          <p className="mt-4 text-sm text-slate-400">
-            Motorista elite da plataforma
-          </p>
-        </div>
-
-        {/* RANK */}
-        <div
-          className="
-            group
-            relative
-            overflow-hidden
-            rounded-[2rem]
-            border
-            border-purple-500/10
-            bg-[#020817]
-            p-6
-            transition-all
-            duration-300
-            hover:border-purple-400/30
-            hover:shadow-[0_0_40px_rgba(168,85,247,0.12)]
-          "
-        >
-          <div
-            className="
-              absolute
-              left-[-2rem]
-              bottom-[-2rem]
-              h-32
-              w-32
-              rounded-full
-              bg-purple-500/10
-              blur-3xl
-            "
-          />
-
-          <div
-            className="
-              flex
-              h-14
-              w-14
-              items-center
-              justify-center
-              rounded-2xl
-              bg-purple-500/10
-            "
-          >
-            <Award
-              size={28}
-              className="text-purple-400"
-            />
-          </div>
-
-          <p className="mt-6 text-xs font-black uppercase tracking-[0.3em] text-slate-500">
-            Nível atual
-          </p>
-
-          <h2 className="mt-2 text-4xl font-black text-white">
-            PRO
-          </h2>
-
-          <div className="mt-4 flex items-center gap-2">
-            <ShieldCheck
-              size={16}
-              className="text-cyan-400"
-            />
-
-            <span className="text-sm text-cyan-300">
-              Prioridade em cargas premium
-            </span>
+          <div className="w-full lg:max-w-md rounded-[2rem] border border-white/10 bg-black/30 p-5 backdrop-blur-xl">
+             <div className="flex items-center gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-500/10 text-xl font-black text-cyan-400 shrink-0">
+                  {driver?.nome?.charAt(0) || 'M'}
+                </div>
+                <div>
+                  <h2 className="text-lg font-black text-white truncate">{driver?.nome || 'Motorista'}</h2>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Parceiro FRETOGO</p>
+                </div>
+             </div>
           </div>
         </div>
       </div>
-    </section>
+
+      {/* 🔥 GRID RESPONSIVA (RESOLVE O PROBLEMA DAS LETRAS CORTADAS) */}
+      <div className="mt-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
+
+        <div className="rounded-[2rem] border border-cyan-500/20 bg-slate-900/80 p-4 md:p-6 flex flex-col h-full shadow-sm">
+          <p className="text-[9px] font-black uppercase tracking-[0.15em] text-cyan-400 flex items-center gap-1">
+            <DollarSign size={12} /> Ganhos
+          </p>
+          <h3 className="mt-2 text-xl md:text-3xl font-black text-white tracking-tighter">R$ 0,00</h3>
+        </div>
+
+        <div className="rounded-[2rem] border border-emerald-500/20 bg-slate-900/80 p-4 md:p-6 flex flex-col h-full shadow-sm">
+          <p className="text-[9px] font-black uppercase tracking-[0.15em] text-emerald-400 flex items-center gap-1">
+            <Truck size={12} /> Entregas
+          </p>
+          <h3 className="mt-2 text-xl md:text-3xl font-black text-white tracking-tighter">0</h3>
+        </div>
+
+        <div className="rounded-[2rem] border border-amber-500/20 bg-slate-900/80 p-4 md:p-6 flex flex-col h-full shadow-sm">
+          <p className="text-[9px] font-black uppercase tracking-[0.15em] text-amber-400 flex items-center gap-1">
+            <Star size={12} /> Avaliação
+          </p>
+          <h3 className="mt-2 text-xl md:text-3xl font-black text-white tracking-tighter">
+            {driver?.score ? Number(driver.score).toFixed(1) : '5.0'}
+          </h3>
+        </div>
+
+        <div className="rounded-[2rem] border border-purple-500/20 bg-slate-900/80 p-4 md:p-6 flex flex-col h-full shadow-sm">
+          <p className="text-[9px] font-black uppercase tracking-[0.15em] text-purple-400 flex items-center gap-1">
+            <Award size={12} /> Nível
+          </p>
+          <h3 className="mt-2 text-lg md:text-2xl font-black text-white tracking-tighter uppercase italic">
+            {isPremium ? 'ELITE' : 'PIONEIRO'}
+          </h3>
+        </div>
+      </div>
+    </div>
   );
 }
