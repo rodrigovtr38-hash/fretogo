@@ -4,7 +4,7 @@ import { collection, onSnapshot, doc, query, orderBy, runTransaction, where, upd
 import { 
   Loader2, CheckCircle, XCircle, Search, ShieldAlert, Truck, Users, 
   Calendar, DollarSign, Activity, Clock, AlertTriangle, Eye, 
-  Map as MapIcon, ArrowRight, Wallet, Filter, Zap, MessageCircle, ShieldCheck
+  Map as MapIcon, ArrowRight, Wallet, Filter, Zap, MessageCircle, ShieldCheck, RefreshCcw
 } from 'lucide-react';
 
 // 🔥 SEGURANÇA: Painel trancado! Apenas a conta principal tem acesso.
@@ -93,7 +93,7 @@ export default function Admin() {
     });
   }, [fretes, searchTerm, statusFilter, timeFilter]);
 
-  // Cálculo de Métricas Operacionais (Baseado nos dados FILTRADOS pelo tempo, independentemente do status da busca textual)
+  // Cálculo de Métricas Operacionais (Baseado nos dados FILTRADOS pelo tempo)
   const stats = useMemo(() => {
     const fretesDoPeriodo = fretes.filter(f => filterByTime(f, timeFilter));
 
@@ -113,11 +113,9 @@ export default function Admin() {
     const repasses = fretes.filter(f => f.status === 'entregue').length;
     const cancelados = fretesDoPeriodo.filter(f => f.status === 'cancelado').length;
 
-    // Alertas Críticos
     const now = Date.now();
     const timeoutAguardando = fretes.filter(f => f.status === 'disponivel' && (now - (f.createdAt?.toMillis ? f.createdAt.toMillis() : now)) > 600000).length;
     const semComprovante = fretes.filter(f => f.status === 'entregue' && !f.comprovanteUrl).length;
-
     const motoristasOcupados = motoristasOnline.filter(m => m.status === 'ocupado').length;
 
     return { 
@@ -148,6 +146,28 @@ export default function Admin() {
         });
       });
     } catch (e: any) { alert(e.message); }
+  };
+
+  // 🔥 NOVA FUNÇÃO: ESTORNO DO MERCADO PAGO MANUAL
+  const handleReembolso = async (idPedido: string) => {
+    if (!window.confirm("ATENÇÃO: Deseja realmente estornar o PIX deste cliente no Mercado Pago? Esta ação não pode ser desfeita.")) return;
+    try {
+      const res = await fetch('/api/reembolso', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idPedido })
+      });
+      
+      const data = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(data.error || 'Falha ao comunicar com a API do Mercado Pago');
+      }
+      
+      alert('SUCESSO! O PIX foi estornado e devolvido para a conta do cliente. O banco de dados foi atualizado.');
+    } catch (error: any) {
+      alert(`Erro no Estorno: ${error.message}`);
+    }
   };
 
   const formatarData = (ts: any) => {
@@ -536,7 +556,7 @@ export default function Admin() {
                            <div className="bg-slate-950/80 p-5 rounded-2xl border border-white/5 col-span-1 sm:col-span-2 flex justify-between items-center">
                               <div>
                                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Especificações</p>
-                                <p className="text-[10px] font-black text-white uppercase italic">{f.veiculo.replace('_',' ')} • {f.peso} • {f.qtdVolumes}</p>
+                                <p className="text-[10px] font-black text-white uppercase italic">{f.veiculo?.replace('_',' ')} • {f.peso} • {f.qtdVolumes}</p>
                               </div>
                               <div className="text-right">
                                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Valor Bruto</p>
@@ -555,6 +575,20 @@ export default function Admin() {
                                <span className="flex items-center gap-1"><Wallet size={14} /> Liquidar Repasse</span>
                                <span className="text-[8px] opacity-70 group-hover:opacity-100 font-bold">R$ {Number(f.valorMotorista).toFixed(2)}</span>
                              </button>
+                           )}
+                           
+                           {/* 🔥 NOVO: Fluxo de Reembolso Anti-Fraude */}
+                           {f.status === 'cancelado' && !f.reembolsado && (
+                             <button onClick={() => handleReembolso(f.id)} className="bg-amber-600 hover:bg-amber-500 text-slate-900 py-4 rounded-xl font-black text-[10px] tracking-widest uppercase shadow-[0_0_20px_rgba(245,158,11,0.4)] transition-all flex flex-col items-center justify-center gap-1 group">
+                               <span className="flex items-center gap-1"><RefreshCcw size={14} /> Estornar PIX (MP)</span>
+                               <span className="text-[8px] opacity-70 group-hover:opacity-100 font-bold text-slate-900">Devolver Dinheiro</span>
+                             </button>
+                           )}
+
+                           {f.reembolsado && (
+                             <div className="bg-slate-900 border border-amber-500/30 text-amber-400 py-3 rounded-xl font-black text-[9px] tracking-widest uppercase flex items-center justify-center gap-2">
+                               <CheckCircle size={12} /> Reembolso Feito
+                             </div>
                            )}
                            
                            {f.comprovanteUrl && (
