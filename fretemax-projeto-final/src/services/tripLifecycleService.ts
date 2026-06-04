@@ -12,21 +12,15 @@ import {
 import {
   AppTripState,
   canTransition,
-  isFinalState,
 } from '../state/tripStateMachine';
 
 import {
   DriverState,
-  canDriverTransition,
 } from '../state/driverStateMachine';
 
 import DispatchQueueService, {
   DispatchQueueService as DispatchQueueRuntime,
 } from './dispatchQueueService';
-
-import {
-  dispatchRealtimeService,
-} from './dispatchRealtimeService';
 
 import {
   StateSynchronizationService,
@@ -107,6 +101,7 @@ export class TripLifecycleService {
       const data =
         snapshot.data();
 
+      // Verifica se a transição é válida matematicamente
       const permitido =
         canTransition(
           data.status,
@@ -116,9 +111,11 @@ export class TripLifecycleService {
       if (
         !permitido
       ) {
+        console.warn(`[TRIP_LIFECYCLE] Transição Bloqueada: De ${data.status} para ${novoStatus}`);
         return false;
       }
 
+      // Sincroniza o estado do motorista baseado no status da viagem
       const runtime =
         StateSynchronizationService.synchronize(
           data.driverState ||
@@ -126,11 +123,26 @@ export class TripLifecycleService {
           novoStatus,
         );
 
+      // 🔥 FASE 5 (MULTI-DROP): Lógica para controlar as múltiplas entregas
+      let paradaAtualIndex = data.paradaAtualIndex || 0;
+      const totalParadas = data.paradas ? data.paradas.length : 1;
+
+      // Se o status tentar ir para 'entregue', mas ainda faltam paradas, 
+      // interceptamos a atualização e mantemos em 'em_transporte' mudando apenas o índice
+      let statusReal = runtime.tripState;
+      if (novoStatus === AppTripState.ENTREGUE && paradaAtualIndex + 1 < totalParadas) {
+        paradaAtualIndex += 1;
+        statusReal = AppTripState.EM_TRANSPORTE; // Mantém a roda girando
+      }
+
       await updateDoc(
         freteRef,
         {
           status:
-            runtime.tripState,
+            statusReal,
+
+          paradaAtualIndex: 
+            paradaAtualIndex,
 
           runtime,
 
