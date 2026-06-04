@@ -1,4 +1,4 @@
-import { Zap, Truck, ShieldCheck, ArrowRight, MapPin, Clock, BarChart3, Smartphone, CheckCircle, Radar } from 'lucide-react';
+import { Zap, Truck, ShieldCheck, ArrowRight, MapPin, Clock, BarChart3, Smartphone, CheckCircle, Radar, MessageCircle } from 'lucide-react';
 
 export default function Home() {
   const goToClient = () => {
@@ -7,6 +7,10 @@ export default function Home() {
 
   const goToDriver = () => {
     window.location.href = '/motorista';
+  };
+
+  const openWhatsAppSupport = () => {
+    window.open('https://wa.me/5511946099840', '_blank');
   };
 
   return (
@@ -133,6 +137,15 @@ export default function Home() {
           <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">© 2026 Fretogo Logística. Todos os direitos reservados.</p>
         </div>
       </footer>
+
+      {/* BOTÃO FIXO DE WHATSAPP (SUPORTE CLIENTE) */}
+      <button 
+        onClick={openWhatsAppSupport}
+        className="fixed bottom-6 right-6 z-[100] flex h-14 w-14 items-center justify-center rounded-full bg-green-500 text-white shadow-[0_10px_30px_rgba(34,197,94,0.4)] transition-all hover:scale-110 hover:bg-green-400 active:scale-95"
+      >
+        <MessageCircle size={32} />
+      </button>
+
     </div>
   );
 }
