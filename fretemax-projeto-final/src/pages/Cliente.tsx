@@ -506,12 +506,22 @@ export default function Cliente() {
                 <CheckCircle className="h-12 w-12 text-blue-600" />
               </div>
 
-              {/* 🔥 GATILHO PSICOLÓGICO INJETADO AQUI */}
-              <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3 shadow-sm">
-                <div className="bg-amber-100 p-2 rounded-full shrink-0">
-                  <Flame className="w-5 h-5 text-amber-600" />
+              {/* 🔥 GATILHO PSICOLÓGICO AJUSTADO */}
+              <div className="mx-4 mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-3">
+                <div className="bg-amber-100 p-1.5 rounded-full shrink-0">
+                  <Flame className="w-4 h-4 text-amber-600" />
                 </div>
                 <div>
+                  <p className="text-xs font-black text-amber-900 uppercase tracking-widest">Atenção: Alta Demanda</p>
+                  <p className="text-[10px] text-amber-800 mt-0.5 font-bold">
+                    {motoristasProximos > 0 
+                      ? `Identificamos ${motoristasProximos} motoristas (${VEHICLE_CONFIG[vehicle].nome}) operando na sua região. Efetue o pagamento para reservar o seu veículo imediatamente.`
+                      : `Estamos conectando a rede de parceiros (${VEHICLE_CONFIG[vehicle].nome}) na sua região. Efetue o pagamento para disparar o alerta de coleta prioritária.`
+                    }
+                  </p>
+                </div>
+              </div>
+        
                   <p className="text-xs font-black text-amber-900 uppercase tracking-widest">Atenção: Alta Demanda</p>
                   <p className="text-sm text-amber-800 mt-1">Identificamos <strong className="font-black text-amber-900">{motoristasProximos} motoristas ({VEHICLE_CONFIG[vehicle].nome})</strong> operando na sua região. Efetue o pagamento para reservar o seu veículo imediatamente.</p>
                 </div>
