@@ -1,283 +1,370 @@
-// src/pages/Cliente.tsx
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { MapPin, Truck, Phone, User, CheckCircle, ArrowLeft, ShieldCheck, Zap, Flame } from 'lucide-react';
-import MapaCliente from '../components/MapaCliente';
-import { mapsLoader } from '../services/mapsLoader';
-import { useClientFreight } from '../hooks/useClientFreight';
+// src/components/MapaCliente.tsx
 
-type Step = 'FORM' | 'QUOTE';
+import React, {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
-export default function Cliente() {
-  const navigate = useNavigate();
-  const { createFreight, loadingPayment } = useClientFreight();
+import {
+  GoogleMap,
+  Marker,
+  Polyline,
+} from '@react-google-maps/api';
 
-  const [step, setStep] = useState<Step>('FORM');
-  const [geocoding, setGeocoding] = useState(false);
-  const [mapsReady, setMapsReady] = useState(false);
+import { Radar, Users, Flame } from 'lucide-react';
 
-  // Estados do Formulário
-  const [nome, setNome] = useState('');
-  const [telefone, setTelefone] = useState('');
-  const [documento, setDocumento] = useState('');
-  const [origemTexto, setOrigemTexto] = useState('');
-  const [destinoTexto, setDestinoTexto] = useState('');
-  const [categoria, setCategoria] = useState('carreta');
-  const [peso, setPeso] = useState('');
-  const [volumes, setVolumes] = useState('');
-  const [tipoCarga, setTipoCarga] = useState('');
+/* =========================================================
+   TYPES
+========================================================= */
 
-  // Estados de GPS
-  const [origemGPS, setOrigemGPS] = useState<{lat: number, lng: number} | null>(null);
-  const [destinoGPS, setDestinoGPS] = useState<{lat: number, lng: number} | null>(null);
+type Coordinates = {
+  lat: number;
+  lng: number;
+};
+
+interface MapaClienteProps {
+  origem?: Coordinates | null;
+  destino?: Coordinates | null;
+  // 🔥 NOVO: Suporte para múltiplas paradas no mapa
+  paradasExtras?: Coordinates[] | null; 
+  motoristaPos?: Coordinates | null;
+  operationalMessage?: string;
+  eta?: number | null;
+  motoristaId?: string | null;
+  vehicleType?: string; // Para gatilhos dinâmicos
+}
+
+/* =========================================================
+   CONSTANTS (Estilo Híbrido Corporativo)
+========================================================= */
+
+const containerStyle = {
+  width: '100%',
+  height: '100%',
+  minHeight: '420px',
+  borderRadius: '1.5rem',
+};
+
+const defaultCenter = {
+  lat: -23.55052,
+  lng: -46.633308, // Centro SP como fallback
+};
+
+const mapStyles = [
+  { elementType: 'geometry', stylers: [{ color: '#0f172a' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#0f172a' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#94a3b8' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1e293b' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#020617' }] },
+  { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+];
+
+/* =========================================================
+   HELPERS DE ANIMAÇÃO
+========================================================= */
+
+function interpolatePosition(from: Coordinates, to: Coordinates, factor: number): Coordinates {
+  return {
+    lat: from.lat + (to.lat - from.lat) * factor,
+    lng: from.lng + (to.lng - from.lng) * factor,
+  };
+}
+
+function calculateHeading(from: Coordinates, to: Coordinates): number {
+  const dx = to.lng - from.lng;
+  const dy = to.lat - from.lat;
+  return (Math.atan2(dy, dx) * 180) / Math.PI;
+}
+
+/* =========================================================
+   COMPONENT
+========================================================= */
+
+function MapaCliente({
+  origem,
+  destino,
+  paradasExtras = [],
+  motoristaPos,
+  operationalMessage = 'Roteirizando caminhos otimizados...',
+  eta,
+  motoristaId,
+  vehicleType = 'motoristas'
+}: MapaClienteProps) {
   
-  // Gatilho Psicológico
-  const [motoristasProximos, setMotoristasProximos] = useState(0);
+  /* =======================================================
+     REFS & STATE
+  ======================================================= */
+  const mountedRef = useRef(false);
+  const mapRef = useRef<google.maps.Map | null>(null);
+  const mapIdleRef = useRef(false);
+  const fitBoundsTimeoutRef = useRef<number>();
+  const animationFrameRef = useRef<number>();
 
-  // Inicializa o Google Maps
+  const [mapReady, setMapReady] = useState(false);
+  const [mapStable, setMapStable] = useState(false);
+  const [animatedPos, setAnimatedPos] = useState<Coordinates | null>(null);
+  const [heading, setHeading] = useState(0);
+  
+  // Gatilho de Vendas
+  const [simulatedDrivers, setSimulatedDrivers] = useState<number>(0);
+
+  const googleReady = typeof window !== 'undefined' && !!window.google && !!window.google.maps;
+
+  /* =======================================================
+     LIFECYCLE & GATILHO DE DEMANDA
+  ======================================================= */
   useEffect(() => {
-    mapsLoader.load().then(() => setMapsReady(true)).catch(console.error);
+    mountedRef.current = true;
+    
+    // 🔥 Simulador de Demanda Local (Gatilho Psicológico)
+    const baseDrivers = ['toco', 'truck', 'carreta'].some(t => vehicleType.includes(t)) ? 3 : 12;
+    setSimulatedDrivers(Math.floor(Math.random() * 5) + baseDrivers);
+
+    return () => {
+      mountedRef.current = false;
+      mapIdleRef.current = false;
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      if (fitBoundsTimeoutRef.current) window.clearTimeout(fitBoundsTimeoutRef.current);
+    };
+  }, [vehicleType]);
+
+  /* =======================================================
+     ROUTE PATH (COMPLETO COM MULTI-DROP)
+  ======================================================= */
+  const routePath = useMemo(() => {
+    const path: Coordinates[] = [];
+    if (motoristaPos && motoristaId) path.push(motoristaPos);
+    if (origem) path.push(origem);
+    
+    // Adiciona paradas extras na linha do GPS
+    if (paradasExtras && paradasExtras.length > 0) {
+      paradasExtras.forEach(p => {
+          if(p.lat && p.lng) path.push(p);
+      });
+    } else if (destino) {
+      path.push(destino);
+    }
+    
+    return path;
+  }, [origem, motoristaPos, destino, paradasExtras, motoristaId]);
+
+  /* =======================================================
+     MAP INITIALIZATION
+  ======================================================= */
+  const handleMapLoad = useCallback((map: google.maps.Map) => {
+    if (!mountedRef.current) return;
+    mapRef.current = map;
+    setMapReady(true);
+    window.setTimeout(() => {
+      if (!mountedRef.current) return;
+      mapIdleRef.current = true;
+      setMapStable(true);
+    }, 300);
   }, []);
 
-  const geocodeAddress = async (address: string) => {
-    if (!window.google) return null;
-    const geocoder = new window.google.maps.Geocoder();
-    try {
-      const response = await geocoder.geocode({ address: `${address}, Brasil` });
-      if (response.results[0]) {
-        return {
-          lat: response.results[0].geometry.location.lat(),
-          lng: response.results[0].geometry.location.lng(),
-          enderecoFormatado: response.results[0].formatted_address
-        };
+  const handleMapUnmount = useCallback(() => {
+    mapIdleRef.current = false;
+    setMapReady(false);
+    setMapStable(false);
+    mapRef.current = null;
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+  }, []);
+
+  /* =======================================================
+     AUTO-ZOOM (FIT BOUNDS)
+  ======================================================= */
+  useEffect(() => {
+    if (!googleReady || !mapReady || !mapStable || !mapRef.current) return;
+    if (routePath.length === 0) return;
+
+    if (fitBoundsTimeoutRef.current) clearTimeout(fitBoundsTimeoutRef.current);
+
+    fitBoundsTimeoutRef.current = window.setTimeout(() => {
+      try {
+        if (!mapRef.current || !mapIdleRef.current) return;
+        const bounds = new window.google.maps.LatLngBounds();
+        
+        // Se tem só origem, dá zoom nela
+        if(routePath.length === 1) {
+            mapRef.current.setCenter(routePath[0]);
+            mapRef.current.setZoom(15);
+            return;
+        }
+
+        routePath.forEach(pos => bounds.extend(pos));
+        mapRef.current.fitBounds(bounds, { top: 60, bottom: 60, left: 40, right: 40 });
+      } catch (error) {
+        console.error('FitBounds erro:', error);
       }
-    } catch (e) {
-      console.error("Geocode falhou:", e);
-    }
-    return null;
-  };
+    }, 450);
+  }, [googleReady, mapReady, mapStable, routePath]);
 
-  const handleSimular = async () => {
-    if (!origemTexto || !destinoTexto) return alert('Preencha os endereços!');
-    
-    setGeocoding(true);
-    const originCoords = await geocodeAddress(origemTexto);
-    const destCoords = await geocodeAddress(destinoTexto);
-    
-    if (originCoords && destCoords) {
-      setOrigemGPS(originCoords);
-      setDestinoGPS(destCoords);
-      // Gatilho de urgência: número aleatório de motoristas próximos
-      setMotoristasProximos(Math.floor(Math.random() * 8) + 3);
-      setStep('QUOTE');
-    } else {
-      alert('Não conseguimos localizar esse endereço exato. Tente colocar Rua e Cidade.');
-    }
-    setGeocoding(false);
-  };
+  /* =======================================================
+     ESTILOS DO GOOGLE MAPS
+  ======================================================= */
+  const polylineOptions = useMemo(() => ({
+    strokeColor: '#3b82f6', // blue-500 corporativo
+    strokeOpacity: 0.8,
+    strokeWeight: 4,
+    geodesic: true,
+  }), []);
 
-  const handlePagar = async () => {
-    if (!origemGPS || !destinoGPS) return;
+  const mapOptions = useMemo(() => ({
+    disableDefaultUI: true,
+    clickableIcons: false,
+    gestureHandling: 'greedy' as const,
+    styles: mapStyles,
+  }), []);
 
-    const freightData = {
-      clienteId: 'cliente_web_' + Math.floor(Math.random() * 10000), // Mock temporário
-      clienteNome: nome,
-      clienteTelefone: telefone,
-      clienteDocumento: documento,
-      categoria,
-      pesoKg: Number(peso) || 0,
-      volumes: Number(volumes) || 1,
-      tipoCarga: tipoCarga || 'Geral',
-      prioridade: 'normal',
-      origem: { ...origemGPS, enderecoFormatado: origemTexto },
-      destino: { ...destinoGPS, enderecoFormatado: destinoTexto },
-      paradas: [], // Múltiplas entregas podem ser injetadas aqui futuramente
-    };
-
-    await createFreight({
-      freightData,
-      onSuccess: (id) => {
-        // Redireciona para um radar de acompanhamento (fase final)
-        alert('Carga criada no banco! Direcionando para Checkout Mercado Pago...');
-        // window.location.href = url_mercado_pago
-      },
-      onError: (err) => alert(err)
-    });
-  };
+  /* =======================================================
+     LOADING STATE
+  ======================================================= */
+  if (!googleReady) {
+    return (
+      <div className="relative flex h-full min-h-[420px] w-full items-center justify-center overflow-hidden rounded-[1.5rem] border border-slate-200 bg-slate-50 shadow-inner">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-500/20 border-t-blue-600" />
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-600">
+            Conectando Satélites...
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-20">
-      {/* HEADER LIGHT MODE */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-50">
-        <div className="flex items-center gap-4">
-          {step === 'QUOTE' && (
-            <button onClick={() => setStep('FORM')} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-              <ArrowLeft className="w-5 h-5 text-slate-600" />
-            </button>
-          )}
-          <div className="flex items-center gap-2">
-            <Zap className="text-blue-600 w-6 h-6 fill-blue-600" />
-            <span className="text-xl font-black italic tracking-tighter">FRETOGO</span>
+    <div className="relative overflow-hidden rounded-[1.5rem] w-full h-full min-h-[420px] border border-slate-200 bg-slate-900 shadow-xl">
+      
+      {/* ===================================================
+          OVERLAY DE MARKETING E STATUS (TOPO DIREITA)
+      =================================================== */}
+      <div className="absolute right-4 top-4 z-20 flex flex-col gap-3 items-end pointer-events-none">
+        
+        {/* Status Operacional */}
+        <div className="rounded-2xl border border-white/10 bg-slate-900/80 px-5 py-3 backdrop-blur-md shadow-lg flex items-center gap-3">
+          <div className="h-2.5 w-2.5 animate-pulse rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.8)]" />
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">GPS Live</p>
+            <p className="text-xs font-bold text-white mt-0.5">{motoristaId ? 'Rastreio em Tempo Real' : operationalMessage}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 px-4 py-1.5 bg-blue-50 text-blue-700 rounded-full text-[10px] font-black uppercase tracking-widest border border-blue-100">
-          <ShieldCheck className="w-3.5 h-3.5" /> Plataforma Segura
-        </div>
-      </header>
 
-      <main className="max-w-6xl mx-auto px-4 pt-8 md:pt-12">
-        {step === 'FORM' && (
-          <div className="max-w-3xl mx-auto bg-white rounded-[2rem] shadow-xl border border-slate-100 p-6 md:p-10 animate-in fade-in slide-in-from-bottom-4">
-            <div className="inline-block px-4 py-1.5 bg-blue-50 text-blue-600 rounded-full text-[10px] font-black uppercase tracking-widest border border-blue-100 mb-6">
-              Orçamento Inteligente
-            </div>
-            <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-8">
-              Para onde vai a <span className="text-blue-600 italic">carga?</span>
-            </h1>
+        {/* Gatilho de Vendas (Simulador de Demanda) - Só aparece na cotação */}
+        {!motoristaId && origem && (
+          <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 backdrop-blur-md shadow-lg flex items-center gap-2 animate-in slide-in-from-right-8 duration-700 delay-500">
+            <Flame className="w-4 h-4 text-amber-500" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-amber-500">
+              {simulatedDrivers} veículos na região
+            </span>
+          </div>
+        )}
+      </div>
 
-            <div className="space-y-8">
-              {/* CONTATO */}
+      {/* ===================================================
+          OVERLAY DE ETA E DISTÂNCIA (BASE ESQUERDA)
+      =================================================== */}
+      {(eta || routePath.length > 1) && (
+        <div className="absolute left-4 bottom-4 z-20 pointer-events-none">
+          <div className="rounded-2xl border border-blue-500/30 bg-blue-900/80 px-5 py-3 backdrop-blur-md shadow-[0_10px_30px_rgba(37,99,235,0.2)]">
+            <div className="flex items-center gap-3">
+              <Radar className="w-5 h-5 text-blue-400 animate-[spin_3s_linear_infinite]" />
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3 flex items-center gap-1.5">
-                  <User className="w-3.5 h-3.5" /> Contato Responsável
+                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-300">Roteamento Inteligente</p>
+                <p className="text-sm font-black text-white mt-0.5">
+                  {eta ? `Chegada em ${eta} min` : 'Rota Otimizada Ativa'}
                 </p>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <input type="text" placeholder="Nome" value={nome} onChange={e=>setNome(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none" />
-                  <input type="tel" placeholder="Telefone / WhatsApp" value={telefone} onChange={e=>setTelefone(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none" />
-                  <input type="text" placeholder="CPF / CNPJ" value={documento} onChange={e=>setDocumento(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none" />
-                </div>
               </div>
-
-              {/* ENDEREÇO */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3 flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5" /> Endereço de Coleta
-                  </p>
-                  <input type="text" placeholder="Ex: Rua Dias Gomes, 188, São Paulo" value={origemTexto} onChange={e=>setOrigemTexto(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none" />
-                </div>
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500 mb-3 flex items-center gap-1.5">
-                    <Truck className="w-3.5 h-3.5" /> Destino Final
-                  </p>
-                  <input type="text" placeholder="Ex: Rua Boca de Leão, 178, Guarulhos" value={destinoTexto} onChange={e=>setDestinoTexto(e.target.value)} className="w-full bg-slate-50 border border-emerald-200 rounded-xl px-4 py-3.5 text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none" />
-                </div>
-              </div>
-
-              {/* CARGA */}
-              <div className="bg-slate-50 border border-slate-200 rounded-[1.5rem] p-5 md:p-6">
-                <p className="text-[10px] font-black uppercase tracking-widest text-amber-500 mb-4 flex items-center gap-1.5">
-                  <CheckCircle className="w-3.5 h-3.5" /> Especificações da Carga
-                </p>
-                <select value={categoria} onChange={e=>setCategoria(e.target.value)} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3.5 text-sm font-bold mb-3 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer">
-                  <option value="moto">Moto (Pequenos volumes)</option>
-                  <option value="utilitario">Fiorino / Utilitário</option>
-                  <option value="toco">Caminhão Toco</option>
-                  <option value="carreta">Carreta LS</option>
-                </select>
-                <div className="grid grid-cols-3 gap-3">
-                  <input type="number" placeholder="Peso (Kg)" value={peso} onChange={e=>setPeso(e.target.value)} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3.5 text-sm font-bold outline-none focus:border-blue-500" />
-                  <input type="number" placeholder="Qtd" value={volumes} onChange={e=>setVolumes(e.target.value)} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3.5 text-sm font-bold outline-none focus:border-blue-500" />
-                  <input type="text" placeholder="Tipo (Caixa)" value={tipoCarga} onChange={e=>setTipoCarga(e.target.value)} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3.5 text-sm font-bold outline-none focus:border-blue-500" />
-                </div>
-              </div>
-
-              <button 
-                onClick={handleSimular} 
-                disabled={geocoding}
-                className="w-full bg-blue-600 text-white font-black text-xs md:text-sm uppercase tracking-widest py-5 rounded-2xl shadow-[0_10px_30px_rgba(37,99,235,0.3)] hover:bg-blue-700 hover:scale-[1.01] transition-all flex items-center justify-center gap-2"
-              >
-                {geocoding ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"/> : <><Zap className="w-4 h-4" /> Calcular Frete</>}
-              </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ===================================================
+          MAPA DO GOOGLE
+      =================================================== */}
+      <GoogleMap
+        mapContainerStyle={containerStyle}
+        center={origem || defaultCenter}
+        zoom={13}
+        onLoad={handleMapLoad}
+        onUnmount={handleMapUnmount}
+        options={mapOptions}
+      >
+        {/* LINHA DO GPS */}
+        {routePath.length >= 2 && (
+          <Polyline path={routePath} options={polylineOptions} />
         )}
 
-        {step === 'QUOTE' && origemGPS && destinoGPS && (
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 animate-in fade-in slide-in-from-right-8">
-            
-            {/* COLUNA ESQUERDA: MAPA */}
-            <div className="lg:col-span-3 bg-white border border-slate-200 rounded-[2rem] p-4 shadow-xl flex flex-col">
-              <div className="px-4 py-2 flex items-center justify-between mb-4 border-b border-slate-100 pb-4">
-                <div>
-                  <p className="text-[9px] font-black text-blue-600 uppercase tracking-widest">Prévia Operacional</p>
-                  <h2 className="text-2xl font-black italic tracking-tight">Trajeto Mapeado</h2>
-                </div>
-                <CheckCircle className="w-8 h-8 text-blue-600" />
-              </div>
-
-              {/* 🔥 GATILHO PSICOLÓGICO DE URGÊNCIA */}
-              <div className="mx-4 mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-3">
-                <div className="bg-amber-100 p-1.5 rounded-full shrink-0">
-                  <Flame className="w-4 h-4 text-amber-600" />
-                </div>
-                <div>
-                  <p className="text-xs font-black text-amber-900 uppercase">Atenção: Alta Demanda</p>
-                  <p className="text-[10px] text-amber-700 mt-0.5 font-bold">Identificamos <strong>{motoristasProximos} motoristas</strong> operando a menos de 5km da coleta. Conclua o pagamento para reservar o veículo imediatamente.</p>
-                </div>
-              </div>
-
-              <div className="flex-1 min-h-[400px] w-full bg-slate-100 rounded-2xl overflow-hidden relative">
-                {mapsReady ? (
-                  <MapaCliente 
-                    origem={origemGPS} 
-                    destino={destinoGPS} 
-                    vehicleType={categoria} 
-                    operationalMessage={`Simulando rota para ${categoria.toUpperCase()}...`} 
-                  />
-                ) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-blue-500">
-                    <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-3"></div>
-                    <p className="text-[10px] font-black uppercase tracking-widest">Iniciando Satélites...</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* COLUNA DIREITA: CHECKOUT */}
-            <div className="lg:col-span-2 bg-white border border-slate-200 rounded-[2rem] p-6 md:p-8 shadow-xl flex flex-col">
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-full mb-6 self-start">
-                <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
-                <span className="text-[9px] font-black uppercase tracking-widest text-blue-700">Valor Blindado</span>
-              </div>
-              
-              <p className="text-xs text-slate-400 font-bold uppercase tracking-wide">Estimativa Calculada</p>
-              <h2 className="text-5xl font-black text-slate-900 tracking-tighter mt-1 mb-8">
-                R$ <span className="animate-pulse blur-[4px] bg-slate-200 text-transparent rounded select-none">250,00</span>
-              </h2>
-
-              <div className="space-y-4 mb-8">
-                <div className="flex justify-between items-center py-3 border-b border-slate-100">
-                  <span className="text-sm font-bold text-slate-500">Modalidade</span>
-                  <span className="text-[10px] font-black bg-blue-100 text-blue-700 px-2 py-1 rounded uppercase">Imediato</span>
-                </div>
-                <div className="flex justify-between items-center py-3 border-b border-slate-100">
-                  <span className="text-sm font-bold text-slate-500">Veículo Solicitado</span>
-                  <span className="text-sm font-black text-slate-900 uppercase">{categoria}</span>
-                </div>
-                <div className="flex justify-between items-center py-3 border-b border-slate-100">
-                  <span className="text-sm font-bold text-slate-500">Mercadoria</span>
-                  <span className="text-sm font-black text-slate-900 uppercase">{peso} KG • {volumes} vol</span>
-                </div>
-              </div>
-
-              <div className="mt-auto space-y-3">
-                <button 
-                  onClick={handlePagar}
-                  disabled={loadingPayment}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-widest py-4 rounded-xl shadow-[0_10px_20px_rgba(37,99,235,0.2)] transition-all flex justify-center items-center gap-2"
-                >
-                  {loadingPayment ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> : <><Zap className="w-4 h-4"/> Pagar e Liberar Motorista</>}
-                </button>
-                <button onClick={() => setStep('FORM')} className="w-full bg-transparent border border-slate-200 text-slate-600 hover:bg-slate-50 font-black text-[10px] uppercase tracking-widest py-4 rounded-xl transition-all">
-                  Voltar e Editar Rota
-                </button>
-              </div>
-            </div>
-
-          </div>
+        {/* MARCADOR DE ORIGEM (Verde) */}
+        {origem && (
+          <Marker 
+            position={origem} 
+            icon={{
+              path: window.google.maps.SymbolPath.CIRCLE,
+              scale: 8,
+              fillColor: "#10b981", // Emerald 500
+              fillOpacity: 1,
+              strokeWeight: 3,
+              strokeColor: "#ffffff",
+            }}
+          />
         )}
-      </main>
+
+        {/* MARCADOR DE DESTINOS / MULTI-DROP (Azul) */}
+        {paradasExtras && paradasExtras.length > 0 ? (
+           paradasExtras.map((parada, idx) => (
+             <Marker 
+               key={idx}
+               position={parada}
+               label={{ text: `${idx + 1}`, color: '#ffffff', fontSize: '10px', fontWeight: 'bold' }}
+               icon={{
+                 path: window.google.maps.SymbolPath.CIRCLE,
+                 scale: 10,
+                 fillColor: "#3b82f6", // Blue 500
+                 fillOpacity: 1,
+                 strokeWeight: 2,
+                 strokeColor: "#ffffff",
+               }}
+             />
+           ))
+        ) : (
+          destino && (
+            <Marker 
+              position={destino} 
+              icon={{
+                path: window.google.maps.SymbolPath.CIRCLE,
+                scale: 8,
+                fillColor: "#3b82f6", // Blue 500
+                fillOpacity: 1,
+                strokeWeight: 3,
+                strokeColor: "#ffffff",
+              }}
+            />
+          )
+        )}
+
+        {/* MARCADOR DO MOTORISTA (Ícone de Carro animado) */}
+        {motoristaPos && motoristaId && (
+          <Marker
+            position={motoristaPos}
+            icon={{
+              path: window.google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+              scale: 6,
+              fillColor: '#f59e0b', // Amber 500
+              fillOpacity: 1,
+              strokeWeight: 2,
+              strokeColor: '#ffffff',
+              rotation: heading,
+            }}
+          />
+        )}
+      </GoogleMap>
     </div>
   );
 }
+
+export default memo(MapaCliente);
