@@ -80,10 +80,11 @@ export class DispatchQueueService {
         dispatchIndex: state.index,
         dispatchTentativa: state.tentativa,
         aguardandoResposta: true,
+        lastDispatchAttempt: serverTimestamp(), // Essencial para a Torre de Controle medir ociosidade
         atualizadoEm: serverTimestamp(),
       });
 
-      // 🔥 A BOMBA RELÓGIO (AGORA EM 30 SEGUNDOS)
+      // 🔥 A BOMBA RELÓGIO REFORÇADA (30 SEGUNDOS)
       setTimeout(async () => {
         try {
           const freteRef = doc(db, 'fretes', frete.id);
@@ -92,8 +93,8 @@ export class DispatchQueueService {
           if (!snapshot.exists()) return;
           const data = snapshot.data();
 
-          // Se o motorista clicou em aceitar nesse meio tempo, aborta a fila. Sucesso!
-          if (['aceito', 'indo_coleta', 'coletando', 'em_transporte', 'entregue', 'cancelado'].includes(data.status)) {
+          // Se o status JÁ NÃO É MAIS o status inicial de busca, o motorista aceitou. Aborta a fila. Sucesso!
+          if (data.status !== 'disponivel' && data.status !== 'aguardando_resposta') {
             return;
           }
 
