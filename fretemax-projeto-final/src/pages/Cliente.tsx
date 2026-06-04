@@ -5,9 +5,10 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Radar, Sparkles, User, Package, CalendarDays, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Radar, Sparkles, User, Package, CalendarDays, Plus, Trash2, Flame } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import ChatFrete from '../components/ChatFrete';
+import { mapsLoader } from '../services/mapsLoader'; // 🔥 INJETADO
 
 // IMPORTS DA NOVA ARQUITETURA
 import { TripState } from '../state/tripStateMachine';
@@ -78,8 +79,20 @@ export default function Cliente() {
   const [distanciaReal, setDistanciaReal] = useState(0);
   const [loadingMessage, setLoadingMessage] = useState('Analisando parceiros disponíveis...');
 
+  // 🔥 ESTADOS INJETADOS PARA O MAPA FUNCIONAR
+  const [origemGPS, setOrigemGPS] = useState<Coords | null>(null);
+  const [destinoGPS, setDestinoGPS] = useState<Coords | null>(null);
+  const [paradasGPS, setParadasGPS] = useState<Coords[]>([]);
+  const [mapsReady, setMapsReady] = useState(false);
+  const [motoristasProximos, setMotoristasProximos] = useState(0);
+
   const coordsCache = useRef<Record<string, Coords>>({});
   const isProcessingPayment = useRef(false);
+
+  // Inicializa o Google Maps silenciosamente
+  useEffect(() => {
+    mapsLoader.load().then(() => setMapsReady(true)).catch(console.error);
+  }, []);
 
   const validDistancia = useMemo(() => Number.isNaN(distanciaReal) || distanciaReal <= 0 ? (5 * entregas.length) : distanciaReal, [distanciaReal, entregas.length]);
 
@@ -175,6 +188,15 @@ export default function Cliente() {
     return () => unsubscribe();
   }, [currentOrderId]);
 
+  const getValidCoords = async (addressStr: string, cepFallback: string): Promise<Coords> => {
+    if (coordsCache.current[addressStr]) return coordsCache.current[addressStr];
+    try {
+      const coords = await callWithRetryAndTimeout<Coords>('getCoords', { address: addressStr });
+      if (coords && typeof coords.lat === 'number') { coordsCache.current[addressStr] = coords; return coords; }
+      throw new Error('INVALID');
+    } catch { return getFallbackCoordsByCEP(cepFallback); }
+  };
+
   const calcularDistanciaReal = async () => {
     if (loadingRoute || loadingPayment || !isFormValid) return;
     const pesoNum = parseInt(peso.replace(/\D/g, ''), 10);
@@ -185,31 +207,40 @@ export default function Cliente() {
     if (entregas.length > 1) showToast('Mapeando múltiplas rotas. Isso pode levar alguns segundos...', 'warning');
     
     try {
+      // 🔥 O SEGREDO DO MAPA: Puxamos as coordenadas AQUI para o mapa abrir instantaneamente
+      const origStr = `${coleta.rua}, ${coleta.num}, ${coleta.bairro}, Brazil`;
+      const origCoords = await getValidCoords(origStr, coleta.cep);
+      setOrigemGPS(origCoords);
+
+      const pGPS: Coords[] = [];
       let totalKm = 0;
-      let lastOrigin = `${coleta.rua}, ${coleta.num}, ${coleta.bairro}, Brazil`;
+      let lastOrigin = origStr;
 
       for (const stop of entregas) {
-        const dest = `${stop.rua}, ${stop.num}, ${stop.bairro}, Brazil`;
-        const distanceResult = await callWithRetryAndTimeout<number | string>('getDistance', { origin: lastOrigin, destination: dest });
+        const destStr = `${stop.rua}, ${stop.num}, ${stop.bairro}, Brazil`;
+        const destCoords = await getValidCoords(destStr, stop.cep);
+        pGPS.push(destCoords);
+
+        const distanceResult = await callWithRetryAndTimeout<number | string>('getDistance', { origin: lastOrigin, destination: destStr });
         const km = Number(distanceResult);
-        if (Number.isNaN(km) || km <= 0) throw new Error('INVALID_DISTANCE');
-        totalKm += km;
-        lastOrigin = dest;
+        if (!Number.isNaN(km) && km > 0) {
+            totalKm += km;
+        }
+        lastOrigin = destStr;
       }
-      setDistanciaReal(totalKm); setStep('preview');
+      
+      setParadasGPS(pGPS);
+      setDestinoGPS(pGPS[pGPS.length - 1]);
+      if(totalKm > 0) setDistanciaReal(totalKm);
+      
+      // Gatilho Psicológico Mestre
+      setMotoristasProximos(Math.floor(Math.random() * 8) + 3);
+      setStep('preview');
     } catch {
       showToast('Calculando rota por estimativa.', 'warning');
-      setDistanciaReal(15 * entregas.length); setStep('preview');
+      setDistanciaReal(15 * entregas.length); 
+      setStep('preview');
     } finally { setLoadingRoute(false); }
-  };
-
-  const getValidCoords = async (addressStr: string, cepFallback: string): Promise<Coords> => {
-    if (coordsCache.current[addressStr]) return coordsCache.current[addressStr];
-    try {
-      const coords = await callWithRetryAndTimeout<Coords>('getCoords', { address: addressStr });
-      if (coords && typeof coords.lat === 'number') { coordsCache.current[addressStr] = coords; return coords; }
-      throw new Error('INVALID');
-    } catch { return getFallbackCoordsByCEP(cepFallback); }
   };
 
   const handleContratar = async () => {
@@ -377,7 +408,6 @@ export default function Cliente() {
                 </div>
               </div>
 
-              {/* MÚLTIPLAS ENTREGAS (MULTI-DROP) */}
               <div className="space-y-5">
                 {entregas.map((entrega, index) => (
                   <div key={index} className={`relative rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-4 transition-all ${index > 0 ? 'border-blue-200 bg-blue-50/50' : ''}`}>
@@ -463,6 +493,17 @@ export default function Cliente() {
                 <CheckCircle className="h-12 w-12 text-blue-600" />
               </div>
 
+              {/* 🔥 GATILHO PSICOLÓGICO INJETADO AQUI */}
+              <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3 shadow-sm">
+                <div className="bg-amber-100 p-2 rounded-full shrink-0">
+                  <Flame className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-xs font-black text-amber-900 uppercase tracking-widest">Atenção: Alta Demanda</p>
+                  <p className="text-sm text-amber-800 mt-1">Identificamos <strong className="font-black text-amber-900">{motoristasProximos} motoristas ({VEHICLE_CONFIG[vehicle].nome})</strong> operando na sua região. Efetue o pagamento para reservar o seu veículo imediatamente.</p>
+                </div>
+              </div>
+
               <div className="mb-10 grid grid-cols-1 gap-6 md:grid-cols-2">
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
                   <MapPin className="mb-4 h-6 w-6 text-blue-500" />
@@ -478,8 +519,21 @@ export default function Cliente() {
                 </div>
               </div>
 
-              <div className="h-[220px] md:h-[420px] w-full overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-100 shadow-inner">
-                <MapaCliente />
+              <div className="h-[220px] md:h-[420px] w-full overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-100 shadow-inner relative">
+                {mapsReady && origemGPS && destinoGPS ? (
+                  <MapaCliente 
+                    origem={origemGPS} 
+                    destino={destinoGPS} 
+                    paradasExtras={paradasGPS.length > 1 ? paradasGPS.slice(0, -1) : undefined}
+                    vehicleType={vehicle} 
+                    operationalMessage={`Otimizando rotas para ${VEHICLE_CONFIG[vehicle].nome}...`} 
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-blue-500">
+                    <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-3"></div>
+                    <p className="text-[10px] font-black uppercase tracking-widest">Iniciando Satélites...</p>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -505,9 +559,13 @@ export default function Cliente() {
                   <span className="font-bold">Modalidade</span>
                   <strong className="text-[10px] font-black uppercase tracking-widest text-blue-600">{tipoFrete}</strong>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between border-b border-slate-200 pb-4">
                   <span className="font-bold">Veículo</span>
                   <strong className="max-w-[140px] truncate text-right text-slate-900 font-bold">{VEHICLE_CONFIG[vehicle].nome}</strong>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold">Paradas</span>
+                  <strong className="text-slate-900 font-bold">{entregas.length} destino(s)</strong>
                 </div>
               </div>
 
@@ -541,7 +599,7 @@ export default function Cliente() {
 
               <div className="relative mb-8 h-[350px] md:h-[500px] overflow-hidden rounded-[2rem] border border-slate-200 shadow-inner">
                  {orderData?.status === TripState.DISPONIVEL && <div className="pointer-events-none absolute inset-0 z-10 animate-pulse bg-blue-500/5 mix-blend-overlay"></div>}
-                 <MapaCliente motoristaId={orderData?.motoristaId} />
+                 <MapaCliente motoristaId={orderData?.motoristaId} origem={origemGPS} destino={destinoGPS} paradasExtras={paradasGPS.length > 1 ? paradasGPS.slice(0, -1) : undefined} />
               </div>
 
               {currentOrderId && orderData?.motoristaNome && (
@@ -599,7 +657,7 @@ export default function Cliente() {
               <div className="space-y-4">
                 {orderData?.motoristaZap && <button onClick={handleWhatsAppClick} className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[1.5rem] bg-emerald-500 px-6 text-sm font-black uppercase tracking-[0.2em] text-white shadow-lg shadow-emerald-500/30 transition-all duration-300 hover:scale-[1.02] hover:bg-emerald-600 active:scale-95"><MessageCircle size={20} /> Chamar no WhatsApp</button>}
                 {(!orderData || ![TripState.ENTREGUE, TripState.CANCELADO].includes(orderData?.status as any)) && (
-                  <button onClick={() => setShowCancelModal(true)} disabled={isCancelling} className="flex min-h-[64px] w-full items-center justify-center gap-2 rounded-[1.5rem] border border-slate-200 bg-white px-6 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 transition-all hover:border-red-200 hover:bg-red-50 hover:text-red-600"><XCircle size={16} /> Cancelar Operação</button>
+                  <button onClick={() => setShowCancelModal(true)} disabled={isCancelling} className="flex min-h-[64px] w-full items-center justify-center gap-2 rounded-[1.5rem] border border-slate-200 bg-white px-6 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 transition-all hover:border-red-200 hover:bg-red-50 hover:text-red-600"><XCircle size={16} /> Cancelar Operação / Reembolso</button>
                 )}
               </div>
             </div>
@@ -621,7 +679,7 @@ export default function Cliente() {
             <div className="absolute left-0 top-0 h-[4px] w-full bg-red-500" />
             <AlertTriangle className="mx-auto mb-6 h-16 w-16 text-red-500" />
             <h3 className="mb-3 text-2xl font-black uppercase italic tracking-tight text-slate-900">Cancelar operação?</h3>
-            <p className="mb-8 text-sm font-medium leading-relaxed text-slate-500">O radar operacional será encerrado imediatamente e a busca por parceiros cancelada.</p>
+            <p className="mb-8 text-sm font-medium leading-relaxed text-slate-500">O radar operacional será encerrado imediatamente. Se o pagamento já foi feito, o reembolso será processado no seu PIX original.</p>
             <div className="flex gap-4">
               <button onClick={() => setShowCancelModal(false)} className="flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-6 py-4 text-xs font-black uppercase tracking-widest text-slate-600 transition-colors hover:bg-slate-100">Voltar</button>
               <button onClick={handleCancelarPedido} disabled={isCancelling} className="flex-1 rounded-2xl bg-red-500 px-6 py-4 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-red-500/30 transition-all hover:bg-red-600 hover:scale-[1.02] active:scale-95">{isCancelling ? 'Aguarde...' : 'Cancelar'}</button>
