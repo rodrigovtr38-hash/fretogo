@@ -1,461 +1,283 @@
-// src/services/clientFreightService.ts
+// src/pages/Cliente.tsx
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { MapPin, Truck, Phone, User, CheckCircle, ArrowLeft, ShieldCheck, Zap, Flame } from 'lucide-react';
+import MapaCliente from '../components/MapaCliente';
+import { mapsLoader } from '../services/mapsLoader';
+import { useClientFreight } from '../hooks/useClientFreight';
 
-import {
-  addDoc,
-  collection,
-  doc,
-  getDoc,
-  runTransaction,
-  serverTimestamp,
-  updateDoc,
-} from 'firebase/firestore';
+type Step = 'FORM' | 'QUOTE';
 
-import { db } from '../firebase';
-import { paymentService } from './paymentService';
-import { executeDispatch } from './orchestrator';
-import { AppEvents, eventBusService } from './eventBusService';
-import { AppTripState } from '../state/tripStateMachine';
+export default function Cliente() {
+  const navigate = useNavigate();
+  const { createFreight, loadingPayment } = useClientFreight();
 
-type CategoriaOperacional =
-  | 'moto'
-  | 'carro'
-  | 'utilitario'
-  | 'toco'
-  | 'truck'
-  | 'carreta'
-  | 'bitrem';
+  const [step, setStep] = useState<Step>('FORM');
+  const [geocoding, setGeocoding] = useState(false);
+  const [mapsReady, setMapsReady] = useState(false);
 
-type PrioridadeOperacional = 'normal' | 'urgente';
+  // Estados do Formulário
+  const [nome, setNome] = useState('');
+  const [telefone, setTelefone] = useState('');
+  const [documento, setDocumento] = useState('');
+  const [origemTexto, setOrigemTexto] = useState('');
+  const [destinoTexto, setDestinoTexto] = useState('');
+  const [categoria, setCategoria] = useState('carreta');
+  const [peso, setPeso] = useState('');
+  const [volumes, setVolumes] = useState('');
+  const [tipoCarga, setTipoCarga] = useState('');
 
-type OperationMode =
-  | 'marketplace'
-  | 'regional'
-  | 'nacional'
-  | 'retorno'
-  | 'transbordo'
-  | 'multipla_entrega'
-  | 'carga_pesada';
+  // Estados de GPS
+  const [origemGPS, setOrigemGPS] = useState<{lat: number, lng: number} | null>(null);
+  const [destinoGPS, setDestinoGPS] = useState<{lat: number, lng: number} | null>(null);
+  
+  // Gatilho Psicológico
+  const [motoristasProximos, setMotoristasProximos] = useState(0);
 
-type Coordinates = { lat: number; lng: number; };
+  // Inicializa o Google Maps
+  useEffect(() => {
+    mapsLoader.load().then(() => setMapsReady(true)).catch(console.error);
+  }, []);
 
-type AddressPayload = {
-  cep?: string;
-  rua?: string;
-  numero?: string;
-  bairro?: string;
-  cidade?: string;
-  estado?: string;
-  complemento?: string;
-  enderecoFormatado?: string;
-  lat: number;
-  lng: number;
-};
+  const geocodeAddress = async (address: string) => {
+    if (!window.google) return null;
+    const geocoder = new window.google.maps.Geocoder();
+    try {
+      const response = await geocoder.geocode({ address: `${address}, Brasil` });
+      if (response.results[0]) {
+        return {
+          lat: response.results[0].geometry.location.lat(),
+          lng: response.results[0].geometry.location.lng(),
+          enderecoFormatado: response.results[0].formatted_address
+        };
+      }
+    } catch (e) {
+      console.error("Geocode falhou:", e);
+    }
+    return null;
+  };
 
-type CreateFreightPayload = {
-  clienteId: string;
-  origem: AddressPayload;
-  destino: AddressPayload;
-  paradas?: AddressPayload[];
-  categoria: CategoriaOperacional;
-  tipoCarga: string;
-  pesoKg: number;
-  cubagem?: number;
-  volumes: number;
-  prioridade: PrioridadeOperacional;
-  observacoes?: string;
-  distancia?: number;
-  kmColeta?: number;
-  kmEntrega?: number;
-  kmTotal?: number;
-  valorTotal?: number;
-  agendado?: boolean;
-  dataAgendamento?: string;
-  retornoDisponivel?: boolean;
-  multiplasEntregas?: boolean;
-  transbordo?: boolean;
-  roteiroRegional?: boolean;
-  roteiroNacional?: boolean;
-  marketplace?: boolean;
-  cargaPesada?: boolean;
-  pedagio?: number;
-  clienteNome?: string;
-  clienteTelefone?: string;
-  clienteDocumento?: string;
-};
-
-type PricingMetadata = {
-  taxaPlataformaPercentual: number;
-  valorBruto: number;
-  valorLiquidoMotorista: number;
-  pedagioIncluso: number;
-  kmColeta: number;
-  kmEntrega: number;
-  kmTotal: number;
-  etaMinutos: number;
-  modoOperacional: OperationMode;
-  categoria: CategoriaOperacional;
-};
-
-type CreateFreightResponse = {
-  success: boolean;
-  freteId?: string;
-  error?: string;
-};
-
-const HEAVY_CATEGORIES: CategoriaOperacional[] = [
-  'toco',
-  'truck',
-  'carreta',
-  'bitrem',
-];
-
-const inflightRegistry = new Set<string>();
-
-class ClientFreightService {
-  /*
-  =========================================================
-  HELPERS & SECURITY (PIN)
-  =========================================================
-  */
-
-  private generatePin(): string {
-    return Math.floor(1000 + Math.random() * 9000).toString();
-  }
-
-  private normalizeNumber(value: unknown, fallback = 0) {
-    const parsed = Number(value);
-    if (Number.isNaN(parsed)) return fallback;
-    return parsed;
-  }
-
-  private round(value: number) {
-    return Number(value.toFixed(2));
-  }
-
-  private buildInflightKey(payload: CreateFreightPayload) {
-    return JSON.stringify({
-      clienteId: payload.clienteId,
-      origem: payload.origem?.enderecoFormatado,
-      destino: payload.destino?.enderecoFormatado,
-      categoria: payload.categoria,
-      pesoKg: payload.pesoKg,
-      volumes: payload.volumes,
-    });
-  }
-
-  private calculateDistanceKm(origin: Coordinates, destination: Coordinates) {
-    const R = 6371;
-    const dLat = ((destination.lat - origin.lat) * Math.PI) / 180;
-    const dLon = ((destination.lng - origin.lng) * Math.PI) / 180;
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos((origin.lat * Math.PI) / 180) *
-        Math.cos((destination.lat * Math.PI) / 180) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return this.round(R * c);
-  }
-
-  private calculatePedagio(payload: CreateFreightPayload, kmTotal: number) {
-    const isHeavy = HEAVY_CATEGORIES.includes(payload.categoria);
-    if (!isHeavy) return 0;
-    return this.round(kmTotal * 0.45);
-  }
-
-  private resolveOperationMode(payload: CreateFreightPayload): OperationMode {
-    if (payload.transbordo) return 'transbordo';
-    if (payload.multiplasEntregas || (payload.paradas && payload.paradas.length > 1)) return 'multipla_entrega';
-    if (payload.cargaPesada || HEAVY_CATEGORIES.includes(payload.categoria)) return 'carga_pesada';
-    if (payload.retornoDisponivel) return 'retorno';
-    if (payload.roteiroNacional) return 'nacional';
-    if (payload.roteiroRegional) return 'regional';
-    return 'marketplace';
-  }
-
-  // 🔥 NOVO: Arquitetura Dual Engine TOTALMENTE REVISADA (Fração vs Lotação/ANTT)
-  private calculateBasePrice(payload: CreateFreightPayload, kmTotal: number, qtdParadas: number) {
-    const urgencyFactor = payload.prioridade === 'urgente' ? 1.35 : 1;
-    const isHeavy = HEAVY_CATEGORIES.includes(payload.categoria);
-
-    if (isHeavy) {
-        // 🚚 MOTOR PESADO (Tabela ANTT - Piso Mínimo + KM Rodado)
-        // O peso não multiplica o valor final aqui. O cliente está comprando o espaço do caminhão (Lotação).
-        const pisosMinimos = { toco: 350, truck: 500, carreta: 800, bitrem: 1200 };
-        const taxasKmPesado = { toco: 6.2, truck: 8.5, carreta: 11.0, bitrem: 15.0 };
-        
-        const piso = pisosMinimos[payload.categoria as keyof typeof pisosMinimos] || 500;
-        const taxaKm = taxasKmPesado[payload.categoria as keyof typeof taxasKmPesado] || 8.5;
-        
-        // R$ 150 por parada extra para caminhões (Transbordo)
-        const custoParadasExtrasPesado = Math.max(0, qtdParadas - 1) * 150.00;
-        
-        const base = piso + (kmTotal * taxaKm * urgencyFactor) + custoParadasExtrasPesado;
-        return this.round(base); 
+  const handleSimular = async () => {
+    if (!origemTexto || !destinoTexto) return alert('Preencha os endereços!');
+    
+    setGeocoding(true);
+    const originCoords = await geocodeAddress(origemTexto);
+    const destCoords = await geocodeAddress(destinoTexto);
+    
+    if (originCoords && destCoords) {
+      setOrigemGPS(originCoords);
+      setDestinoGPS(destCoords);
+      // Gatilho de urgência: número aleatório de motoristas próximos
+      setMotoristasProximos(Math.floor(Math.random() * 8) + 3);
+      setStep('QUOTE');
     } else {
-        // 🛵 MOTOR LAST-MILE (Fração, E-commerce, Entregas Rápidas)
-        const taxasKmLeve = { moto: 1.8, carro: 2.4, utilitario: 3.5 };
-        const taxaKm = taxasKmLeve[payload.categoria as keyof typeof taxasKmLeve] || 2.4;
-        
-        // Fatores de peso e volume suavizados para não explodir a conta
-        const weightFactor = 1 + (payload.pesoKg / 1000); // Ex: 500kg adiciona 50% no valor
-        const volumeFactor = Math.max(1, payload.volumes * 0.10);
-        
-        // R$ 8,00 por cada parada extra
-        const custoParadasExtras = Math.max(0, qtdParadas - 1) * 8.00;
-
-        const base = (kmTotal * taxaKm * urgencyFactor * weightFactor * volumeFactor) + custoParadasExtras;
-        return this.round(Math.max(15, base)); // Frete Mínimo Garantido (R$ 15)
+      alert('Não conseguimos localizar esse endereço exato. Tente colocar Rua e Cidade.');
     }
-  }
+    setGeocoding(false);
+  };
 
-  private calculateETA(kmTotal: number, payload: CreateFreightPayload) {
-    const avgSpeed = HEAVY_CATEGORIES.includes(payload.categoria) ? 58 : 75;
-    return Math.max(15, Math.round((kmTotal / avgSpeed) * 60));
-  }
+  const handlePagar = async () => {
+    if (!origemGPS || !destinoGPS) return;
 
-  private normalizePayload(payload: CreateFreightPayload) {
-    const paradasArray = payload.paradas && payload.paradas.length > 0 ? payload.paradas : [payload.destino];
-    const qtdParadas = paradasArray.length;
-
-    const kmEntrega = payload.kmEntrega || payload.distancia || this.calculateDistanceKm(payload.origem, payload.destino);
-    const kmColeta = payload.kmColeta || Math.max(2, Math.round(kmEntrega * 0.12));
-    const kmTotal = payload.kmTotal || this.round(kmEntrega + kmColeta);
-    const pedagio = payload.pedagio || this.calculatePedagio(payload, kmTotal);
-
-    const valorBase = payload.valorTotal || this.calculateBasePrice(payload, kmTotal, qtdParadas);
-
-    const taxaPercentual = HEAVY_CATEGORIES.includes(payload.categoria) ? 15 : 20;
-
-    const valorBruto = this.round(valorBase + pedagio);
-    const taxaPlataforma = this.round((valorBruto * taxaPercentual) / 100);
-    const valorLiquidoMotorista = this.round(valorBruto - taxaPlataforma);
-
-    const etaMinutos = this.calculateETA(kmTotal, payload);
-    const mode = this.resolveOperationMode(payload);
-
-    const pricingMetadata: PricingMetadata = {
-      taxaPlataformaPercentual: taxaPercentual,
-      valorBruto,
-      valorLiquidoMotorista,
-      pedagioIncluso: pedagio,
-      kmColeta,
-      kmEntrega,
-      kmTotal,
-      etaMinutos,
-      modoOperacional: mode,
-      categoria: payload.categoria,
+    const freightData = {
+      clienteId: 'cliente_web_' + Math.floor(Math.random() * 10000), // Mock temporário
+      clienteNome: nome,
+      clienteTelefone: telefone,
+      clienteDocumento: documento,
+      categoria,
+      pesoKg: Number(peso) || 0,
+      volumes: Number(volumes) || 1,
+      tipoCarga: tipoCarga || 'Geral',
+      prioridade: 'normal',
+      origem: { ...origemGPS, enderecoFormatado: origemTexto },
+      destino: { ...destinoGPS, enderecoFormatado: destinoTexto },
+      paradas: [], // Múltiplas entregas podem ser injetadas aqui futuramente
     };
 
-    return {
-      normalizedPayload: {
-        ...payload,
-        kmColeta,
-        kmEntrega,
-        kmTotal,
-        valorTotal: valorBruto,
-        valorLiquidoMotorista,
-        pedagio,
-        etaMinutos,
-        operationMode: mode,
-        paradasTratadas: paradasArray,
+    await createFreight({
+      freightData,
+      onSuccess: (id) => {
+        // Redireciona para um radar de acompanhamento (fase final)
+        alert('Carga criada no banco! Direcionando para Checkout Mercado Pago...');
+        // window.location.href = url_mercado_pago
       },
-      pricingMetadata,
-    };
-  }
+      onError: (err) => alert(err)
+    });
+  };
 
-  /*
-  =========================================================
-  CREATE FREIGHT
-  =========================================================
-  */
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-20">
+      {/* HEADER LIGHT MODE */}
+      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-50">
+        <div className="flex items-center gap-4">
+          {step === 'QUOTE' && (
+            <button onClick={() => setStep('FORM')} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+              <ArrowLeft className="w-5 h-5 text-slate-600" />
+            </button>
+          )}
+          <div className="flex items-center gap-2">
+            <Zap className="text-blue-600 w-6 h-6 fill-blue-600" />
+            <span className="text-xl font-black italic tracking-tighter">FRETOGO</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 px-4 py-1.5 bg-blue-50 text-blue-700 rounded-full text-[10px] font-black uppercase tracking-widest border border-blue-100">
+          <ShieldCheck className="w-3.5 h-3.5" /> Plataforma Segura
+        </div>
+      </header>
 
-  async criarFrete(payload: CreateFreightPayload): Promise<CreateFreightResponse> {
-    const inflightKey = this.buildInflightKey(payload);
+      <main className="max-w-6xl mx-auto px-4 pt-8 md:pt-12">
+        {step === 'FORM' && (
+          <div className="max-w-3xl mx-auto bg-white rounded-[2rem] shadow-xl border border-slate-100 p-6 md:p-10 animate-in fade-in slide-in-from-bottom-4">
+            <div className="inline-block px-4 py-1.5 bg-blue-50 text-blue-600 rounded-full text-[10px] font-black uppercase tracking-widest border border-blue-100 mb-6">
+              Orçamento Inteligente
+            </div>
+            <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-8">
+              Para onde vai a <span className="text-blue-600 italic">carga?</span>
+            </h1>
 
-    if (inflightRegistry.has(inflightKey)) {
-      return { success: false, error: 'OPERACAO_EM_PROCESSAMENTO' };
-    }
+            <div className="space-y-8">
+              {/* CONTATO */}
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3 flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5" /> Contato Responsável
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <input type="text" placeholder="Nome" value={nome} onChange={e=>setNome(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none" />
+                  <input type="tel" placeholder="Telefone / WhatsApp" value={telefone} onChange={e=>setTelefone(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none" />
+                  <input type="text" placeholder="CPF / CNPJ" value={documento} onChange={e=>setDocumento(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+              </div>
 
-    inflightRegistry.add(inflightKey);
+              {/* ENDEREÇO */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3 flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5" /> Endereço de Coleta
+                  </p>
+                  <input type="text" placeholder="Ex: Rua Dias Gomes, 188, São Paulo" value={origemTexto} onChange={e=>setOrigemTexto(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500 mb-3 flex items-center gap-1.5">
+                    <Truck className="w-3.5 h-3.5" /> Destino Final
+                  </p>
+                  <input type="text" placeholder="Ex: Rua Boca de Leão, 178, Guarulhos" value={destinoTexto} onChange={e=>setDestinoTexto(e.target.value)} className="w-full bg-slate-50 border border-emerald-200 rounded-xl px-4 py-3.5 text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none" />
+                </div>
+              </div>
 
-    try {
-      const { normalizedPayload, pricingMetadata } = this.normalizePayload(payload);
+              {/* CARGA */}
+              <div className="bg-slate-50 border border-slate-200 rounded-[1.5rem] p-5 md:p-6">
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-500 mb-4 flex items-center gap-1.5">
+                  <CheckCircle className="w-3.5 h-3.5" /> Especificações da Carga
+                </p>
+                <select value={categoria} onChange={e=>setCategoria(e.target.value)} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3.5 text-sm font-bold mb-3 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer">
+                  <option value="moto">Moto (Pequenos volumes)</option>
+                  <option value="utilitario">Fiorino / Utilitário</option>
+                  <option value="toco">Caminhão Toco</option>
+                  <option value="carreta">Carreta LS</option>
+                </select>
+                <div className="grid grid-cols-3 gap-3">
+                  <input type="number" placeholder="Peso (Kg)" value={peso} onChange={e=>setPeso(e.target.value)} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3.5 text-sm font-bold outline-none focus:border-blue-500" />
+                  <input type="number" placeholder="Qtd" value={volumes} onChange={e=>setVolumes(e.target.value)} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3.5 text-sm font-bold outline-none focus:border-blue-500" />
+                  <input type="text" placeholder="Tipo (Caixa)" value={tipoCarga} onChange={e=>setTipoCarga(e.target.value)} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3.5 text-sm font-bold outline-none focus:border-blue-500" />
+                </div>
+              </div>
 
-      if (!normalizedPayload.origem?.lat || !normalizedPayload.destino?.lat) {
-        return { success: false, error: 'COORDENADAS_INVALIDAS' };
-      }
+              <button 
+                onClick={handleSimular} 
+                disabled={geocoding}
+                className="w-full bg-blue-600 text-white font-black text-xs md:text-sm uppercase tracking-widest py-5 rounded-2xl shadow-[0_10px_30px_rgba(37,99,235,0.3)] hover:bg-blue-700 hover:scale-[1.01] transition-all flex items-center justify-center gap-2"
+              >
+                {geocoding ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"/> : <><Zap className="w-4 h-4" /> Calcular Frete</>}
+              </button>
+            </div>
+          </div>
+        )}
 
-      const pinColeta = this.generatePin();
-      const pinEntregas = normalizedPayload.paradasTratadas.map(() => this.generatePin());
+        {step === 'QUOTE' && origemGPS && destinoGPS && (
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 animate-in fade-in slide-in-from-right-8">
+            
+            {/* COLUNA ESQUERDA: MAPA */}
+            <div className="lg:col-span-3 bg-white border border-slate-200 rounded-[2rem] p-4 shadow-xl flex flex-col">
+              <div className="px-4 py-2 flex items-center justify-between mb-4 border-b border-slate-100 pb-4">
+                <div>
+                  <p className="text-[9px] font-black text-blue-600 uppercase tracking-widest">Prévia Operacional</p>
+                  <h2 className="text-2xl font-black italic tracking-tight">Trajeto Mapeado</h2>
+                </div>
+                <CheckCircle className="w-8 h-8 text-blue-600" />
+              </div>
 
-      const freteRef = await addDoc(collection(db, 'fretes'), {
-        clienteId: normalizedPayload.clienteId,
-        clienteNome: normalizedPayload.clienteNome || null,
-        clienteTelefone: normalizedPayload.clienteTelefone || null,
-        clienteDocumento: normalizedPayload.clienteDocumento || null,
-        origem: normalizedPayload.origem,
-        destino: normalizedPayload.destino,
-        paradas: normalizedPayload.paradasTratadas,
-        categoria: normalizedPayload.categoria,
-        tipoCarga: normalizedPayload.tipoCarga,
-        pesoKg: normalizedPayload.pesoKg,
-        cubagem: normalizedPayload.cubagem || 0,
-        volumes: normalizedPayload.volumes,
-        prioridade: normalizedPayload.prioridade,
-        observacoes: normalizedPayload.observacoes || '',
-        agendado: normalizedPayload.agendado || false,
-        dataAgendamento: normalizedPayload.dataAgendamento || null,
-        retornoDisponivel: normalizedPayload.retornoDisponivel || false,
-        multiplasEntregas: normalizedPayload.multiplasEntregas || (normalizedPayload.paradasTratadas.length > 1),
-        transbordo: normalizedPayload.transbordo || false,
-        roteiroRegional: normalizedPayload.roteiroRegional || false,
-        roteiroNacional: normalizedPayload.roteiroNacional || false,
-        marketplace: normalizedPayload.marketplace || false,
-        cargaPesada: normalizedPayload.cargaPesada || HEAVY_CATEGORIES.includes(normalizedPayload.categoria),
-        operationMode: normalizedPayload.operationMode,
-        kmColeta: pricingMetadata.kmColeta,
-        kmEntrega: pricingMetadata.kmEntrega,
-        kmTotal: pricingMetadata.kmTotal,
-        etaMinutos: pricingMetadata.etaMinutos,
-        pedagio: pricingMetadata.pedagioIncluso,
-        taxaPlataformaPercentual: pricingMetadata.taxaPlataformaPercentual,
-        valorTotal: pricingMetadata.valorBruto,
-        valorLiquidoMotorista: pricingMetadata.valorLiquidoMotorista,
-        pinColeta: pinColeta,
-        pinEntregas: pinEntregas,
-        pagamentoStatus: 'pendente',
-        dispatchStatus: 'aguardando_dispatch',
-        trackingStatus: 'aguardando_tracking',
-        matchingStatus: 'aguardando_matching',
-        queuePersisted: true,
-        status: AppTripState.PENDENTE,
-        runtimeMetadata: {
-          createdFrom: 'client_runtime_enterprise',
-          realtime: true,
-          pricingSynchronized: true,
-          dispatchSynchronized: true,
-          trackingSynchronized: true,
-          matchingSynchronized: true,
-          operationalMode: pricingMetadata.modoOperacional,
-        },
-        pricingMetadata,
-        criadoEm: serverTimestamp(),
-        atualizadoEm: serverTimestamp(),
-      });
+              {/* 🔥 GATILHO PSICOLÓGICO DE URGÊNCIA */}
+              <div className="mx-4 mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-3">
+                <div className="bg-amber-100 p-1.5 rounded-full shrink-0">
+                  <Flame className="w-4 h-4 text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-xs font-black text-amber-900 uppercase">Atenção: Alta Demanda</p>
+                  <p className="text-[10px] text-amber-700 mt-0.5 font-bold">Identificamos <strong>{motoristasProximos} motoristas</strong> operando a menos de 5km da coleta. Conclua o pagamento para reservar o veículo imediatamente.</p>
+                </div>
+              </div>
 
-      const pagamento = await paymentService.processarPagamento({
-        valor: pricingMetadata.valorBruto,
-        descricao: `Frete ${normalizedPayload.categoria}`,
-        clienteId: normalizedPayload.clienteId,
-        freteId: freteRef.id,
-      });
+              <div className="flex-1 min-h-[400px] w-full bg-slate-100 rounded-2xl overflow-hidden relative">
+                {mapsReady ? (
+                  <MapaCliente 
+                    origem={origemGPS} 
+                    destino={destinoGPS} 
+                    vehicleType={categoria} 
+                    operationalMessage={`Simulando rota para ${categoria.toUpperCase()}...`} 
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-blue-500">
+                    <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-3"></div>
+                    <p className="text-[10px] font-black uppercase tracking-widest">Iniciando Satélites...</p>
+                  </div>
+                )}
+              </div>
+            </div>
 
-      if (!pagamento.success) {
-        await updateDoc(doc(db, 'fretes', freteRef.id), {
-          pagamentoStatus: 'falhou',
-          rollbackReason: 'payment_failed',
-          status: AppTripState.CANCELADO,
-          atualizadoEm: serverTimestamp(),
-        });
-        return { success: false, error: 'PAGAMENTO_NEGADO' };
-      }
+            {/* COLUNA DIREITA: CHECKOUT */}
+            <div className="lg:col-span-2 bg-white border border-slate-200 rounded-[2rem] p-6 md:p-8 shadow-xl flex flex-col">
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-full mb-6 self-start">
+                <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                <span className="text-[9px] font-black uppercase tracking-widest text-blue-700">Valor Blindado</span>
+              </div>
+              
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wide">Estimativa Calculada</p>
+              <h2 className="text-5xl font-black text-slate-900 tracking-tighter mt-1 mb-8">
+                R$ <span className="animate-pulse blur-[4px] bg-slate-200 text-transparent rounded select-none">250,00</span>
+              </h2>
 
-      await updateDoc(doc(db, 'fretes', freteRef.id), {
-        pagamentoStatus: 'aprovado',
-        transactionId: pagamento.transactionId,
-        dispatchStatus: 'dispatch_ready',
-        matchingStatus: 'matching_ready',
-        trackingStatus: 'tracking_ready',
-        status: AppTripState.PROCURANDO_MOTORISTA,
-        atualizadoEm: serverTimestamp(),
-      });
+              <div className="space-y-4 mb-8">
+                <div className="flex justify-between items-center py-3 border-b border-slate-100">
+                  <span className="text-sm font-bold text-slate-500">Modalidade</span>
+                  <span className="text-[10px] font-black bg-blue-100 text-blue-700 px-2 py-1 rounded uppercase">Imediato</span>
+                </div>
+                <div className="flex justify-between items-center py-3 border-b border-slate-100">
+                  <span className="text-sm font-bold text-slate-500">Veículo Solicitado</span>
+                  <span className="text-sm font-black text-slate-900 uppercase">{categoria}</span>
+                </div>
+                <div className="flex justify-between items-center py-3 border-b border-slate-100">
+                  <span className="text-sm font-bold text-slate-500">Mercadoria</span>
+                  <span className="text-sm font-black text-slate-900 uppercase">{peso} KG • {volumes} vol</span>
+                </div>
+              </div>
 
-      await executeDispatch(freteRef.id, {
-        categoria: normalizedPayload.categoria,
-        origemLat: normalizedPayload.origem.lat,
-        origemLng: normalizedPayload.origem.lng,
-        destinoLat: normalizedPayload.destino.lat,
-        destinoLng: normalizedPayload.destino.lng,
-      });
+              <div className="mt-auto space-y-3">
+                <button 
+                  onClick={handlePagar}
+                  disabled={loadingPayment}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-widest py-4 rounded-xl shadow-[0_10px_20px_rgba(37,99,235,0.2)] transition-all flex justify-center items-center gap-2"
+                >
+                  {loadingPayment ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> : <><Zap className="w-4 h-4"/> Pagar e Liberar Motorista</>}
+                </button>
+                <button onClick={() => setStep('FORM')} className="w-full bg-transparent border border-slate-200 text-slate-600 hover:bg-slate-50 font-black text-[10px] uppercase tracking-widest py-4 rounded-xl transition-all">
+                  Voltar e Editar Rota
+                </button>
+              </div>
+            </div>
 
-      eventBusService.emit(AppEvents.NEW_TRIP_REQUEST, {
-        freteId: freteRef.id,
-        categoria: normalizedPayload.categoria,
-        operationMode: normalizedPayload.operationMode,
-        pricingMetadata,
-      });
-
-      return { success: true, freteId: freteRef.id };
-    } catch (error) {
-      console.error('ERRO CRIAR FRETE:', error);
-      return { success: false, error: 'ERRO_CRIAR_FRETE' };
-    } finally {
-      inflightRegistry.delete(inflightKey);
-    }
-  }
-
-  async cancelarFrete(freteId: string) {
-    try {
-      const freteRef = doc(db, 'fretes', freteId);
-      await updateDoc(freteRef, {
-        status: AppTripState.CANCELADO,
-        dispatchStatus: 'cancelado',
-        trackingStatus: 'cancelado',
-        matchingStatus: 'cancelado',
-        atualizadoEm: serverTimestamp(),
-      });
-      eventBusService.emit(AppEvents.TRIP_CANCELLED, { freteId });
-      return true;
-    } catch (error) {
-      console.error('ERRO CANCELAR FRETE:', error);
-      return false;
-    }
-  }
-
-  async atualizarFrete(freteId: string, payload: Record<string, any>) {
-    try {
-      const freteRef = doc(db, 'fretes', freteId);
-      await updateDoc(freteRef, { ...payload, atualizadoEm: serverTimestamp() });
-      return true;
-    } catch (error) {
-      console.error('ERRO UPDATE FRETE:', error);
-      return false;
-    }
-  }
-
-  async buscarFrete(freteId: string) {
-    try {
-      const freteRef = doc(db, 'fretes', freteId);
-      const snapshot = await getDoc(freteRef);
-      if (!snapshot.exists()) return null;
-      return { id: snapshot.id, ...snapshot.data() };
-    } catch (error) {
-      console.error('ERRO BUSCAR FRETE:', error);
-      return null;
-    }
-  }
-
-  async finalizarFrete(freteId: string) {
-    try {
-      const freteRef = doc(db, 'fretes', freteId);
-      await runTransaction(db, async transaction => {
-        const snapshot = await transaction.get(freteRef);
-        if (!snapshot.exists()) throw new Error('Frete não encontrado');
-        transaction.update(freteRef, {
-          status: AppTripState.ENTREGUE,
-          dispatchStatus: 'finalizado',
-          trackingStatus: 'finalizado',
-          matchingStatus: 'finalizado',
-          atualizadoEm: serverTimestamp(),
-        });
-      });
-      eventBusService.emit(AppEvents.TRIP_FINISHED, { freteId });
-      return true;
-    } catch (error) {
-      console.error('ERRO FINALIZAR FRETE:', error);
-      return false;
-    }
-  }
+          </div>
+        )}
+      </main>
+    </div>
+  );
 }
-
-export const clientFreightService = new ClientFreightService();
