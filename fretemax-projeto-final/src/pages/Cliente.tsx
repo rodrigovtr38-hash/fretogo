@@ -522,11 +522,7 @@ export default function Cliente() {
                 </div>
               </div>
         
-                  <p className="text-xs font-black text-amber-900 uppercase tracking-widest">Atenção: Alta Demanda</p>
-                  <p className="text-sm text-amber-800 mt-1">Identificamos <strong className="font-black text-amber-900">{motoristasProximos} motoristas ({VEHICLE_CONFIG[vehicle].nome})</strong> operando na sua região. Efetue o pagamento para reservar o seu veículo imediatamente.</p>
-                </div>
-              </div>
-
+                  
               <div className="mb-10 grid grid-cols-1 gap-6 md:grid-cols-2">
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
                   <MapPin className="mb-4 h-6 w-6 text-blue-500" />
