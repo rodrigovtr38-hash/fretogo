@@ -7,10 +7,12 @@ import {
   MapPin,
   ShieldCheck,
   Star,
-  Map,
   CheckCircle2,
-  AlertTriangle,
-  RotateCcw
+  RotateCcw,
+  Banknote,
+  Clock,
+  MessageCircle,
+  Zap
 } from 'lucide-react';
 
 interface DriverRadarProps {
@@ -26,15 +28,11 @@ export default function DriverRadar({
   user,
   driver,
 }: DriverRadarProps) {
-  // Controle do Modo Retorno
   const [isRetornoModalOpen, setIsRetornoModalOpen] = useState(false);
   const [destinoRetorno, setDestinoRetorno] = useState('');
   const [loadingRetorno, setLoadingRetorno] = useState(false);
 
-  // Calcula se o motorista é Elite com base no banco
-  const isElite = (driver?.score && Number(driver.score) >= 4.8) || driver?.categoria?.includes('carreta');
-  
-  // Limite diário (simulado visualmente, o controle real ficará no backend)
+  const isElite = (driver?.score && Number(driver?.score) >= 4.8) || driver?.categoria?.includes('carreta');
   const retornosUsadosHoje = driver?.retornosUsados || 0;
   const retornosRestantes = Math.max(0, 2 - retornosUsadosHoje);
   const modoRetornoAtivo = driver?.modoRetorno || false;
@@ -42,7 +40,6 @@ export default function DriverRadar({
   const ativarModoRetorno = async () => {
     if (!destinoRetorno.trim() || retornosRestantes <= 0 || loadingRetorno) return;
     setLoadingRetorno(true);
-    
     try {
       if (user?.uid) {
         await updateDoc(doc(db, 'motoristas_online', user.uid), {
@@ -75,57 +72,89 @@ export default function DriverRadar({
     }
   };
 
+  const openWhatsAppSupport = () => {
+    window.open('https://wa.me/5511946099840', '_blank');
+  };
+
   return (
     <div className="mx-auto mt-8 w-full max-w-7xl px-4 pb-20 animate-in fade-in duration-300">
 
-      {/* HEADER CENTRAL */}
-      <div className="overflow-hidden rounded-[2rem] border border-cyan-500/20 bg-gradient-to-br from-slate-900 via-slate-950 to-black p-6 md:p-8 shadow-2xl">
+      {/* HEADER: BOTÃO ONLINE E IDENTIFICAÇÃO */}
+      <div className="overflow-hidden rounded-[2.5rem] border border-slate-800 bg-slate-950 p-6 md:p-8 shadow-2xl">
         <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex-1">
-            <span className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-500/20 bg-cyan-500/10 px-4 py-2 text-[10px] md:text-xs font-black uppercase tracking-[0.2em] text-cyan-400">
-              <Radar size={14} className={isOnline ? "animate-spin" : ""} style={{ animationDuration: '3s' }} /> RADAR FRETOGO
-            </span>
-            <h2 className="text-3xl md:text-4xl lg:text-5xl font-black text-white italic tracking-tighter">
-              Sistema <span className="text-cyan-400">Realtime</span> Ativo
-            </h2>
-            <p className="mt-4 max-w-2xl text-sm md:text-base leading-relaxed text-slate-400">
-              O radar inteligente monitora fretes próximos, disponibilidade operacional e garante a sincronização brutal entre você e a plataforma de clientes.
-            </p>
+          
+          {/* Identidade do Motorista */}
+          <div className="flex items-center gap-6">
+            <div className={`flex h-20 w-20 items-center justify-center rounded-3xl border-2 ${isElite ? 'border-purple-500 bg-purple-500/10 text-purple-400' : 'border-blue-500 bg-blue-500/10 text-blue-400'}`}>
+              <Truck size={36} />
+            </div>
+            <div>
+              <h2 className="text-3xl font-black text-white uppercase tracking-tighter truncate max-w-[250px]">
+                {driver?.nome || 'Motorista'}
+              </h2>
+              <p className="mt-1 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-400">
+                {driver?.categoria?.replace('_', ' ') || 'Veículo Padrão'}
+                <span className={`rounded-md px-2 py-0.5 text-[9px] ${isElite ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                  {isElite ? 'ELITE' : 'PIONEIRO'}
+                </span>
+              </p>
+            </div>
           </div>
 
-          {/* ONLINE BUTTON */}
-          <div className="w-full lg:max-w-sm rounded-[2rem] border border-white/10 bg-black/30 p-6 backdrop-blur-xl shadow-inner">
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
-                  STATUS DA CONTA
+          {/* O BOTÃO GIGANTE DE ONLINE/OFFLINE */}
+          <div className="w-full lg:max-w-xs">
+            <button
+              onClick={() => setIsOnline(!isOnline)}
+              className={`flex w-full items-center justify-between rounded-[1.5rem] p-6 transition-all duration-300 ${
+                isOnline
+                  ? 'bg-emerald-500 text-slate-950 shadow-[0_10px_40px_rgba(16,185,129,0.3)] hover:bg-emerald-400 active:scale-95'
+                  : 'bg-slate-900 border border-red-500/30 text-white shadow-lg hover:bg-slate-800 active:scale-95'
+              }`}
+            >
+              <div className="text-left">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80">
+                  Sistema de Rastreio
                 </p>
-                <h3 className={`mt-1 text-2xl md:text-3xl font-black tracking-tight ${isOnline ? 'text-white' : 'text-slate-500'}`}>
+                <h3 className="text-2xl font-black tracking-tight mt-1">
                   {isOnline ? 'ONLINE' : 'OFFLINE'}
                 </h3>
               </div>
-              <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${isOnline ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-red-500/10 border border-red-500/30'}`}>
-                <div className={`h-4 w-4 rounded-full ${isOnline ? 'bg-emerald-400 shadow-[0_0_20px_rgba(74,222,128,0.9)] animate-pulse' : 'bg-red-500'}`} />
+              <div className={`flex h-14 w-14 items-center justify-center rounded-2xl bg-white/20 backdrop-blur-sm`}>
+                <div className={`h-6 w-6 rounded-full ${isOnline ? 'bg-slate-950 shadow-[0_0_20px_rgba(0,0,0,0.5)] animate-pulse' : 'bg-red-500'}`} />
               </div>
-            </div>
-
-            <button
-              onClick={() => setIsOnline(!isOnline)}
-              className={`w-full rounded-2xl px-6 py-5 text-sm font-black uppercase tracking-[0.2em] transition-all duration-300 ${
-                isOnline
-                  ? 'bg-emerald-500 text-slate-900 shadow-[0_10px_20px_rgba(16,185,129,0.2)] hover:bg-emerald-400 hover:scale-[1.02] active:scale-95'
-                  : 'bg-red-500 text-white shadow-[0_10px_20px_rgba(239,68,68,0.2)] hover:bg-red-400 hover:scale-[1.02] active:scale-95'
-              }`}
-            >
-              {isOnline ? 'Ficar Offline' : 'Ligar Radar'}
             </button>
           </div>
         </div>
       </div>
 
-      {/* FIRE: MODO RETORNO INJETADO (Só aparece se estiver online) */}
+      {/* ÁREA VISUAL DO RADAR (A MÁGICA DA ESPERA) */}
+      <div className={`mt-6 flex flex-col items-center justify-center rounded-[2.5rem] border border-slate-800 py-16 md:py-24 transition-colors duration-700 ${isOnline ? 'bg-slate-900/50' : 'bg-slate-950'}`}>
+        <div className="relative flex h-32 w-32 items-center justify-center">
+          {isOnline && (
+            <>
+              <div className="absolute inset-0 animate-ping rounded-full border-4 border-emerald-500/30" style={{ animationDuration: '3s' }}></div>
+              <div className="absolute inset-[-50%] animate-ping rounded-full border-2 border-emerald-500/10" style={{ animationDuration: '4s', animationDelay: '1s' }}></div>
+            </>
+          )}
+          <div className={`relative z-10 flex h-full w-full items-center justify-center rounded-full border-4 ${isOnline ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400' : 'border-slate-800 bg-slate-900 text-slate-700'}`}>
+            <Radar className={`h-14 w-14 ${isOnline ? 'animate-spin' : ''}`} style={{ animationDuration: '4s' }} />
+          </div>
+        </div>
+        <div className="mt-8 text-center px-4">
+          <h3 className={`text-2xl md:text-3xl font-black uppercase italic tracking-tighter ${isOnline ? 'text-white' : 'text-slate-600'}`}>
+            {isOnline ? 'Buscando Fretes...' : 'Radar Desligado'}
+          </h3>
+          <p className="mt-3 text-sm md:text-base font-medium text-slate-500 max-w-md mx-auto leading-relaxed">
+            {isOnline 
+              ? 'Mantenha o aplicativo aberto. Assim que uma carga surgir na sua região para a sua categoria, ela aparecerá aqui instantaneamente.' 
+              : 'Fique online para começar a receber as melhores cargas da sua região.'}
+          </p>
+        </div>
+      </div>
+
+      {/* MODO RETORNO (Só aparece se estiver online) */}
       {isOnline && (
-        <div className="mt-6 w-full rounded-[2rem] border border-blue-500/20 bg-blue-500/5 p-6 md:p-8 backdrop-blur-md flex flex-col md:flex-row items-center justify-between gap-6 shadow-[0_10px_30px_rgba(59,130,246,0.05)]">
+        <div className="mt-6 w-full rounded-[2rem] border border-blue-500/20 bg-blue-500/5 p-6 md:p-8 backdrop-blur-md flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-start gap-4">
             <div className="p-3 bg-blue-500/20 rounded-2xl border border-blue-500/30 shrink-0">
               <RotateCcw className={`w-8 h-8 ${modoRetornoAtivo ? 'text-cyan-400 animate-spin' : 'text-blue-400'}`} style={{ animationDuration: '4s' }} />
@@ -137,7 +166,7 @@ export default function DriverRadar({
                   <CheckCircle2 size={16} /> Prioridade para: {driver?.destinoRetorno?.toUpperCase() || 'SUA CIDADE'}
                 </p>
               ) : (
-                <p className="text-xs md:text-sm text-slate-400 mt-1">
+                <p className="text-xs md:text-sm text-slate-400 mt-1 max-w-md">
                   Vai voltar vazio? Ganhe prioridade máxima em cargas para a sua cidade. Restam <span className="font-bold text-blue-400">{retornosRestantes} chances</span> hoje.
                 </p>
               )}
@@ -149,7 +178,7 @@ export default function DriverRadar({
               <button 
                 onClick={desativarModoRetorno}
                 disabled={loadingRetorno}
-                className="w-full md:w-auto px-6 py-4 bg-transparent border border-red-500/50 text-red-400 font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-red-500/10 transition-colors"
+                className="w-full md:w-auto px-6 py-4 bg-slate-900 border border-red-500/30 text-red-400 font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-red-500/10 transition-colors"
               >
                 {loadingRetorno ? 'Desativando...' : 'Cancelar Retorno'}
               </button>
@@ -157,7 +186,7 @@ export default function DriverRadar({
               <button 
                 onClick={() => setIsRetornoModalOpen(true)}
                 disabled={retornosRestantes <= 0 || loadingRetorno}
-                className={`w-full md:w-auto px-8 py-4 font-black text-xs md:text-sm uppercase tracking-widest rounded-2xl transition-all shadow-lg ${retornosRestantes > 0 ? 'bg-blue-600 text-white hover:bg-blue-500 hover:scale-[1.02] shadow-blue-600/20' : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-white/5'}`}
+                className={`w-full md:w-auto px-8 py-4 font-black text-xs md:text-sm uppercase tracking-widest rounded-2xl transition-all shadow-lg ${retornosRestantes > 0 ? 'bg-blue-600 text-white hover:bg-blue-500 hover:scale-[1.02] shadow-blue-600/20' : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'}`}
               >
                 Ativar Retorno
               </button>
@@ -166,75 +195,69 @@ export default function DriverRadar({
         </div>
       )}
 
-      {/* GRID DE ESTATÍSTICAS E CONTA */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-
-        <div className="rounded-[2rem] border border-cyan-500/10 bg-slate-900/80 p-6 flex flex-col justify-between">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-400 flex items-center gap-2">
-            <Map size={14} /> Matching
-          </p>
-          <div>
-            <h3 className="mt-4 text-2xl font-black text-white italic tracking-tighter">GPS LIVE</h3>
-            <p className="mt-1 text-xs text-slate-500 font-bold">Monitoramento por raio e proximidade.</p>
+      {/* MURAL DE VALORES FRETOGO (A proposta de valor clara) */}
+      <div className="mt-6 rounded-[2.5rem] border border-slate-800 bg-slate-950 p-6 md:p-10">
+        <div className="flex items-center justify-between mb-8">
+          <h2 className="text-2xl font-black text-white italic tracking-tighter">
+            Padrão <span className="text-blue-500">Fretogo</span>
+          </h2>
+          <button onClick={openWhatsAppSupport} className="hidden md:flex items-center gap-2 bg-[#25D366]/10 text-[#25D366] px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-[#25D366] hover:text-slate-950 transition-colors border border-[#25D366]/30">
+            <MessageCircle size={16} /> Falar com Suporte
+          </button>
+        </div>
+        
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          
+          <div className="rounded-3xl border border-white/5 bg-slate-900 p-6 relative overflow-hidden group hover:border-emerald-500/30 transition-colors">
+            <div className="absolute right-0 top-0 opacity-5 group-hover:opacity-10 transition-opacity">
+              <Banknote size={120} className="text-emerald-500 -mt-4 -mr-4" />
+            </div>
+            <div className="relative z-10">
+              <div className="mb-4 inline-flex rounded-xl bg-emerald-500/10 p-3 text-emerald-400">
+                <Clock size={24} />
+              </div>
+              <h3 className="text-lg font-black text-white uppercase tracking-tight">Repasse em 24h</h3>
+              <p className="mt-2 text-xs font-medium leading-relaxed text-slate-400">
+                O seu pagamento é garantido. Após a finalização da entrega com o PIN de segurança, transferimos o valor para sua conta em até um dia útil.
+              </p>
+            </div>
           </div>
+
+          <div className="rounded-3xl border border-white/5 bg-slate-900 p-6 relative overflow-hidden group hover:border-blue-500/30 transition-colors">
+            <div className="absolute right-0 top-0 opacity-5 group-hover:opacity-10 transition-opacity">
+              <ShieldCheck size={120} className="text-blue-500 -mt-4 -mr-4" />
+            </div>
+            <div className="relative z-10">
+              <div className="mb-4 inline-flex rounded-xl bg-blue-500/10 p-3 text-blue-400">
+                <Zap size={24} />
+              </div>
+              <h3 className="text-lg font-black text-white uppercase tracking-tight">Zero Mensalidade</h3>
+              <p className="mt-2 text-xs font-medium leading-relaxed text-slate-400">
+                Nós somos parceiros do seu crescimento. Você não paga nenhuma taxa fixa mensal para usar a plataforma. Ganhe dinheiro rodando.
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-white/5 bg-slate-900 p-6 relative overflow-hidden group hover:border-amber-500/30 transition-colors sm:col-span-2 lg:col-span-1">
+            <div className="absolute right-0 top-0 opacity-5 group-hover:opacity-10 transition-opacity">
+              <Truck size={120} className="text-amber-500 -mt-4 -mr-4" />
+            </div>
+            <div className="relative z-10">
+              <div className="mb-4 inline-flex rounded-xl bg-amber-500/10 p-3 text-amber-400">
+                <MapPin size={24} />
+              </div>
+              <h3 className="text-lg font-black text-white uppercase tracking-tight">As Melhores Cargas</h3>
+              <p className="mt-2 text-xs font-medium leading-relaxed text-slate-400">
+                Conectamos 7 categorias de veículos, da moto ao bitrem, direto com mais de 5.000 embarcadores logísticos na sua região de atuação.
+              </p>
+            </div>
+          </div>
+
         </div>
 
-        <div className="rounded-[2rem] border border-emerald-500/10 bg-slate-900/80 p-6 flex flex-col justify-between">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-400 flex items-center gap-2">
-            <Truck size={14} /> Distribuição
-          </p>
-          <div>
-            <h3 className="mt-4 text-2xl font-black text-white italic tracking-tighter">AUTO DISPATCH</h3>
-            <p className="mt-1 text-xs text-slate-500 font-bold">Roleta 30s cravados.</p>
-          </div>
-        </div>
-
-        <div className="rounded-[2rem] border border-yellow-500/10 bg-slate-900/80 p-6 flex flex-col justify-between">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-yellow-400 flex items-center gap-2">
-            <ShieldCheck size={14} /> Conta Fretogo
-          </p>
-          <div>
-            <h3 className="mt-4 text-xl font-black text-white truncate">{driver?.nome || 'Motorista'}</h3>
-            <p className="mt-1 text-xs text-slate-500 font-bold uppercase tracking-widest">{driver?.categoria?.replace('_', ' ') || 'Categoria indefinida'}</p>
-          </div>
-        </div>
-
-        {/* NÍVEL DO MOTORISTA (GAMIFICAÇÃO) */}
-        <div className={`rounded-[2rem] border p-6 flex flex-col justify-between ${isElite ? 'bg-purple-900/20 border-purple-500/30' : 'bg-slate-900/80 border-slate-500/10'}`}>
-          <p className={`text-[10px] font-black uppercase tracking-[0.2em] flex items-center gap-2 ${isElite ? 'text-purple-400' : 'text-slate-400'}`}>
-            <Star size={14} /> Nível Operacional
-          </p>
-          <div>
-            <h3 className="mt-4 text-3xl font-black text-white italic tracking-tighter uppercase drop-shadow-md">
-              {isElite ? 'ELITE' : 'PIONEIRO'}
-            </h3>
-            <p className="mt-1 text-[10px] uppercase font-bold tracking-widest text-slate-500">
-              {isElite ? 'Prioridade Máxima na Roleta' : 'Complete fretes para subir'}
-            </p>
-          </div>
-        </div>
-
-      </div>
-
-      {/* OPERATION CENTER */}
-      <div className="mt-6 rounded-[2rem] border border-white/5 bg-slate-900/50 p-6 md:p-8">
-        <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter">
-          Inteligência Central
-        </h2>
-        <div className="mt-6 grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-white/5 bg-black/40 p-5">
-            <h3 className="font-black text-cyan-400 text-sm uppercase tracking-widest mb-2">GPS Realtime</h3>
-            <p className="text-[11px] leading-relaxed text-slate-400 font-medium">Você será notificado instantaneamente caso entre na zona de calor de um cliente solicitando frete.</p>
-          </div>
-          <div className="rounded-2xl border border-white/5 bg-black/40 p-5">
-            <h3 className="font-black text-cyan-400 text-sm uppercase tracking-widest mb-2">Match Compatível</h3>
-            <p className="text-[11px] leading-relaxed text-slate-400 font-medium">A distribuição ignora quem está longe e manda a carga baseada no tipo do seu veículo e proximidade física.</p>
-          </div>
-          <div className="rounded-2xl border border-white/5 bg-black/40 p-5">
-            <h3 className="font-black text-cyan-400 text-sm uppercase tracking-widest mb-2">Segurança (PIN)</h3>
-            <p className="text-[11px] leading-relaxed text-slate-400 font-medium">O dinheiro só é liberado mediante a verificação do PIN antifraude do embarcador/recebedor.</p>
-          </div>
-        </div>
+        <button onClick={openWhatsAppSupport} className="mt-6 md:hidden w-full flex items-center justify-center gap-2 bg-[#25D366]/10 text-[#25D366] px-6 py-4 rounded-2xl text-xs font-black uppercase tracking-widest active:scale-95 transition-transform border border-[#25D366]/30">
+          <MessageCircle size={18} /> Chamar Administração
+        </button>
       </div>
 
       {/* MODAL PARA DIGITAR O DESTINO DE RETORNO */}
@@ -254,11 +277,11 @@ export default function DriverRadar({
               value={destinoRetorno}
               onChange={(e) => setDestinoRetorno(e.target.value)}
               placeholder="Ex: Guarulhos"
-              className="w-full rounded-2xl border border-white/10 bg-slate-950 p-5 text-center text-lg font-black uppercase text-white outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 mb-6 placeholder:text-slate-600"
+              className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-5 text-center text-lg font-black uppercase text-white outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 mb-6 placeholder:text-slate-600"
             />
             
             <div className="flex gap-3">
-              <button onClick={() => setIsRetornoModalOpen(false)} className="flex-1 rounded-xl bg-transparent border border-white/10 py-4 text-xs font-black uppercase tracking-widest text-slate-400 hover:text-white transition-colors">
+              <button onClick={() => setIsRetornoModalOpen(false)} className="flex-1 rounded-xl bg-transparent border border-slate-700 py-4 text-xs font-black uppercase tracking-widest text-slate-400 hover:text-white hover:bg-slate-800 transition-colors">
                 Cancelar
               </button>
               <button 
@@ -266,7 +289,7 @@ export default function DriverRadar({
                 disabled={!destinoRetorno.trim() || loadingRetorno}
                 className="flex-[2] rounded-xl bg-blue-600 py-4 text-xs font-black uppercase tracking-[0.2em] text-white shadow-lg shadow-blue-600/30 transition-all hover:bg-blue-500 active:scale-95 disabled:opacity-50"
               >
-                {loadingRetorno ? 'Buscando...' : 'Ativar Retorno'}
+                {loadingRetorno ? 'Salvando...' : 'Ativar Retorno'}
               </button>
             </div>
           </div>
