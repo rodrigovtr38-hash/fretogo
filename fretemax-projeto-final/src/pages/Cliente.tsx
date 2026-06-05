@@ -13,7 +13,7 @@ import ClientCancelModal from '../components/client/ClientCancelModal';
 
 // IMPORTS DA NOVA ARQUITETURA
 import { TripState } from '../state/tripStateMachine';
-import { mapsLoader } from '../services/mapsLoader'; // 🔥 O MOTOR DO MAPA VOLTOU!
+import { mapsLoader } from '../services/mapsLoader'; 
 
 interface AddressData { cep: string; bairro: string; rua: string; num: string; lat?: number; lng?: number; }
 interface Coords { lat: number; lng: number; }
@@ -87,19 +87,17 @@ export default function Cliente() {
   const [paradasGPS, setParadasGPS] = useState<Coords[]>([]);
   const [motoristasProximos, setMotoristasProximos] = useState(0);
 
-  const [mapsReady, setMapsReady] = useState(false);
+  const [mapsReady, setMapsReady] = useState(false); 
 
   const coordsCache = useRef<Record<string, Coords>>({});
   const isProcessingPayment = useRef(false);
 
-  // Inicializa o Google Maps silenciosamente
   useEffect(() => {
     mapsLoader.load().then(() => setMapsReady(true)).catch(console.error);
   }, []);
 
   const validDistancia = useMemo(() => Number.isNaN(distanciaReal) || distanciaReal <= 0 ? (5 * entregas.length) : distanciaReal, [distanciaReal, entregas.length]);
 
-  // 🔥 OPERACIONAL: MOTOR DE PRECIFICAÇÃO LOGÍSTICA COMPLETO COM MARKUP REVERSO E ANTT
   const calculoFinanceiro = useMemo(() => {
     const isHeavy = ['toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(vehicle);
     const isMOPP = tipoMaterial.toLowerCase().includes('mopp') || 
@@ -109,46 +107,25 @@ export default function Cliente() {
     let valorMotoristaBase = 0;
 
     switch (vehicle) {
-      case 'moto':
-        valorMotoristaBase = validDistancia <= 15 ? 30 : 30 + (validDistancia - 15) * 2;
-        break;
-      case 'carro_pequeno':
-        valorMotoristaBase = validDistancia <= 15 ? 100 : 100 + (validDistancia - 15) * 4;
-        break;
-      case 'utilitario':
-        valorMotoristaBase = validDistancia <= 15 ? 180 : 180 + (validDistancia - 15) * 6;
-        break;
-      case 'toco':
-        valorMotoristaBase = validDistancia <= 15 ? 350 : 350 + (validDistancia - 15) * 7;
-        break;
-      case 'truck':
-        valorMotoristaBase = validDistancia <= 15 ? 550 : 550 + (validDistancia - 15) * 8.5;
-        break;
-      case 'carreta_ls':
-        valorMotoristaBase = Math.max(1200, validDistancia * 10.5);
-        break;
-      case 'bi_trem_cegonha':
-        valorMotoristaBase = Math.max(1800, validDistancia * 12.5);
-        break;
-      default:
-        valorMotoristaBase = 100;
+      case 'moto': valorMotoristaBase = validDistancia <= 15 ? 30 : 30 + (validDistancia - 15) * 2; break;
+      case 'carro_pequeno': valorMotoristaBase = validDistancia <= 15 ? 100 : 100 + (validDistancia - 15) * 4; break;
+      case 'utilitario': valorMotoristaBase = validDistancia <= 15 ? 180 : 180 + (validDistancia - 15) * 6; break;
+      case 'toco': valorMotoristaBase = validDistancia <= 15 ? 350 : 350 + (validDistancia - 15) * 7; break;
+      case 'truck': valorMotoristaBase = validDistancia <= 15 ? 550 : 550 + (validDistancia - 15) * 8.5; break;
+      case 'carreta_ls': valorMotoristaBase = Math.max(1200, validDistancia * 10.5); break;
+      case 'bi_trem_cegonha': valorMotoristaBase = Math.max(1800, validDistancia * 12.5); break;
+      default: valorMotoristaBase = 100;
     }
 
-    // Taxas de paradas adicionais no fluxo multidrop
     const custoParadasExtras = Math.max(0, entregas.length - 1) * (isHeavy ? 150.0 : 8.0);
     let valorLiquidoMotorista = valorMotoristaBase + custoParadasExtras;
 
-    // Fator de Carga Perigosa / Química (+20% sobre o custo operacional base)
-    if (isMOPP) {
-      valorLiquidoMotorista *= 1.20;
-    }
+    if (isMOPP) valorLiquidoMotorista *= 1.20;
 
-    // Lógica Oculta de Markup Reverso (Ancoragem de Lucratividade)
     const divisorMargem = isHeavy ? 0.85 : 0.80;
     const precoFinalClienteCalculado = valorLiquidoMotorista / divisorMargem;
     const comissaoRetidaPlataforma = precoFinalClienteCalculado - valorLiquidoMotorista;
 
-    // 🔥 FILTRO DE PEDÁGIO SEGURO: Só destaca e cobra pedágio se a rota for de estrada (maior que 40km)
     const precisaPedagio = validDistancia > 40 && ['utilitario', 'toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(vehicle);
     const valorPedagioCalculado = precisaPedagio ? validDistancia * (isHeavy ? 0.85 : 0.35) : 0;
 
@@ -212,7 +189,6 @@ export default function Cliente() {
       const data = snap.data() as OrderData;
       setOrderData(data);
 
-      // 🔥 RE-INJEÇÃO DE GPS PARA A TELA DE BUSCA
       if (data.origemLat && data.origemLng) {
         setOrigemGPS({ lat: data.origemLat, lng: data.origemLng });
       }
@@ -290,8 +266,15 @@ export default function Cliente() {
       setMotoristasProximos(Math.floor(Math.random() * 8) + 3);
       setStep('preview');
     } catch {
-      showToast('Calculando rota por estimativa.', 'warning');
+      showToast('Calculando rota por estimativa de CEP.', 'warning');
       setDistanciaReal(15 * entregas.length); 
+
+      // 🔥 CORREÇÃO DA TELA INFINITA: Ativando GPS de fallback para não quebrar a tela!
+      const fallbackOrigem = getFallbackCoordsByCEP(coleta.cep);
+      const fallbackDestino = getFallbackCoordsByCEP(entregas[entregas.length - 1].cep);
+      setOrigemGPS(fallbackOrigem);
+      setDestinoGPS(fallbackDestino);
+
       setStep('preview');
     } finally { setLoadingRoute(false); }
   };
@@ -300,7 +283,6 @@ export default function Cliente() {
     if (loadingRoute || loadingPayment || isProcessingPayment.current) return;
     isProcessingPayment.current = true; setLoadingPayment(true);
     
-    // 🔥 LÓGICA LOGÍSTICA DE AGENDAMENTO COMPLETA (TRAVA DE ANTECEDÊNCIA)
     if (tipoFrete === 'agendado' && dataAgendada) {
       const agoraTimestamp = Date.now();
       const dataAlvoTimestamp = new Date(dataAgendada).getTime();
