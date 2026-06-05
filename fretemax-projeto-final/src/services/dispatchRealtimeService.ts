@@ -1,5 +1,6 @@
 // src/services/dispatchRealtimeService.ts
 import { firebaseRealtimeService } from './firebaseRealtimeService';
+import { locationRealtimeService } from './locationRealtimeService'; // 🔥 Injetamos a Antena!
 
 class DispatchRealtimeService {
   async setDriverOnline(driverId: string) {
@@ -10,6 +11,8 @@ class DispatchRealtimeService {
         state: 'ONLINE',
         atualizadoEm: Date.now(),
       });
+      // 🔥 GATILHO DA ANTENA: Liga o GPS imediatamente ao ficar online
+      locationRealtimeService.start(driverId);
     } catch (error) {
       console.error('ERRO DRIVER ONLINE:', error);
     }
@@ -23,6 +26,8 @@ class DispatchRealtimeService {
         state: 'OFFLINE',
         atualizadoEm: Date.now(),
       });
+      // 🛑 DESLIGA A ANTENA para economizar bateria do motorista
+      locationRealtimeService.stop();
     } catch (error) {
       console.error('ERRO DRIVER OFFLINE:', error);
     }
@@ -49,9 +54,11 @@ class DispatchRealtimeService {
       await firebaseRealtimeService.updateDriverRealtime(driverId, {
         state: 'ACEITOU',
         freteAtualId: freteId,
-        disponivel: false,
+        disponivel: false, // Tira ele da roleta para não receber 2 viagens
         atualizadoEm: Date.now(),
       });
+      // 🔥 Atualiza a Antena para injetar o GPS direto no Frete (Para o Cliente ver!)
+      locationRealtimeService.start(driverId, freteId);
     } catch (error) {
       console.error('ERRO ACEITE:', error);
     }
@@ -94,15 +101,18 @@ class DispatchRealtimeService {
     try {
       await firebaseRealtimeService.updateDriverRealtime(driverId, {
         state: 'FINALIZANDO',
-        disponivel: true,
+        disponivel: true, // Volta para a roleta!
         freteAtualId: null,
         atualizadoEm: Date.now(),
       });
+      // 🔥 A viagem acabou, o GPS para de mandar dados para a corrida
+      locationRealtimeService.start(driverId); 
     } catch (error) {
       console.error('ERRO FINALIZAÇÃO:', error);
     }
   }
 
+  // Funções que o Motorista pode usar para atualizar a viagem em si (Ex: Heartbeat)
   async atualizarTripRealtime(tripId: string, payload: any) {
     try {
       await firebaseRealtimeService.updateTripRealtime(tripId, {
