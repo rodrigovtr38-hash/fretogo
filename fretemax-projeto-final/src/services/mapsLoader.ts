@@ -16,18 +16,14 @@ type MapsRuntimeStatus =
 
 type MapsLoaderConfig = {
   apiKey: string;
-
   libraries?: (
     | 'places'
     | 'geometry'
     | 'routes'
     | 'marker'
   )[];
-
   language?: string;
-
   region?: string;
-
   retries?: number;
 };
 
@@ -129,18 +125,18 @@ class MapsLoaderService {
     this.status =
       'loading';
 
-    // 🔥 Puxa a chave da Vercel ou da configuração manual
+    // 🔥 GATILHO CORRIGIDO: Lê a variável com o nome exato que está na sua Vercel
     const apiKey =
       config?.apiKey ||
-      import.meta.env
-        .VITE_GOOGLE_MAPS_API_KEY;
+      import.meta.env.VITE_GOOGLE_MAPS_KEY || 
+      import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
     if (!apiKey) {
       this.status =
         'error';
 
       throw new Error(
-        '❌ CHAVE DO GOOGLE MAPS NÃO ENCONTRADA. Adicione VITE_GOOGLE_MAPS_API_KEY nas Environment Variables da Vercel.',
+        '❌ CHAVE DO GOOGLE MAPS NÃO ENCONTRADA.',
       );
     }
 
