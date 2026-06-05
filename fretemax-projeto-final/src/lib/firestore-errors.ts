@@ -13,28 +13,34 @@ export interface FirestoreErrorInfo {
   error: string;
   operationType: OperationType;
   path: string | null;
-  authInfo: any;
+  authInfo: Record<string, unknown> | null; // 🔥 Vercel/TS Error resolvido: Tipagem estrita no lugar do "any"
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const currentUser = auth.currentUser;
+  
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
+    authInfo: currentUser ? {
+      userId: currentUser.uid,
+      email: currentUser.email,
+      emailVerified: currentUser.emailVerified,
+      isAnonymous: currentUser.isAnonymous,
+      tenantId: currentUser.tenantId,
+      providerInfo: currentUser.providerData?.map(provider => ({
         providerId: provider.providerId,
         displayName: provider.displayName,
         email: provider.email,
         photoUrl: provider.photoURL
       })) || []
-    },
+    } : null,
     operationType,
     path
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  
+  // Log silencioso para o Painel Admin (O Cliente não vê esse texto feio)
+  console.error('[Tracker Fretogo - Erro no Banco]:', errInfo);
+  
+  // Dispara apenas a mensagem limpa para a tela do usuário
+  throw new Error(errInfo.error);
 }
