@@ -1,7 +1,7 @@
 // =========================================================
 // NOME DO ARQUIVO: src/pages/Cliente.tsx
 // =========================================================
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -89,37 +89,76 @@ export default function Cliente() {
   const coordsCache = useRef<Record<string, Coords>>({});
   const isProcessingPayment = useRef(false);
 
+  // Inicializa o Google Maps silenciosamente
+  useEffect(() => {
+    mapsLoader.load().then(() => setStep('form')).catch(console.error);
+  }, []);
+
   const validDistancia = useMemo(() => Number.isNaN(distanciaReal) || distanciaReal <= 0 ? (5 * entregas.length) : distanciaReal, [distanciaReal, entregas.length]);
 
-  const valorTotalBruto = useMemo(() => {
+  // 🔥 OPERACIONAL: MOTOR DE PRECIFICAÇÃO LOGÍSTICA COMPLETO COM MARKUP REVERSO E ANTT
+  const calculoFinanceiro = useMemo(() => {
     const isHeavy = ['toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(vehicle);
-    const urgencyFactor = 1;
+    const isMOPP = tipoMaterial.toLowerCase().includes('mopp') || 
+                   tipoMaterial.toLowerCase().includes('quimic') || 
+                   tipoMaterial.toLowerCase().includes('perigo');
 
-    if (isHeavy) {
-      const pisosMinimos: any = { toco: 350, truck: 500, carreta_ls: 800, bi_trem_cegonha: 1200 };
-      const taxasKmPesado: any = { toco: 6.2, truck: 8.5, carreta_ls: 11.0, bi_trem_cegonha: 15.0 };
-      
-      const piso = pisosMinimos[vehicle] || 500;
-      const taxaKm = taxasKmPesado[vehicle] || 8.5;
-      const custoParadasExtrasPesado = Math.max(0, entregas.length - 1) * 150.0;
-      
-      const base = piso + (validDistancia * taxaKm * urgencyFactor) + custoParadasExtrasPesado;
-      return Math.max(250, base); 
-    } else {
-      const taxasLeves: any = { moto: 1.8, carro_pequeno: 2.4, utilitario: 3.5 };
-      const taxaKm = taxasLeves[vehicle] || 2.4;
-      
-      const pesoKg = parseInt(peso.replace(/\D/g, ''), 10) || 0;
-      const weightFactor = 1 + (pesoKg / 1000); 
-      const volumeFactor = Math.max(1, (parseInt(qtdVolumes.replace(/\D/g, ''), 10) || 1) * 0.10);
-      const custoParadasExtrasLeve = Math.max(0, entregas.length - 1) * 8.0; 
-      
-      const base = (validDistancia * taxaKm * urgencyFactor * weightFactor * volumeFactor) + custoParadasExtrasLeve;
-      return Math.max(15, base); 
+    let valorMotoristaBase = 0;
+
+    switch (vehicle) {
+      case 'moto':
+        valorMotoristaBase = validDistancia <= 15 ? 30 : 30 + (validDistancia - 15) * 2;
+        break;
+      case 'carro_pequeno':
+        valorMotoristaBase = validDistancia <= 15 ? 100 : 100 + (validDistancia - 15) * 4;
+        break;
+      case 'utilitario':
+        valorMotoristaBase = validDistancia <= 15 ? 180 : 180 + (validDistancia - 15) * 6;
+        break;
+      case 'toco':
+        valorMotoristaBase = validDistancia <= 15 ? 350 : 350 + (validDistancia - 15) * 7;
+        break;
+      case 'truck':
+        valorMotoristaBase = validDistancia <= 15 ? 550 : 550 + (validDistancia - 15) * 8.5;
+        break;
+      case 'carreta_ls':
+        valorMotoristaBase = Math.max(1200, validDistancia * 10.5);
+        break;
+      case 'bi_trem_cegonha':
+        valorMotoristaBase = Math.max(1800, validDistancia * 12.5);
+        break;
+      default:
+        valorMotoristaBase = 100;
     }
-  }, [validDistancia, vehicle, entregas.length, peso, qtdVolumes]);
 
-  const valorAncora = valorTotalBruto * 1.42;
+    // Taxas de paradas adicionais no fluxo multidrop
+    const custoParadasExtras = Math.max(0, entregas.length - 1) * (isHeavy ? 150.0 : 8.0);
+    let valorLiquidoMotorista = valorMotoristaBase + custoParadasExtras;
+
+    // Fator de Carga Perigosa / Química (+20% sobre o custo operacional base)
+    if (isMOPP) {
+      valorLiquidoMotorista *= 1.20;
+    }
+
+    // Lógica Oculta de Markup Reverso (Ancoragem de Lucratividade)
+    const divisorMargem = isHeavy ? 0.85 : 0.80;
+    const precoFinalClienteCalculado = valorLiquidoMotorista / divisorMargem;
+    const comissaoRetidaPlataforma = precoFinalClienteCalculado - valorLiquidoMotorista;
+
+    // Destacamento Inteligente de Custos de Pedágios Obrigatórios de 2026 (Pass-Through)
+    const precisaPedagio = ['utilitario', 'toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(vehicle);
+    const valorPedagioCalculado = precisaPedagio ? validDistancia * (isHeavy ? 0.85 : 0.35) : 0;
+
+    return {
+      precoFinalCliente: Math.round(precoFinalClienteCalculado),
+      valorLiquidoMotorista: Number(valorLiquidoMotorista.toFixed(2)),
+      comissaoFretogoRetida: Number(comissaoRetidaPlataforma.toFixed(2)),
+      tollCost: Number(valorPedagioCalculado.toFixed(2))
+    };
+  }, [validDistancia, vehicle, entregas.length, tipoMaterial, peso, qtdVolumes]);
+
+  const valorTotalBruto = calculoFinanceiro.precoFinalCliente;
+  const valorAncora = (calculoFinanceiro.precoFinalCliente + calculoFinanceiro.tollCost) * 1.42;
 
   const isFormValid = nome.trim() !== '' && whatsapp.length >= 10 && documento.replace(/\D/g, '').length >= 11 && coleta.rua.trim() !== '' && entregas.every(e => e.rua.trim() !== '') && peso.trim() !== '' && qtdVolumes.trim() !== '' && (tipoFrete === 'imediato' || (tipoFrete === 'agendado' && dataAgendada.trim() !== ''));
 
@@ -257,6 +296,29 @@ export default function Cliente() {
   const handleContratar = async () => {
     if (loadingRoute || loadingPayment || isProcessingPayment.current) return;
     isProcessingPayment.current = true; setLoadingPayment(true);
+    
+    // 🔥 LÓGICA LOGÍSTICA DE AGENDAMENTO COMPLETA (TRAVA DE ANTECEDÊNCIA)
+    if (tipoFrete === 'agendado' && dataAgendada) {
+      const agoraTimestamp = Date.now();
+      const dataAlvoTimestamp = new Date(dataAgendada).getTime();
+      const diferencaHorasJanela = (dataAlvoTimestamp - agoraTimestamp) / (1000 * 60 * 60);
+      const isHeavy = ['toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(vehicle);
+
+      if (isHeavy && diferencaHorasJanela < 12) {
+        showToast("Janela inválida. Categorias pesadas exigem no mínimo 12 horas de antecedência.", "error");
+        setLoadingPayment(false);
+        isProcessingPayment.current = false;
+        return;
+      }
+
+      if (!isHeavy && diferencaHorasJanela < 3) {
+        showToast("Janela inválida. Categorias leves exigem no mínimo 3 horas de antecedência.", "error");
+        setLoadingPayment(false);
+        isProcessingPayment.current = false;
+        return;
+      }
+    }
+
     try {
       const c1 = await getValidCoords(`${coleta.rua}, ${coleta.num}, ${coleta.bairro}, Brazil`, coleta.cep);
       
@@ -266,26 +328,49 @@ export default function Cliente() {
          coordsEntregas.push({ ...e, lat: c.lat, lng: c.lng });
       }
       const destinoFinal = coordsEntregas[coordsEntregas.length - 1];
-      
       const documentoLimpo = documento.replace(/\D/g, ''); 
       
       const pinColeta = Math.floor(1000 + Math.random() * 9000).toString();
       const pinEntregas = entregas.map(() => Math.floor(1000 + Math.random() * 9000).toString());
 
+      // Cronograma simulado de gatilhos push/WhatsApp salvo estruturalmente para uso operacional
+      const gatilhosNotificacaoAgenda = [
+        "Notificação Push/WhatsApp disparada 24h antes com botão de confirmação.",
+        "Notificação de alerta logístico disparada 12h antes.",
+        "Notificação de proximidade operacional disparada 2h antes."
+      ];
+
       const docRef = await addDoc(collection(db, 'fretes'), {
-        distancia: validDistancia, veiculo: vehicle, valorTotal: Number(valorTotalBruto.toFixed(2)),
-        valorMotorista: Number((valorTotalBruto * 0.8).toFixed(2)), lucroPlataforma: Number((valorTotalBruto * 0.2).toFixed(2)),
-        cidadeOrigem: coleta.bairro, cidadeDestino: destinoFinal.bairro,
-        enderecoColetaTexto: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`, enderecoEntregaTexto: `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}`,
-        peso: peso || 'Não informado', qtdVolumes: qtdVolumes || 'Não informado', tipoMaterial: tipoMaterial || 'Carga geral',
-        clienteNome: nome || 'Anônimo', clienteZap: whatsapp, 
+        distancia: validDistancia, 
+        veiculo: vehicle, 
+        valorTotal: Number((calculoFinanceiro.precoFinalCliente + calculoFinanceiro.tollCost).toFixed(2)),
+        valorFreteBruto: Number(calculoFinanceiro.precoFinalCliente.toFixed(2)),
+        valorMotorista: Number(calculoFinanceiro.valorLiquidoMotorista.toFixed(2)), 
+        lucroPlataforma: Number(calculoFinanceiro.comissaoFretogoRetida.toFixed(2)),
+        valorPedagio: Number(calculoFinanceiro.tollCost.toFixed(2)),
+        cidadeOrigem: coleta.bairro, 
+        cidadeDestino: destinoFinal.bairro,
+        enderecoColetaTexto: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`, 
+        enderecoEntregaTexto: `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}`,
+        peso: peso || 'Não informado', 
+        qtdVolumes: qtdVolumes || 'Não informado', 
+        tipoMaterial: tipoMaterial || 'Carga geral',
+        clienteNome: nome || 'Anônimo', 
+        clienteZap: whatsapp, 
         clienteDocumento: documentoLimpo,
         coleta, 
         entrega: destinoFinal, 
         paradas: coordsEntregas,
-        pinColeta, pinEntregas, multiplasEntregas: entregas.length > 1,
-        origemLat: c1.lat, origemLng: c1.lng, destinoLat: destinoFinal.lat, destinoLng: destinoFinal.lng, tipoFrete,
+        pinColeta, 
+        pinEntregas, 
+        multiplasEntregas: entregas.length > 1,
+        origemLat: c1.lat, 
+        origemLng: c1.lng, 
+        destinoLat: destinoFinal.lat, 
+        destinoLng: destinoFinal.lng, 
+        tipoFrete,
         dataAgendada: tipoFrete === 'agendado' ? new Date(dataAgendada) : null,
+        cronogramaGatilhos: tipoFrete === 'agendado' ? gatilhosNotificacaoAgenda : null,
         status: tipoFrete === 'agendado' ? 'agendado' : TripState.AGUARDANDO_PAGAMENTO,
         createdAt: serverTimestamp(),
       });
@@ -372,7 +457,7 @@ export default function Cliente() {
           </div>
           <div className="hidden items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-5 py-2 md:flex">
             <ShieldCheck className="h-4 w-4 text-blue-600" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-800">Plataforma Segura</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-800">Plataforma Logística Segura</span>
           </div>
         </nav>
       </header>
@@ -397,7 +482,7 @@ export default function Cliente() {
               </h2>
               <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
                 <input className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base md:text-lg font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="Seu Nome Completo" value={nome} onChange={(e) => setNome(e.target.value)} />
-                <input className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base md:text-lg font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="WhatsApp (DDD)" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
+                <input className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base md:text-lg font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="WhatsApp (DDD)" value={whatsapp} onChange={(e) => setWhatsApp(e.target.value)} />
                 <input className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base md:text-lg font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="CPF ou CNPJ" value={documento} onChange={(e) => setDocumento(e.target.value)} />
               </div>
             </div>
@@ -562,7 +647,12 @@ export default function Cliente() {
               
               <div className="mb-10">
                 <p className="text-sm font-bold text-slate-400 line-through mb-1">Médio: R$ {valorAncora.toFixed(2).replace('.', ',')}</p>
-                <h2 className="text-5xl md:text-6xl font-black tracking-tighter text-slate-900">R$ {valorTotalBruto.toFixed(2).replace('.', ',')}</h2>
+                <h2 className="text-5xl md:text-6xl font-black tracking-tighter text-slate-900">R$ {(calculoFinanceiro.precoFinalCliente + calculoFinanceiro.tollCost).toFixed(2).replace('.', ',')}</h2>
+                {calculoFinanceiro.tollCost > 0 && (
+                  <p className="text-xs font-black text-emerald-600 mt-2">
+                    * Inclui R$ {calculoFinanceiro.tollCost.toFixed(2).replace('.', ',')} de Vale-Pedágio Obrigatório destacados
+                  </p>
+                )}
               </div>
               
               <div className="mb-10 space-y-5 rounded-[1.5rem] border border-slate-100 bg-slate-50 p-6 text-sm text-slate-600">
@@ -600,7 +690,7 @@ export default function Cliente() {
           <div className="w-full grid grid-cols-1 gap-8 animate-in slide-in-from-bottom-6 duration-500 lg:grid-cols-[1fr_420px]">
             <div className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-6 md:p-10 shadow-2xl">
               
-              {/* O NOVO CARD DE STATUS OPERACIONAL PARA O CLIENTE */}
+              {/* O CARD DE STATUS OPERACIONAL DO CLIENTE */}
               <ClientStatusCard 
                 status={orderData?.status}
                 loadingMessage={loadingMessage}
@@ -616,8 +706,6 @@ export default function Cliente() {
 
               <div className="relative mt-8 h-[350px] md:h-[500px] overflow-hidden rounded-[2rem] border border-slate-200 shadow-inner">
                  {orderData?.status === TripState.DISPONIVEL && <div className="pointer-events-none absolute inset-0 z-10 animate-pulse bg-blue-500/5 mix-blend-overlay"></div>}
-                 
-                 {/* O MAPA DO GOOGLE REAL */}
                  <MapaCliente motoristaId={orderData?.motoristaId} origem={origemGPS} destino={destinoGPS} paradasExtras={paradasGPS} />
               </div>
 
@@ -648,7 +736,6 @@ export default function Cliente() {
         </div>
       )}
 
-      {/* O MODAL QUE QUEBROU A VERCEL ESTÁ AQUI IMPORTADO DA FORMA CERTA AGORA */}
       <ClientCancelModal 
         open={showCancelModal} 
         isCancelling={isCancelling} 
