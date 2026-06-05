@@ -73,11 +73,10 @@ function MapaCliente({
   vehicleType = 'motoristas'
 }: MapaClienteProps) {
   
-  // 🔥 FASE 4: CARREGAMENTO OFICIAL DO GOOGLE MAPS NA VERCEL
-  // Certifique-se de que no seu painel da Vercel existe a variável VITE_GOOGLE_MAPS_API_KEY
+  // 🔥 CORREÇÃO DA CHAVE: Lendo a variável exata da sua Vercel
   const { isLoaded } = useJsApiLoader({
     id: 'google-map-script',
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '',
+    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_KEY || import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '',
   });
 
   const mapRef = useRef<google.maps.Map | null>(null);
