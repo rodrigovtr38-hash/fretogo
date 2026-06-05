@@ -1,12 +1,11 @@
 // =========================================================
 // NOME DO ARQUIVO: src/pages/Home.tsx
 // =========================================================
-import { Zap, Truck, ShieldCheck, ArrowRight, Smartphone, CheckCircle, Info, LockKeyhole } from 'lucide-react';
+import { Zap, Truck, ShieldCheck, ArrowRight, Smartphone, CheckCircle, Info, LockKeyhole, Map } from 'lucide-react';
 
 export default function Home() {
   const goToClient = () => window.location.href = '/cliente';
   const goToDriver = () => window.location.href = '/motorista';
-  const openWhatsAppSupport = () => window.open('https://wa.me/5511946099840', '_blank');
 
   return (
     <div className="relative min-h-screen w-full flex flex-col bg-slate-50 text-slate-900 font-sans selection:bg-blue-500/20">
@@ -14,6 +13,8 @@ export default function Home() {
       {/* BACKGROUND CORPORATIVO */}
       <div className="pointer-events-none fixed inset-0 z-0">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-white via-slate-50 to-slate-100"></div>
+        <div className="absolute left-[-10%] top-[-5%] h-[40rem] w-[40rem] rounded-full bg-blue-100/40 blur-[100px]" />
+        <div className="absolute right-[-10%] top-[20%] h-[35rem] w-[35rem] rounded-full bg-cyan-100/30 blur-[120px]" />
       </div>
 
       {/* NAVBAR */}
@@ -62,7 +63,7 @@ export default function Home() {
               <p className="text-slate-600">De pequenas entregas de moto a grandes cargas em carretas LS.</p>
             </div>
             <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
-              <Radar className="text-blue-600 mb-4" size={32}/>
+              <Map className="text-blue-600 mb-4" size={32}/>
               <h3 className="text-xl font-black mb-2">Radar em Tempo Real</h3>
               <p className="text-slate-600">Acompanhe sua carga no mapa desde a coleta até a entrega final.</p>
             </div>
