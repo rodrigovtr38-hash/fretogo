@@ -4,7 +4,7 @@ import { collection, onSnapshot, doc, query, orderBy, runTransaction, where, upd
 import { 
   Loader2, CheckCircle, XCircle, Search, ShieldAlert, Truck, Users, 
   Calendar, DollarSign, Activity, Clock, AlertTriangle, Eye, 
-  Map as MapIcon, ArrowRight, Wallet, Filter, Zap, MessageCircle, ShieldCheck, RefreshCcw
+  Map as MapIcon, ArrowRight, Wallet, Filter, Zap, MessageCircle, ShieldCheck, RefreshCcw, Lock
 } from 'lucide-react';
 
 // 🔥 SEGURANÇA: Painel trancado! Apenas a conta principal tem acesso.
@@ -20,7 +20,7 @@ export default function Admin() {
   
   // Filtros
   const [statusFilter, setStatusFilter] = useState('todos');
-  const [timeFilter, setTimeFilter] = useState('hoje'); // hoje, 7dias, 30dias, ano, todos
+  const [timeFilter, setTimeFilter] = useState('hoje'); 
   
   const [loading, setLoading] = useState(true);
 
@@ -98,17 +98,17 @@ export default function Admin() {
     const fretesDoPeriodo = fretes.filter(f => filterByTime(f, timeFilter));
 
     const faturado = fretesDoPeriodo
-      .filter(f => ['aceito','coleta','em_transporte','entregue','finalizado'].includes(f.status))
+      .filter(f => ['aceito','indo_coleta','coletando','em_transporte','entregue','finalizado'].includes(f.status))
       .reduce((acc, f) => acc + (Number(f.valorTotal) || 0), 0);
     
     const lucro = fretesDoPeriodo
-      .filter(f => ['aceito','coleta','em_transporte','entregue','finalizado'].includes(f.status))
+      .filter(f => ['aceito','indo_coleta','coletando','em_transporte','entregue','finalizado'].includes(f.status))
       .reduce((acc, f) => acc + (Number(f.lucroPlataforma) || 0), 0);
 
     const entregues = fretesDoPeriodo.filter(f => ['entregue', 'finalizado'].includes(f.status)).length;
     const ticketMedio = entregues > 0 ? (faturado / entregues) : 0;
     
-    const ativos = fretes.filter(f => ['aceito', 'coleta', 'em_transporte'].includes(f.status)).length;
+    const ativos = fretes.filter(f => ['aceito', 'indo_coleta', 'coletando', 'em_transporte'].includes(f.status)).length;
     const aguardando = fretes.filter(f => f.status === 'disponivel').length;
     const repasses = fretes.filter(f => f.status === 'entregue').length;
     const cancelados = fretesDoPeriodo.filter(f => f.status === 'cancelado').length;
@@ -311,7 +311,7 @@ export default function Admin() {
                  <p className="text-[10px] font-black text-green-500/70 uppercase tracking-widest mb-2">Lucro Líquido Platform</p>
                  <h3 className="text-2xl md:text-3xl font-black text-green-400 tracking-tighter">R$ {stats.lucro.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</h3>
                  <p className="mt-4 text-[10px] font-bold text-green-500 flex justify-between">
-                   <span>Margem Média</span> <span>20%</span>
+                   <span>Markup Inteligente Ativo</span>
                  </p>
               </div>
 
@@ -465,6 +465,8 @@ export default function Admin() {
                     <option value="todos">Status Global</option>
                     <option value="disponivel">Radar Activo</option>
                     <option value="aceito">Motorista a Caminho</option>
+                    <option value="indo_coleta">Indo p/ Coleta</option>
+                    <option value="coletando">Embarcando</option>
                     <option value="em_transporte">Em Transporte</option>
                     <option value="entregue">Aguardando Repasse</option>
                     <option value="finalizado">Finalizados</option>
@@ -488,7 +490,7 @@ export default function Admin() {
                       {/* Status Lateral Indicator (Led Profile) */}
                       <div className={`absolute top-0 left-0 bottom-0 w-1.5 transition-all ${
                         ['disponivel'].includes(f.status) ? 'bg-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.8)]' :
-                        ['aceito', 'coleta'].includes(f.status) ? 'bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.8)]' :
+                        ['aceito', 'indo_coleta', 'coletando'].includes(f.status) ? 'bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.8)]' :
                         ['em_transporte'].includes(f.status) ? 'bg-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.8)]' :
                         ['entregue'].includes(f.status) ? 'bg-purple-500 animate-pulse shadow-[0_0_15px_rgba(168,85,247,0.8)]' :
                         ['finalizado'].includes(f.status) ? 'bg-green-500' : 'bg-red-500'
@@ -509,7 +511,14 @@ export default function Admin() {
                               {f.status.replace('_', ' ')}
                             </span>
                             <span className="text-[10px] font-mono text-slate-500 font-bold">#{f.id.toUpperCase()}</span>
-                            <span className="text-[10px] font-bold text-slate-500 ml-auto flex items-center gap-1"><Calendar size={12}/> {formatarData(f.createdAt)}</span>
+                            
+                            {f.dataAgendada && (
+                              <span className="text-[10px] bg-purple-500/20 border border-purple-500/30 text-purple-400 font-bold px-2 py-1 rounded ml-auto flex items-center gap-1">
+                                <Clock size={12}/> AGENDADO: {formatarData(f.dataAgendada)}
+                              </span>
+                            )}
+                            
+                            <span className={`text-[10px] font-bold text-slate-500 flex items-center gap-1 ${f.dataAgendada ? '' : 'ml-auto'}`}><Calendar size={12}/> Criado: {formatarData(f.createdAt)}</span>
                           </div>
 
                           <div className="flex items-start gap-5">
@@ -529,39 +538,65 @@ export default function Admin() {
                                 </div>
                              </div>
                           </div>
+                          
+                          {/* 🔥 NOVO: PAINEL DE PINs PARA O ADMIN ACUDIR O MOTORISTA */}
+                          {(f.pinColeta || (f.pinEntregas && f.pinEntregas.length > 0)) && (
+                            <div className="mt-6 bg-slate-950/50 p-4 rounded-xl border border-white/5">
+                              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-1"><Lock size={12}/> Códigos de Segurança (PIN)</p>
+                              <div className="flex flex-wrap gap-2">
+                                {f.pinColeta && <span className="bg-slate-900 border border-slate-700 text-slate-300 text-xs px-2 py-1 rounded font-mono font-black">Coleta: {f.pinColeta}</span>}
+                                {f.pinEntregas?.map((pin: string, idx: number) => (
+                                   <span key={idx} className="bg-slate-900 border border-slate-700 text-slate-300 text-xs px-2 py-1 rounded font-mono font-black">Entrega {idx+1}: {pin}</span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
 
-                        {/* COLUNA 2: Entidades e Valores */}
+                        {/* COLUNA 2: Entidades e Valores Financeiros Separados */}
                         <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                           <div className="bg-slate-950/80 p-5 rounded-2xl border border-white/5 flex flex-col justify-between">
+                           <div className="bg-slate-950/80 p-4 rounded-2xl border border-white/5 flex flex-col justify-between">
                               <div>
                                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-1"><Users size={10}/> Solicitante</p>
                                 <h4 className="text-xs font-black text-white uppercase truncate">{f.clienteNome || 'Registrado'}</h4>
                               </div>
-                              <div className="mt-4">
+                              <div className="mt-2">
                                 {f.clienteZap && <a href={`https://wa.me/55${f.clienteZap?.replace(/\D/g,'')}`} target="_blank" rel="noreferrer" className="text-[10px] text-cyan-400 font-bold hover:underline flex items-center gap-1"><MessageCircle size={12}/> Chamar no WhatsApp</a>}
                               </div>
                            </div>
-                           <div className="bg-slate-950/80 p-5 rounded-2xl border border-white/5 flex flex-col justify-between relative overflow-hidden">
+                           <div className="bg-slate-950/80 p-4 rounded-2xl border border-white/5 flex flex-col justify-between relative overflow-hidden">
                               {f.status === 'disponivel' && <div className="absolute inset-0 bg-blue-500/5 animate-pulse"></div>}
                               <div className="relative z-10">
                                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-1"><Truck size={10}/> Parceiro Operacional</p>
                                 <h4 className={`text-xs font-black uppercase truncate ${f.motoristaNome ? 'text-white' : 'text-blue-400 italic animate-pulse'}`}>{f.motoristaNome || 'Buscando Motorista...'}</h4>
                               </div>
-                              <div className="mt-4 relative z-10">
+                              <div className="mt-2 relative z-10">
                                 {f.motoristaZap && <a href={`https://wa.me/55${f.motoristaZap?.replace(/\D/g,'')}`} target="_blank" rel="noreferrer" className="text-[10px] text-cyan-400 font-bold hover:underline flex items-center gap-1"><MessageCircle size={12}/> Chamar Motorista</a>}
                               </div>
                            </div>
                            
-                           <div className="bg-slate-950/80 p-5 rounded-2xl border border-white/5 col-span-1 sm:col-span-2 flex justify-between items-center">
-                              <div>
-                                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Especificações</p>
-                                <p className="text-[10px] font-black text-white uppercase italic">{f.veiculo?.replace('_',' ')} • {f.peso} • {f.qtdVolumes}</p>
+                           {/* DIVISÃO FINANCEIRA REAL DO MARKUP REVERSO */}
+                           <div className="bg-slate-950/80 p-4 rounded-2xl border border-white/5 col-span-1 sm:col-span-2">
+                              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-1"><DollarSign size={10}/> Resumo Financeiro da Operação</p>
+                              <div className="grid grid-cols-2 gap-2 text-[10px] font-bold">
+                                 <div className="flex justify-between border-b border-white/5 pb-1">
+                                   <span className="text-slate-400">Total Pago (Cliente)</span>
+                                   <span className="text-white font-black">R$ {Number(f.valorTotal).toFixed(2)}</span>
+                                 </div>
+                                 <div className="flex justify-between border-b border-white/5 pb-1">
+                                   <span className="text-emerald-500">Repasse (Motorista)</span>
+                                   <span className="text-emerald-400 font-black">R$ {Number(f.valorMotorista).toFixed(2)}</span>
+                                 </div>
+                                 <div className="flex justify-between border-b border-white/5 pb-1">
+                                   <span className="text-cyan-500">Lucro Retido (App)</span>
+                                   <span className="text-cyan-400 font-black">R$ {Number(f.lucroPlataforma).toFixed(2)}</span>
+                                 </div>
+                                 <div className="flex justify-between border-b border-white/5 pb-1">
+                                   <span className="text-amber-500">Vale-Pedágio (Custo)</span>
+                                   <span className="text-amber-400 font-black">R$ {Number(f.valorPedagio || 0).toFixed(2)}</span>
+                                 </div>
                               </div>
-                              <div className="text-right">
-                                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Valor Bruto</p>
-                                <p className="text-lg font-black text-green-400">R$ {Number(f.valorTotal).toFixed(2)}</p>
-                              </div>
+                              <p className="text-[9px] font-black text-slate-500 uppercase mt-3 italic">{f.veiculo?.replace('_',' ')} • {f.peso} • {f.qtdVolumes} • {f.distancia}km</p>
                            </div>
                         </div>
 
@@ -577,7 +612,7 @@ export default function Admin() {
                              </button>
                            )}
                            
-                           {/* 🔥 NOVO: Fluxo de Reembolso Anti-Fraude */}
+                           {/* Fluxo de Reembolso Anti-Fraude */}
                            {f.status === 'cancelado' && !f.reembolsado && (
                              <button onClick={() => handleReembolso(f.id)} className="bg-amber-600 hover:bg-amber-500 text-slate-900 py-4 rounded-xl font-black text-[10px] tracking-widest uppercase shadow-[0_0_20px_rgba(245,158,11,0.4)] transition-all flex flex-col items-center justify-center gap-1 group">
                                <span className="flex items-center gap-1"><RefreshCcw size={14} /> Estornar PIX (MP)</span>
@@ -597,7 +632,7 @@ export default function Admin() {
                              </a>
                            )}
                            
-                           {['aguardando_pagamento', 'disponivel', 'aceito'].includes(f.status) && (
+                           {['aguardando_pagamento', 'disponivel', 'aceito', 'indo_coleta'].includes(f.status) && (
                              <button onClick={() => forceStatus(f.id, 'cancelado')} className="bg-transparent hover:bg-red-500/10 text-red-500 py-3 rounded-xl font-black text-[9px] tracking-widest uppercase border border-transparent hover:border-red-500/30 transition-all mt-auto">Abortar Operação</button>
                            )}
                         </div>
