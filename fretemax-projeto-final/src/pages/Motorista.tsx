@@ -1,3 +1,4 @@
+// src/pages/Motorista.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { auth, db } from '../firebase';
 import { collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
@@ -7,11 +8,10 @@ import DriverHeader from '../components/motorista/DriverHeader';
 import DriverAuth from '../components/motorista/DriverAuth';
 import DriverCadastro from '../components/motorista/DriverCadastro';
 import DriverRadar from '../components/motorista/DriverRadar';
-import DriverActiveTrip from './DriverActiveTrip';
+import DriverActiveTrip from '../components/motorista/DriverActiveTrip';
 import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
-import { useDriverRealtime } from '../hooks/useDriverRealtime';
 import type { OperationalFreight } from '../components/driver/dashboard/DriverDashboardLayout';
-import { Download, Flame, MapPin } from 'lucide-react'; // 🔥 Novos ícones para o Marketing
+import { Download } from 'lucide-react'; 
 
 interface DriverData { id?: string; nome?: string; whatsapp?: string; categoria?: string; status?: 'pendente' | 'aprovado' | 'rejeitado'; }
 
@@ -35,19 +35,15 @@ export default function Motorista() {
   const [isOnline, setIsOnline] = useState(false);
   const [radarLoading, setRadarLoading] = useState(false);
 
-  // 🔥 FASE 4: Variáveis de Retenção (PWA) e Marketing
+  // Instalação PWA
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
-  const [demandStats, setDemandStats] = useState({ active: 0, radius: 15 });
-
-  useDriverRealtime(user?.uid, isOnline);
 
   const operationalCategory = useMemo(() => {
     if (!driverData?.categoria) return 'carro';
     return driverData.categoria.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   }, [driverData]);
 
-  // 🔥 FASE 4: Captura o evento de instalação PWA do Navegador
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: any) => {
       e.preventDefault();
@@ -68,20 +64,10 @@ export default function Motorista() {
     setDeferredPrompt(null);
   };
 
-  // 🔥 FASE 4: Gera a Demanda Simulada baseada na categoria
-  useEffect(() => {
-    if(operationalCategory) {
-      const isHeavy = ['toco', 'truck', 'carretals', 'bitremcegonha', 'carreta'].some(t => operationalCategory.includes(t));
-      setDemandStats({
-         active: Math.floor(Math.random() * 20) + (isHeavy ? 8 : 25),
-         radius: isHeavy ? 50 : 15
-      });
-    }
-  }, [operationalCategory]);
-
+  // Centraliza o preenchimento de Oferta visual
   const normalizeFreight = useCallback((id: string, data: any): OperationalFreight => {
     const feePercent = CATEGORY_FEES[data.categoria] ?? 0.2;
-    const valorCliente = Number(data.valorCliente || data.valor || 0);
+    const valorCliente = Number(data.valorCliente || data.valorTotal || data.valor || 0); // Correção do valor pro radar
     const valorMotorista = data.valorMotorista ?? valorCliente * (1 - feePercent);
     const distanciaColetaKm = Number(data.distanciaColetaKm || 0);
     const distanciaEntregaKm = Number(data.distanciaEntregaKm || data.distancia || 0);
@@ -99,12 +85,14 @@ export default function Motorista() {
       distanciaTotalKm: distanciaColetaKm + distanciaEntregaKm,
       valorCliente,
       valorMotorista,
-      pesoKg: Number(data.pesoKg || 0),
-      volumes: Number(data.volumes || 1),
+      pesoKg: Number(data.pesoKg || data.peso || 0), // Puxa dado da string antiga do formulário
+      volumes: Number(data.volumes || data.qtdVolumes || 1), // Puxa do formulário antigo
+      tipoCarga: data.tipoMaterial || data.tipoCarga || 'Geral', // Tipo da Carga
       etaMinutes: Number(data.etaMinutes || 20),
       motoristaId: data.motoristaId || null,
       createdAt: data.createdAt,
       updatedAt: data.updatedAt,
+      multiplasEntregas: Boolean(data.multiplasEntregas),
     };
   }, []);
 
@@ -153,26 +141,35 @@ export default function Motorista() {
     };
   }, []);
 
+  // MOTOR DE BUSCA (A Roleta)
   useEffect(() => {
     if (!runtimeReady || !user?.uid || !driverData || !isOnline) {
       setAvailableFreights([]); return;
     }
     setRadarLoading(true);
-    const freightsQuery = query(collection(db, 'fretes'), where('categoria', '==', operationalCategory), where('status', '==', 'disponivel'), orderBy('createdAt', 'desc'), limit(20));
+    // 🔥 Agora busca "disponivel" ou "aguardando_resposta"
+    const freightsQuery = query(collection(db, 'fretes'), where('veiculo', '==', operationalCategory), where('status', 'in', ['disponivel', 'aguardando_resposta']), orderBy('createdAt', 'desc'), limit(10));
+    
     const unsubscribe = onSnapshot(freightsQuery, snapshot => {
       if (!mountedRef.current) return;
-      const next = snapshot.docs.map(document => normalizeFreight(document.id, document.data())).filter(freight => !freight.motoristaId);
-      setAvailableFreights(next); setRadarLoading(false);
+      
+      const next = snapshot.docs.map(document => normalizeFreight(document.id, document.data()))
+        .filter(freight => !freight.motoristaId || freight.motoristaId === user.uid); // Exibe se for aberto ou mandado pro Motorista
+
+      setAvailableFreights(next); 
+      setRadarLoading(false);
     }, error => {
       console.error('FREIGHTS REALTIME ERROR:', error); setRadarLoading(false);
     });
+    
     listenerRegistryRef.current.freights = unsubscribe;
     return () => unsubscribe();
   }, [runtimeReady, user, driverData, isOnline, operationalCategory, normalizeFreight]);
 
+  // MOTOR DE VIAGEM ATIVA
   useEffect(() => {
     if (!runtimeReady || !user?.uid) { setActiveFreight(null); return; }
-    const activeQuery = query(collection(db, 'fretes'), where('motoristaId', '==', user.uid), where('status', 'in', ACTIVE_STATUSES), orderBy('updatedAt', 'desc'), limit(1));
+    const activeQuery = query(collection(db, 'fretes'), where('motoristaId', '==', user.uid), where('status', 'in', ACTIVE_STATUSES), orderBy('atualizadoEm', 'desc'), limit(1));
     const unsubscribe = onSnapshot(activeQuery, snapshot => {
       if (!mountedRef.current) return;
       if (snapshot.empty) { setActiveFreight(null); return; }
@@ -199,8 +196,13 @@ export default function Motorista() {
     if (!user?.uid || !driverData) return;
     try {
       await updateDoc(doc(db, 'fretes', freight.id), {
-        status: 'aceito', motoristaId: user.uid, motoristaNome: driverData.nome || 'Motorista',
-        motoristaZap: driverData.whatsapp || '', acceptedAt: serverTimestamp(), updatedAt: serverTimestamp()
+        status: 'aceito', 
+        motoristaId: user.uid, 
+        motoristaNome: driverData.nome || 'Motorista',
+        motoristaZap: driverData.whatsapp || '', 
+        acceptedAt: serverTimestamp(), 
+        atualizadoEm: serverTimestamp(),
+        aguardandoResposta: false // Remove a tag da roleta para o webhook parar!
       });
       await dispatchRealtimeService.aceitarCorrida(user.uid, freight.id);
       setSelectedFreight(null);
@@ -217,22 +219,21 @@ export default function Motorista() {
       <div className="flex min-h-screen items-center justify-center bg-[#020617] text-white">
         <div className="text-center">
           <h1 className="text-4xl font-black">FRETOGO</h1>
-          <p className="mt-4 text-slate-400">Inicializando central logística realtime...</p>
+          <p className="mt-4 text-slate-400">Iniciando cockpit de voo...</p>
         </div>
       </div>
     );
   }
 
   if (!user) return <div className="min-h-screen bg-[#020617]"><DriverAuth /></div>;
-  
   if (!driverData) return <div className="min-h-screen bg-[#020617]"><DriverCadastro onFinish={() => setCheckingDriver(true)} /></div>;
 
   if (driverData.status !== 'aprovado') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#020617] px-4">
         <div className="w-full max-w-lg rounded-[2rem] border border-cyan-500/20 bg-slate-900/80 p-10 text-center backdrop-blur-xl">
-          <h1 className="text-4xl font-black text-white">Cadastro operacional em análise</h1>
-          <p className="mt-4 text-slate-400">A central operacional está validando seus documentos.</p>
+          <h1 className="text-4xl font-black text-white">Cadastro em Análise</h1>
+          <p className="mt-4 text-slate-400">Nossa central de tráfego está validando seu veículo.</p>
         </div>
       </div>
     );
@@ -241,12 +242,12 @@ export default function Motorista() {
   return (
     <div className="min-h-screen bg-[#020617] text-white pb-10">
       
-      {/* 🔥 BANNER PWA INSTALAÇÃO (Só aparece se o navegador permitir) */}
+      {/* BANNER INSTALAÇÃO PWA */}
       {isInstallable && (
         <div className="sticky top-0 z-[100] w-full bg-cyan-600 px-4 py-3 flex items-center justify-between shadow-[0_4px_20px_rgba(8,145,178,0.3)]">
           <div>
             <p className="text-xs font-black uppercase tracking-widest text-white">Baixe o Aplicativo</p>
-            <p className="text-[10px] text-cyan-100 font-medium mt-0.5">Instale o FRETOGO e receba fretes mais rápido.</p>
+            <p className="text-[10px] text-cyan-100 font-medium mt-0.5">Instale e feche fretes mais rápido.</p>
           </div>
           <button 
             onClick={handleInstallClick}
@@ -259,34 +260,11 @@ export default function Motorista() {
 
       <DriverHeader user={user} />
 
-      {/* 🔥 GATILHOS DE MARKETING PARA O MOTORISTA */}
-      <div className="max-w-7xl mx-auto px-4 mt-6">
-        <div className="flex flex-col md:flex-row gap-4 mb-2">
-          <div className="flex-1 bg-slate-900/60 border border-white/5 rounded-2xl p-4 flex items-center gap-3 backdrop-blur-sm">
-            <div className="w-10 h-10 bg-cyan-500/10 rounded-full flex items-center justify-center border border-cyan-500/20 shrink-0">
-              <MapPin className="text-cyan-400 w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Radar Geográfico</p>
-              <p className="text-sm font-bold text-slate-200">Buscando cargas no raio de <span className="text-cyan-400">{demandStats.radius}km</span></p>
-            </div>
-          </div>
-
-          <div className="flex-1 bg-slate-900/60 border border-white/5 rounded-2xl p-4 flex items-center gap-3 backdrop-blur-sm">
-            <div className="w-10 h-10 bg-amber-500/10 rounded-full flex items-center justify-center border border-amber-500/20 shrink-0">
-              <Flame className="text-amber-500 w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Demanda Estimada Hoje</p>
-              <p className="text-sm font-bold text-slate-200"><span className="text-amber-400">{demandStats.active} fretes</span> para o seu veículo</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <DriverRadar isOnline={isOnline} setIsOnline={setIsOnline} user={user} driver={driverData} />
       
       <DriverApp freights={availableFreights} selectedFreight={selectedFreight} activeFreight={activeFreight} isOnline={isOnline} loading={radarLoading} driverCategory={operationalCategory} driverName={driverData.nome} onToggleOnline={handleToggleOnline} onSelectFreight={handleSelectFreight} onCloseFreight={handleCloseFreight} onAcceptFreight={handleAcceptFreight} onRejectFreight={handleRejectFreight}>
+        
+        {/* 🔥 TELA DE VIAGEM (QUANDO ACEITOU O FRETE) INJETADA AQUI */}
         {activeFreight?.id && (
           <div className="mx-auto mt-10 max-w-7xl px-4 pb-24 md:px-6">
             <DriverActiveTrip freteId={activeFreight.id} />
