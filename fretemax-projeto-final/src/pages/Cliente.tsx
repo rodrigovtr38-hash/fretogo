@@ -8,15 +8,15 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Radar, Sparkles, User, Package, CalendarDays, Plus, Trash2, Flame } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import ChatFrete from '../components/ChatFrete';
-import { mapsLoader } from '../services/mapsLoader'; 
+import ClientStatusCard from '../components/client/ClientStatusCard';
+import ClientCancelModal from '../components/client/ClientCancelModal';
 
 // IMPORTS DA NOVA ARQUITETURA
 import { TripState } from '../state/tripStateMachine';
-import { executeDispatch } from '../services/orchestrator';
 
 interface AddressData { cep: string; bairro: string; rua: string; num: string; lat?: number; lng?: number; }
 interface Coords { lat: number; lng: number; }
-interface OrderData { status: string; motoristaNome?: string; motoristaZap?: string; rotaInteligente?: boolean; motoristaId?: string; }
+interface OrderData { status: string; motoristaNome?: string; motoristaZap?: string; rotaInteligente?: boolean; motoristaId?: string; veiculo?: string; distancia?: number; valorTotal?: number; origemLat?: number; origemLng?: number; destinoLat?: number; destinoLng?: number; paradas?: any[]; pinColeta?: string; pinEntregas?: string[]; multiplasEntregas?: boolean; paradaAtualIndex?: number; }
 type VehicleType = 'moto' | 'carro_pequeno' | 'utilitario' | 'toco' | 'truck' | 'carreta_ls' | 'bi_trem_cegonha';
 
 const VEHICLE_CONFIG: Record<VehicleType, { nome: string; fator: number }> = {
@@ -67,7 +67,6 @@ export default function Cliente() {
   const [documento, setDocumento] = useState('');
   const [coleta, setColeta] = useState<AddressData>({ cep: '', bairro: '', rua: '', num: '' });
   
-  // 🔥 ARRAY DE ENTREGAS (MULTI-DROP PARA LEVES E CARGA FRACIONADA PARA PESADOS)
   const [entregas, setEntregas] = useState<AddressData[]>([{ cep: '', bairro: '', rua: '', num: '' }]);
   
   const [peso, setPeso] = useState('');
@@ -82,30 +81,21 @@ export default function Cliente() {
   const [distanciaReal, setDistanciaReal] = useState(0);
   const [loadingMessage, setLoadingMessage] = useState('Analisando parceiros disponíveis...');
 
-  // 🔥 ESTADOS INJETADOS PARA O MAPA FUNCIONAR
   const [origemGPS, setOrigemGPS] = useState<Coords | null>(null);
   const [destinoGPS, setDestinoGPS] = useState<Coords | null>(null);
   const [paradasGPS, setParadasGPS] = useState<Coords[]>([]);
-  const [mapsReady, setMapsReady] = useState(false);
   const [motoristasProximos, setMotoristasProximos] = useState(0);
 
   const coordsCache = useRef<Record<string, Coords>>({});
   const isProcessingPayment = useRef(false);
 
-  // Inicializa o Google Maps silenciosamente
-  useEffect(() => {
-    mapsLoader.load().then(() => setMapsReady(true)).catch(console.error);
-  }, []);
-
   const validDistancia = useMemo(() => Number.isNaN(distanciaReal) || distanciaReal <= 0 ? (5 * entregas.length) : distanciaReal, [distanciaReal, entregas.length]);
 
-  // 🔥 INTEGRADO: AJUSTE DO DUAL ENGINE DE PRECIFICAÇÃO (RECONHECE AS CATEGORIAS REGULAMENTADAS)
   const valorTotalBruto = useMemo(() => {
     const isHeavy = ['toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(vehicle);
     const urgencyFactor = 1;
 
     if (isHeavy) {
-      // 🚚 Sincronizado com o Backend: Tabela ANTT Lotação (Sem multiplicar pelo peso)
       const pisosMinimos: any = { toco: 350, truck: 500, carreta_ls: 800, bi_trem_cegonha: 1200 };
       const taxasKmPesado: any = { toco: 6.2, truck: 8.5, carreta_ls: 11.0, bi_trem_cegonha: 15.0 };
       
@@ -114,9 +104,8 @@ export default function Cliente() {
       const custoParadasExtrasPesado = Math.max(0, entregas.length - 1) * 150.0;
       
       const base = piso + (validDistancia * taxaKm * urgencyFactor) + custoParadasExtrasPesado;
-      return Math.max(250, base); // PISO MÍNIMO
+      return Math.max(250, base); 
     } else {
-      // 🛵 Sincronizado com o Backend: Motor LAST-MILE (Fração)
       const taxasLeves: any = { moto: 1.8, carro_pequeno: 2.4, utilitario: 3.5 };
       const taxaKm = taxasLeves[vehicle] || 2.4;
       
@@ -126,7 +115,7 @@ export default function Cliente() {
       const custoParadasExtrasLeve = Math.max(0, entregas.length - 1) * 8.0; 
       
       const base = (validDistancia * taxaKm * urgencyFactor * weightFactor * volumeFactor) + custoParadasExtrasLeve;
-      return Math.max(15, base); // PISO MÍNIMO MOTO
+      return Math.max(15, base); 
     }
   }, [validDistancia, vehicle, entregas.length, peso, qtdVolumes]);
 
@@ -181,6 +170,17 @@ export default function Cliente() {
       const data = snap.data() as OrderData;
       setOrderData(data);
 
+      // 🔥 RE-INJEÇÃO DE GPS PARA A TELA DE BUSCA (A MAGIA DO MAPA)
+      if (data.origemLat && data.origemLng) {
+        setOrigemGPS({ lat: data.origemLat, lng: data.origemLng });
+      }
+      if (data.destinoLat && data.destinoLng) {
+        setDestinoGPS({ lat: data.destinoLat, lng: data.destinoLng });
+      }
+      if (data.paradas && data.paradas.length > 1) {
+         setParadasGPS(data.paradas.slice(0, -1).map((p: any) => ({ lat: p.lat, lng: p.lng })));
+      }
+
       const params = new URLSearchParams(window.location.search);
       const isReturningFromPayment = params.has('status') || params.has('collection_status') || params.has('preference_id');
 
@@ -220,7 +220,6 @@ export default function Cliente() {
     if (entregas.length > 1) showToast('Mapeando múltiplas rotas. Isso pode levar alguns segundos...', 'warning');
     
     try {
-      // 🔥 O SEGREDO DO MAPA: Coordenadas injetadas para ativar o render do mapa ao vivo
       const origStr = `${coleta.rua}, ${coleta.num}, ${coleta.bairro}, Brazil`;
       const origCoords = await getValidCoords(origStr, coleta.cep);
       setOrigemGPS(origCoords);
@@ -246,7 +245,6 @@ export default function Cliente() {
       setDestinoGPS(pGPS[pGPS.length - 1]);
       if(totalKm > 0) setDistanciaReal(totalKm);
       
-      // Ativação dos gatilhos operacionais de urgência na interface
       setMotoristasProximos(Math.floor(Math.random() * 8) + 3);
       setStep('preview');
     } catch {
@@ -286,7 +284,7 @@ export default function Cliente() {
         entrega: destinoFinal, 
         paradas: coordsEntregas,
         pinColeta, pinEntregas, multiplasEntregas: entregas.length > 1,
-        origemLat: c1.lat, originsLng: c1.lng, destinoLat: destinoFinal.lat, destinoLng: destinoFinal.lng, tipoFrete,
+        origemLat: c1.lat, origemLng: c1.lng, destinoLat: destinoFinal.lat, destinoLng: destinoFinal.lng, tipoFrete,
         dataAgendada: tipoFrete === 'agendado' ? new Date(dataAgendada) : null,
         status: tipoFrete === 'agendado' ? 'agendado' : TripState.AGUARDANDO_PAGAMENTO,
         createdAt: serverTimestamp(),
@@ -506,7 +504,6 @@ export default function Cliente() {
                 <CheckCircle className="h-12 w-12 text-blue-600" />
               </div>
 
-              {/* 🔥 GATILHO PSICOLÓGICO AJUSTADO */}
               <div className="mx-4 mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-3">
                 <div className="bg-amber-100 p-1.5 rounded-full shrink-0">
                   <Flame className="w-4 h-4 text-amber-600" />
@@ -522,7 +519,6 @@ export default function Cliente() {
                 </div>
               </div>
         
-                  
               <div className="mb-10 grid grid-cols-1 gap-6 md:grid-cols-2">
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
                   <MapPin className="mb-4 h-6 w-6 text-blue-500" />
@@ -539,7 +535,7 @@ export default function Cliente() {
               </div>
 
               <div className="h-[220px] md:h-[420px] w-full overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-100 shadow-inner relative">
-                {mapsReady && origemGPS && destinoGPS ? (
+                {origemGPS && destinoGPS ? (
                   <MapaCliente 
                     origem={origemGPS} 
                     destino={destinoGPS} 
@@ -603,22 +599,26 @@ export default function Cliente() {
         {step === 'busca' && (
           <div className="w-full grid grid-cols-1 gap-8 animate-in slide-in-from-bottom-6 duration-500 lg:grid-cols-[1fr_420px]">
             <div className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-6 md:p-10 shadow-2xl">
-              <div className="mb-8 flex flex-col justify-between gap-6 sm:flex-row sm:items-center">
-                <div>
-                  <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.25em] text-blue-600">
-                    <Radar size={16} className="animate-spin" style={{ animationDuration: '3s' }}/> Radar Operacional Ativo
-                  </p>
-                  <h2 className="mt-2 text-3xl font-black italic tracking-tight text-slate-900 lg:text-4xl">Central de Rastreio</h2>
-                </div>
-                <div className="flex items-center gap-3 self-start rounded-full border border-blue-200 bg-blue-50 px-5 py-2.5 sm:self-auto">
-                  <div className="h-2.5 w-2.5 animate-pulse rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.6)]" />
-                  <span className="text-[10px] font-black uppercase tracking-widest text-blue-700">Conectado</span>
-                </div>
-              </div>
+              
+              {/* O NOVO CARD DE STATUS OPERACIONAL PARA O CLIENTE */}
+              <ClientStatusCard 
+                status={orderData?.status}
+                loadingMessage={loadingMessage}
+                motoristaNome={orderData?.motoristaNome}
+                veiculo={orderData?.veiculo}
+                distancia={orderData?.distancia}
+                valorTotal={orderData?.valorTotal}
+                pinColeta={orderData?.pinColeta}
+                pinEntregas={orderData?.pinEntregas}
+                paradaAtualIndex={orderData?.paradaAtualIndex}
+                multiplasEntregas={orderData?.multiplasEntregas}
+              />
 
-              <div className="relative mb-8 h-[350px] md:h-[500px] overflow-hidden rounded-[2rem] border border-slate-200 shadow-inner">
+              <div className="relative mt-8 h-[350px] md:h-[500px] overflow-hidden rounded-[2rem] border border-slate-200 shadow-inner">
                  {orderData?.status === TripState.DISPONIVEL && <div className="pointer-events-none absolute inset-0 z-10 animate-pulse bg-blue-500/5 mix-blend-overlay"></div>}
-                 <MapaCliente motoristaId={orderData?.motoristaId} origem={origemGPS} destino={destinoGPS} paradasExtras={paradasGPS.length > 1 ? paradasGPS.slice(0, -1) : undefined} />
+                 
+                 {/* O MAPA DO GOOGLE REAL */}
+                 <MapaCliente motoristaId={orderData?.motoristaId} origem={origemGPS} destino={destinoGPS} paradasExtras={paradasGPS} />
               </div>
 
               {currentOrderId && orderData?.motoristaNome && (
@@ -629,50 +629,6 @@ export default function Cliente() {
             </div>
 
             <div className="space-y-8">
-              <div className="rounded-[2rem] border border-blue-100 bg-white p-8 md:p-10 shadow-2xl relative overflow-hidden">
-                <div className="absolute left-0 right-0 top-0 h-[4px] bg-gradient-to-r from-blue-400 to-cyan-400"></div>
-                
-                {(!orderData || [TripState.AGUARDANDO_PAGAMENTO, TripState.DISPONIVEL, TripState.REDISPATCH, 'agendado'].includes(orderData?.status as any)) ? (
-                  <div className="py-8 text-center">
-                    <div className="relative mx-auto mb-10 h-28 w-28">
-                       <div className="absolute inset-0 animate-ping rounded-full border-4 border-blue-500/20" style={{ animationDuration: '2s' }}></div>
-                       <div className="relative z-10 flex h-full w-full items-center justify-center rounded-full border border-blue-200 bg-blue-50"><Radar className="h-12 w-12 animate-spin text-blue-600" style={{ animationDuration: '4s' }} /></div>
-                    </div>
-                    <h3 className="mb-5 text-xl md:text-2xl font-black uppercase italic text-slate-900 tracking-tight">{orderData?.status === 'agendado' ? 'Agendamento Salvo' : orderData?.status === TripState.DISPONIVEL ? 'Buscando Parceiros' : 'Aguardando Banco'}</h3>
-                    <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5"><p className="flex min-h-[40px] items-center justify-center text-xs font-bold uppercase tracking-widest text-blue-700 leading-snug">{orderData?.status === TripState.DISPONIVEL ? loadingMessage : orderData?.status === 'agendado' ? 'Aguarde a data programada' : 'Confirme no app do banco'}</p></div>
-                  </div>
-                ) : (
-                  <div>
-                     <div className="mb-10 border-b border-slate-100 pb-10 text-center">
-                       <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-[1.5rem] border border-blue-200 bg-blue-50"><Truck className="h-10 w-10 text-blue-600" /></div>
-                       <p className="mb-2 text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">Motorista Confirmado</p>
-                       <h3 className="text-2xl md:text-3xl font-black uppercase italic text-slate-900 tracking-tighter">{orderData?.motoristaNome || 'Parceiro'}</h3>
-                     </div>
-                     <div className="space-y-10 pl-2">
-                        <div className="relative pl-8">
-                           <div className={`absolute -left-[6px] top-1.5 h-3.5 w-3.5 rounded-full border-2 border-white transition-all ${[TripState.ACEITO, TripState.INDO_COLETA, TripState.COLETANDO, TripState.EM_TRANSPORTE, TripState.ENTREGUE].includes(orderData!.status as TripState) ? 'bg-blue-500 scale-110 shadow-[0_0_10px_rgba(59,130,246,0.6)]' : 'bg-slate-300'}`}></div>
-                           <p className={`text-sm font-black uppercase tracking-widest ${[TripState.ACEITO, TripState.INDO_COLETA, TripState.COLETANDO, TripState.EM_TRANSPORTE, TripState.ENTREGUE].includes(orderData!.status as TripState) ? 'text-blue-600' : 'text-slate-400'}`}>Indo para o local</p>
-                        </div>
-                        <div className="relative pl-8">
-                           <div className={`absolute -left-[0px] -top-8 h-8 w-0.5 ${[TripState.COLETANDO, TripState.EM_TRANSPORTE, TripState.ENTREGUE].includes(orderData!.status as TripState) ? 'bg-blue-500' : 'bg-slate-200'}`}></div>
-                           <div className={`absolute -left-[6px] top-1.5 h-3.5 w-3.5 rounded-full border-2 border-white transition-all ${[TripState.COLETANDO, TripState.EM_TRANSPORTE, TripState.ENTREGUE].includes(orderData!.status as TripState) ? 'bg-blue-500 scale-110 shadow-[0_0_10px_rgba(59,130,246,0.6)]' : 'bg-slate-300'}`}></div>
-                           <p className={`text-sm font-black uppercase tracking-widest ${[TripState.COLETANDO, TripState.EM_TRANSPORTE, TripState.ENTREGUE].includes(orderData!.status as TripState) ? 'text-blue-600' : 'text-slate-400'}`}>Embarcando Carga</p>
-                        </div>
-                        <div className="relative pl-8">
-                           <div className={`absolute -left-[0px] -top-8 h-8 w-0.5 ${[TripState.EM_TRANSPORTE, TripState.ENTREGUE].includes(orderData!.status as TripState) ? 'bg-blue-500' : 'bg-slate-200'}`}></div>
-                           <div className={`absolute -left-[6px] top-1.5 h-3.5 w-3.5 rounded-full border-2 border-white transition-all ${[TripState.EM_TRANSPORTE, TripState.ENTREGUE].includes(orderData!.status as TripState) ? 'bg-amber-500 scale-110 shadow-[0_0_10px_rgba(245,158,11,0.6)]' : 'bg-slate-300'}`}></div>
-                           <p className={`text-sm font-black uppercase tracking-widest ${[TripState.EM_TRANSPORTE, TripState.ENTREGUE].includes(orderData!.status as TripState) ? 'text-amber-500' : 'text-slate-400'}`}>Em Transporte</p>
-                        </div>
-                        <div className="relative pl-8">
-                           <div className={`absolute -left-[0px] -top-8 h-8 w-0.5 ${[TripState.ENTREGUE].includes(orderData!.status as TripState) ? 'bg-amber-500' : 'bg-slate-200'}`}></div>
-                           <div className={`absolute -left-[6px] top-1.5 h-3.5 w-3.5 rounded-full border-2 border-white transition-all ${[TripState.ENTREGUE].includes(orderData!.status as TripState) ? 'bg-emerald-500 scale-110 shadow-[0_0_10px_rgba(16,185,129,0.6)]' : 'bg-slate-300'}`}></div>
-                           <p className={`text-sm font-black uppercase tracking-widest ${[TripState.ENTREGUE].includes(orderData!.status as TripState) ? 'text-emerald-500' : 'text-slate-400'}`}>Entregue</p>
-                        </div>
-                     </div>
-                  </div>
-                )}
-              </div>
-
               <div className="space-y-4">
                 {orderData?.motoristaZap && <button onClick={handleWhatsAppClick} className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[1.5rem] bg-emerald-500 px-6 text-sm font-black uppercase tracking-[0.2em] text-white shadow-lg shadow-emerald-500/30 transition-all duration-300 hover:scale-[1.02] hover:bg-emerald-600 active:scale-95"><MessageCircle size={20} /> Chamar no WhatsApp</button>}
                 {(!orderData || ![TripState.ENTREGUE, TripState.CANCELADO].includes(orderData?.status as any)) && (
@@ -692,20 +648,14 @@ export default function Cliente() {
         </div>
       )}
 
-      {showCancelModal && (
-        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-900/60 p-5 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full max-w-md overflow-hidden rounded-[2.5rem] border border-slate-200 bg-white p-10 text-center shadow-2xl relative">
-            <div className="absolute left-0 top-0 h-[4px] w-full bg-red-500" />
-            <AlertTriangle className="mx-auto mb-6 h-16 w-16 text-red-500" />
-            <h3 className="mb-3 text-2xl font-black uppercase italic tracking-tight text-slate-900">Cancelar operação?</h3>
-            <p className="mb-8 text-sm font-medium leading-relaxed text-slate-500">O radar operacional será encerrado imediatamente. Se o pagamento já foi feito, o reembolso será processado no seu PIX original.</p>
-            <div className="flex gap-4">
-              <button onClick={() => setShowCancelModal(false)} className="flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-6 py-4 text-xs font-black uppercase tracking-widest text-slate-600 transition-colors hover:bg-slate-100">Voltar</button>
-              <button onClick={handleCancelarPedido} disabled={isCancelling} className="flex-1 rounded-2xl bg-red-500 px-6 py-4 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-red-500/30 transition-all hover:bg-red-600 hover:scale-[1.02] active:scale-95">{isCancelling ? 'Aguarde...' : 'Cancelar'}</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* O MODAL QUE QUEBROU A VERCEL ESTÁ AQUI IMPORTADO DA FORMA CERTA AGORA */}
+      <ClientCancelModal 
+        open={showCancelModal} 
+        isCancelling={isCancelling} 
+        onClose={() => setShowCancelModal(false)} 
+        onConfirm={handleCancelarPedido} 
+      />
+
     </div>
   );
 }
