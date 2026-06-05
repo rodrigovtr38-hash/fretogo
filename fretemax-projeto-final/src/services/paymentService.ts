@@ -1,3 +1,4 @@
+// src/services/paymentService.ts
 import {
   doc,
   updateDoc,
@@ -159,16 +160,17 @@ class PaymentService {
         freteId
       );
 
+      // 🔥 AJUSTE: Sincroniza o celular para a fase de aguardar retorno do Webhook
       await updateDoc(
         freteRef,
         {
           pagamentoStatus:
-            'aprovado',
+            'aguardando_confirmacao',
 
           transactionId,
 
           status:
-            AppTripState.PROCURANDO_MOTORISTA,
+            AppTripState.AGUARDANDO_PAGAMENTO,
 
           updatedAt:
             serverTimestamp(),
@@ -179,12 +181,12 @@ class PaymentService {
         freteId,
         {
           pagamentoStatus:
-            'aprovado',
+            'aguardando_confirmacao',
 
           transactionId,
 
           status:
-            AppTripState.PROCURANDO_MOTORISTA,
+            AppTripState.AGUARDANDO_PAGAMENTO,
         }
       );
     } catch (error) {
