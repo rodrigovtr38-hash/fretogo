@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { db } from '../firebase';
+import { db } from '../../firebase';
 import { doc, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore';
 import {
   CheckCircle2,
@@ -14,9 +14,10 @@ import {
   AlertTriangle,
   LockKeyhole,
   X,
-  Map as MapIcon
+  Map as MapIcon,
+  Package
 } from 'lucide-react';
-import MapaCliente from '../components/MapaCliente';
+import MapaCliente from '../MapaCliente';
 
 interface DriverActiveTripProps {
   freteId?: string;
@@ -64,35 +65,55 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       <div className="rounded-[2rem] border border-dashed border-white/10 bg-white/5 p-10 text-center">
         <Truck size={60} className="mx-auto mb-5 text-slate-600" />
         <h2 className="text-2xl font-black text-white">Nenhuma corrida ativa</h2>
-        <p className="mt-3 text-slate-400">Aceite um frete no radar para iniciar uma nova rota operacional.</p>
+        <p className="mt-3 text-slate-400">Fique online no radar para receber novas cargas na sua região.</p>
       </div>
     );
   }
 
-  // Lógica de Múltiplas Paradas e GPS
-  const paradas = frete.paradas && frete.paradas.length > 0 ? frete.paradas : [frete.destino];
+  // Lógica de Múltiplas Paradas e Roteirização Dinâmica
+  const paradas = frete.paradas && frete.paradas.length > 0 ? frete.paradas : [frete.destino || frete.entrega];
   const paradaAtualIndex = frete.paradaAtualIndex || 0;
   const destinoAtual = paradas[paradaAtualIndex];
   const isMultiDrop = paradas.length > 1;
 
-  // Extração segura das coordenadas para o Mapa ligar
-  const origemGPS = frete.origem?.lat ? { lat: frete.origem.lat, lng: frete.origem.lng } : null;
-  const destinoFinalGPS = frete.destino?.lat ? { lat: frete.destino.lat, lng: frete.destino.lng } : null;
-  const paradasExtrasGPS = isMultiDrop ? paradas.slice(0, -1).map((p: any) => ({ lat: p.lat, lng: p.lng })) : undefined;
+  // Calculando o Ponto de Partida e o Destino Atual baseado na Fase da Viagem
+  let mapOriginGPS = null;
+  let mapDestinoGPS = null;
 
-  // Renderização Dinâmica do Botão Principal
+  if (['aceito', 'indo_coleta', 'coletando'].includes(frete.status)) {
+     // Fase 1: Motorista -> Origem (Mostramos apenas a Origem como destino dele no momento)
+     mapOriginGPS = null; // Mapa foca no destino imediato (Coleta)
+     mapDestinoGPS = frete.origemLat && frete.origemLng ? { lat: frete.origemLat, lng: frete.origemLng } : null;
+  } else if (frete.status === 'em_transporte') {
+     // Fase 2: Saindo da Coleta (ou parada anterior) -> Parada Atual
+     if (paradaAtualIndex === 0) {
+       mapOriginGPS = frete.origemLat && frete.origemLng ? { lat: frete.origemLat, lng: frete.origemLng } : null;
+     } else {
+       const paradaAnterior = paradas[paradaAtualIndex - 1];
+       mapOriginGPS = paradaAnterior?.lat && paradaAnterior?.lng ? { lat: paradaAnterior.lat, lng: paradaAnterior.lng } : null;
+     }
+     mapDestinoGPS = destinoAtual?.lat && destinoAtual?.lng ? { lat: destinoAtual.lat, lng: destinoAtual.lng } : null;
+  }
+
+  // Renderização Dinâmica do Botão Principal seguindo o fluxo do Backend
   const renderActionButton = () => {
     switch (frete.status) {
       case 'aceito':
         return (
           <button onClick={() => handleStatusUpdate('indo_coleta')} disabled={actionLoading} className="w-full flex items-center justify-center gap-2 rounded-2xl bg-blue-600 py-5 text-sm md:text-base font-black uppercase tracking-[0.2em] text-white shadow-lg shadow-blue-600/30 transition-all hover:scale-[1.02] active:scale-95">
-            <Navigation size={20} /> Iniciar Deslocamento
+            <Navigation size={20} /> Deslocar p/ Coleta
           </button>
         );
       case 'indo_coleta':
         return (
+          <button onClick={() => handleStatusUpdate('coletando')} disabled={actionLoading} className="w-full flex items-center justify-center gap-2 rounded-2xl bg-amber-500 py-5 text-sm md:text-base font-black uppercase tracking-[0.2em] text-black shadow-lg shadow-amber-500/30 transition-all hover:scale-[1.02] active:scale-95">
+            <MapPin size={20} /> Cheguei (Embarcar Carga)
+          </button>
+        );
+      case 'coletando':
+        return (
           <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full flex items-center justify-center gap-2 rounded-2xl bg-cyan-500 py-5 text-sm md:text-base font-black uppercase tracking-[0.2em] text-black shadow-lg shadow-cyan-500/30 transition-all hover:scale-[1.02] active:scale-95">
-            <LockKeyhole size={20} /> Cheguei na Coleta (PIN)
+            <LockKeyhole size={20} /> Iniciar Transporte (PIN)
           </button>
         );
       case 'em_transporte':
@@ -106,7 +127,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     }
   };
 
-  // Ação Simples (Sem PIN)
   const handleStatusUpdate = async (novoStatus: string) => {
     setActionLoading(true);
     try {
@@ -129,7 +149,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     try {
       const docRef = doc(db, 'fretes', frete.id);
 
-      if (frete.status === 'indo_coleta') {
+      if (frete.status === 'coletando') {
         // Valida PIN da Coleta
         if (pinValue !== frete.pinColeta) {
           setPinError('PIN de Coleta incorreto. Verifique com o embarcador.');
@@ -142,7 +162,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
         // Valida PIN da Entrega Específica (Multi-drop)
         const pinCorreto = frete.pinEntregas && frete.pinEntregas.length > 0 
                            ? frete.pinEntregas[paradaAtualIndex] 
-                           : frete.pinEntrega; // fallback
+                           : frete.pinEntrega || frete.pinEntregas?.[0]; // fallback robusto
 
         if (pinValue !== pinCorreto) {
           setPinError(`PIN do Destino ${isMultiDrop ? paradaAtualIndex + 1 : ''} incorreto.`);
@@ -180,26 +200,25 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
         <div className="border-b border-white/5 bg-slate-950/50 px-6 py-5">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-xl md:text-2xl font-black text-white uppercase italic tracking-tighter">Cockpit de Navegação</h2>
+              <h2 className="text-xl md:text-2xl font-black text-white uppercase italic tracking-tighter">Rota Operacional</h2>
               <p className="text-xs md:text-sm font-bold text-cyan-400 mt-1">
-                {frete.status === 'aceito' ? 'Deslocamento Pendente' : frete.status === 'indo_coleta' ? 'A caminho da Coleta' : 'Em Transporte para o Destino'}
+                {frete.status === 'aceito' ? 'Aguardando Deslocamento' : frete.status === 'indo_coleta' ? 'A caminho da Coleta' : frete.status === 'coletando' ? 'Embarcando Carga' : 'A caminho do Destino'}
               </p>
             </div>
-            <div className={`rounded-full px-4 py-2 text-[10px] md:text-xs font-black uppercase tracking-[0.2em] text-black ${frete.status === 'em_transporte' ? 'bg-emerald-500' : 'bg-cyan-500'}`}>
-              {frete.status === 'em_transporte' ? 'EM ROTA' : 'DESPACHO'}
+            <div className={`rounded-full px-4 py-2 text-[10px] md:text-xs font-black uppercase tracking-[0.2em] text-black ${['aceito', 'indo_coleta', 'coletando'].includes(frete.status) ? 'bg-cyan-500' : 'bg-emerald-500'}`}>
+              {['aceito', 'indo_coleta', 'coletando'].includes(frete.status) ? 'COLETA' : 'ENTREGA'}
             </div>
           </div>
         </div>
 
-        {/* MAPA VIVO INJETADO */}
+        {/* MAPA VIVO INJETADO E FOCADO NO TRECHO ATUAL */}
         <div className="relative h-[250px] md:h-[350px] w-full border-b border-white/5 bg-slate-950">
-          {origemGPS && destinoFinalGPS ? (
+          {mapDestinoGPS ? (
             <MapaCliente 
-              origem={origemGPS} 
-              destino={destinoFinalGPS} 
-              paradasExtras={paradasExtrasGPS} 
-              vehicleType={frete.categoria || 'carro'} 
-              operationalMessage={frete.status === 'indo_coleta' ? 'Siga para a origem' : 'Siga a rota otimizada'} 
+              origem={mapOriginGPS} 
+              destino={mapDestinoGPS} 
+              vehicleType={frete.veiculo || 'carro'} 
+              operationalMessage={['aceito', 'indo_coleta', 'coletando'].includes(frete.status) ? 'Siga para o ponto de coleta' : 'Siga a rota otimizada para entrega'} 
             />
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 gap-3">
@@ -225,22 +244,21 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
 
           {/* ROUTE */}
           <div className="grid gap-5 lg:grid-cols-2">
-            <div className="rounded-2xl border border-white/5 bg-slate-950 p-5 shadow-inner relative overflow-hidden">
-              {frete.status === 'em_transporte' && <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] z-10 flex items-center justify-center"><CheckCircle2 className="text-emerald-500 h-10 w-10 opacity-50" /></div>}
+            <div className={`rounded-2xl border bg-slate-950 p-5 shadow-inner relative overflow-hidden ${['aceito', 'indo_coleta', 'coletando'].includes(frete.status) ? 'border-cyan-500/30 shadow-[0_0_15px_rgba(6,182,212,0.1)]' : 'border-white/5'}`}>
               <div className="mb-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <MapPin className="text-cyan-400 w-5 h-5" />
-                  <h3 className="font-black text-white uppercase tracking-widest text-xs">Origem (Coleta)</h3>
+                  <MapPin className={`${['aceito', 'indo_coleta', 'coletando'].includes(frete.status) ? 'text-cyan-400' : 'text-slate-500'} w-5 h-5`} />
+                  <h3 className="font-black text-white uppercase tracking-widest text-xs">Ponto de Coleta</h3>
                 </div>
               </div>
-              <p className="text-slate-200 font-bold truncate text-sm md:text-base">{frete.origem?.rua}, {frete.origem?.num || frete.origem?.numero}</p>
-              <p className="mt-1 text-xs text-slate-500 truncate">{frete.origem?.bairro} • {frete.origem?.cep}</p>
+              <p className="text-slate-200 font-bold truncate text-sm md:text-base">{frete.enderecoColetaTexto?.split('-')[0]}</p>
+              <p className="mt-1 text-xs text-slate-500 truncate">{frete.cidadeOrigem}</p>
             </div>
 
-            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5 shadow-inner relative">
+            <div className={`rounded-2xl border p-5 shadow-inner relative ${frete.status === 'em_transporte' ? 'border-emerald-500/30 bg-emerald-500/5 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : 'border-white/5 bg-slate-950'}`}>
               <div className="mb-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <Navigation className="text-emerald-400 w-5 h-5" />
+                  <Navigation className={`${frete.status === 'em_transporte' ? 'text-emerald-400' : 'text-slate-500'} w-5 h-5`} />
                   <h3 className="font-black text-white uppercase tracking-widest text-xs">
                     {isMultiDrop ? `Destino Atual (${paradaAtualIndex + 1}/${paradas.length})` : 'Destino Final'}
                   </h3>
@@ -255,11 +273,11 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
           <div className="grid gap-5 md:grid-cols-3">
             <div className="rounded-2xl border border-white/5 bg-slate-950 p-5 shadow-inner">
               <div className="mb-3 flex items-center gap-3">
-                <Truck className="text-blue-400 h-5 w-5" />
+                <Package className="text-blue-400 h-5 w-5" />
                 <h3 className="font-black text-white text-xs uppercase tracking-widest">Carga</h3>
               </div>
-              <p className="text-slate-300 font-bold truncate">{frete.tipoCarga || 'Geral'}</p>
-              <p className="text-[10px] md:text-xs font-bold text-slate-500 mt-1 uppercase tracking-widest">{frete.pesoKg}kg • {frete.volumes} vol</p>
+              <p className="text-slate-300 font-bold truncate">{frete.tipoMaterial || frete.tipoCarga || 'Geral'}</p>
+              <p className="text-[10px] md:text-xs font-bold text-slate-500 mt-1 uppercase tracking-widest">{frete.peso} • {frete.qtdVolumes}</p>
             </div>
 
             <div className="rounded-2xl border border-emerald-500/10 bg-emerald-500/5 p-5 shadow-inner">
@@ -268,7 +286,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
                 <h3 className="font-black text-white text-xs uppercase tracking-widest">A Receber</h3>
               </div>
               <p className="text-emerald-400 font-black text-2xl tracking-tighter">R$ {Number(frete.valorMotorista).toFixed(2).replace('.', ',')}</p>
-              <p className="text-[10px] font-bold uppercase text-slate-500 mt-1 tracking-widest">Distância: {frete.kmTotal}km</p>
+              <p className="text-[10px] font-bold uppercase text-slate-500 mt-1 tracking-widest">Em até 24h úteis</p>
             </div>
 
             <div className="rounded-2xl border border-purple-500/10 bg-purple-500/5 p-5 shadow-inner">
@@ -276,8 +294,8 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
                 <ShieldCheck className="text-purple-400 h-5 w-5" />
                 <h3 className="font-black text-white text-xs uppercase tracking-widest">Segurança</h3>
               </div>
-              <p className="text-purple-300 font-bold">PIN Dinâmico</p>
-              <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase tracking-widest">Validado no local</p>
+              <p className="text-purple-300 font-bold">Liberação por PIN</p>
+              <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase tracking-widest">Peça ao cliente</p>
             </div>
           </div>
 
@@ -287,13 +305,13 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
           </div>
 
           {/* CONTACT */}
-          {frete.clienteTelefone && (
+          {frete.clienteZap && (
             <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-slate-950 p-5 mt-4">
               <div>
                 <h3 className="font-black text-white text-xs md:text-sm uppercase tracking-widest">Central de Suporte</h3>
-                <p className="text-sm font-bold text-slate-400 mt-1">{frete.clienteTelefone}</p>
+                <p className="text-sm font-bold text-slate-400 mt-1">{frete.clienteZap}</p>
               </div>
-              <button onClick={() => window.open(`https://wa.me/55${frete.clienteTelefone.replace(/\D/g, '')}`, '_blank')} className="flex items-center gap-2 rounded-xl bg-green-500/10 px-5 py-3 text-[10px] md:text-xs font-black uppercase tracking-widest text-green-400 hover:bg-green-500/20 transition-colors">
+              <button onClick={() => window.open(`https://wa.me/55${frete.clienteZap.replace(/\D/g, '')}`, '_blank')} className="flex items-center gap-2 rounded-xl bg-green-500/10 px-5 py-3 text-[10px] md:text-xs font-black uppercase tracking-widest text-green-400 hover:bg-green-500/20 transition-colors">
                 <Phone size={16} /> WhatsApp
               </button>
             </div>
@@ -320,9 +338,9 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
                 <LockKeyhole className="h-10 w-10 text-cyan-400 drop-shadow-md" />
               </div>
               
-              <h3 className="text-center text-2xl font-black italic uppercase tracking-tighter text-white mb-2">Liberação</h3>
+              <h3 className="text-center text-2xl font-black italic uppercase tracking-tighter text-white mb-2">Liberação Fretogo</h3>
               <p className="text-center text-xs font-bold text-slate-400 mb-8 uppercase tracking-widest leading-relaxed">
-                Solicite o PIN de 4 dígitos para o responsável da <span className="text-cyan-400">{frete.status === 'indo_coleta' ? 'Coleta' : 'Entrega'}</span>.
+                Peça ao cliente o PIN Exclusivo de <span className="text-cyan-400">{frete.status === 'coletando' ? 'Coleta' : 'Entrega'}</span> para garantir seu pagamento.
               </p>
 
               <input 
@@ -345,7 +363,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
                 disabled={pinValue.length !== 4 || actionLoading}
                 className="w-full rounded-[1.25rem] bg-cyan-500 py-5 text-sm font-black uppercase tracking-[0.2em] text-slate-950 shadow-[0_10px_20px_rgba(6,182,212,0.3)] transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {actionLoading ? 'Validando Cofre...' : 'Confirmar PIN'}
+                {actionLoading ? 'Validando Cofre...' : 'Confirmar PIN e Seguir'}
               </button>
             </motion.div>
           </motion.div>
