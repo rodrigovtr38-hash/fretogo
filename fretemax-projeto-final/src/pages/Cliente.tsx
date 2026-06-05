@@ -87,7 +87,7 @@ export default function Cliente() {
   const [paradasGPS, setParadasGPS] = useState<Coords[]>([]);
   const [motoristasProximos, setMotoristasProximos] = useState(0);
 
-  const [mapsReady, setMapsReady] = useState(false); // 🔥 O STATUS DO MAPA VOLTOU!
+  const [mapsReady, setMapsReady] = useState(false);
 
   const coordsCache = useRef<Record<string, Coords>>({});
   const isProcessingPayment = useRef(false);
@@ -148,8 +148,8 @@ export default function Cliente() {
     const precoFinalClienteCalculado = valorLiquidoMotorista / divisorMargem;
     const comissaoRetidaPlataforma = precoFinalClienteCalculado - valorLiquidoMotorista;
 
-    // Destacamento Inteligente de Custos de Pedágios Obrigatórios de 2026 (Pass-Through)
-    const precisaPedagio = ['utilitario', 'toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(vehicle);
+    // 🔥 FILTRO DE PEDÁGIO SEGURO: Só destaca e cobra pedágio se a rota for de estrada (maior que 40km)
+    const precisaPedagio = validDistancia > 40 && ['utilitario', 'toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(vehicle);
     const valorPedagioCalculado = precisaPedagio ? validDistancia * (isHeavy ? 0.85 : 0.35) : 0;
 
     return {
@@ -459,7 +459,7 @@ export default function Cliente() {
           </div>
           <div className="hidden items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-5 py-2 md:flex">
             <ShieldCheck className="h-4 w-4 text-blue-600" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-800">Plataforma Segura</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-800">Plataforma Logística Segura</span>
           </div>
         </nav>
       </header>
@@ -747,7 +747,6 @@ export default function Cliente() {
         </div>
       )}
 
-      {/* O MODAL QUE QUEBROU A VERCEL ESTÁ AQUI IMPORTADO DA FORMA CERTA AGORA */}
       <ClientCancelModal 
         open={showCancelModal} 
         isCancelling={isCancelling} 
