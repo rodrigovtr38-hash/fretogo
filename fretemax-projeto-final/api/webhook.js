@@ -3,6 +3,9 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import crypto from 'crypto';
 
+// Importa o serviço de fila que criamos para ligar a roleta imediatamente
+import DispatchQueueService from '../src/services/dispatchQueueService';
+
 // 🔐 Inicializa o Firebase apenas uma vez na Vercel (Padrão Serverless Seguro)
 if (!getApps().length) {
   if (process.env.FIREBASE_ADMIN_CREDENTIAL) {
@@ -96,10 +99,15 @@ export default async function handler(req, res) {
               atualizadoEm: FieldValue.serverTimestamp()
             });
             
-            console.log(`[WEBHOOK SUCESSO] Frete ${pedidoId} liberado e marcado como dispatch_ready. Recibo: ${paymentId}`);
+            console.log(`[WEBHOOK SUCESSO] Frete ${pedidoId} liberado. Iniciando Roleta Operacional...`);
             
-            // O gatilho de disparo da fila (DispatchQueueService) será invocado pela Cloud Function 
-            // de escuta em tempo real ou pelo ciclo assíncrono do Orchestrator.
+            // 🔥 GATILHO DE DESPACHO INJETADO: O motor começa a girar aqui!
+            try {
+              const payloadFrete = { id: pedidoId, ...freteData, status: 'disponivel' };
+              await DispatchQueueService.iniciarFila(payloadFrete);
+            } catch (queueError) {
+              console.error(`[WEBHOOK] Erro ao disparar fila do frete ${pedidoId}:`, queueError);
+            }
           }
         }
       } else {
