@@ -1,4 +1,4 @@
-import { Zap, Truck, ShieldCheck, ArrowRight, MapPin, Clock, BarChart3, Smartphone, CheckCircle, Radar, MessageCircle } from 'lucide-react';
+import { Zap, Truck, ShieldCheck, ArrowRight, Smartphone, CheckCircle } from 'lucide-react';
 
 export default function Home() {
   const goToClient = () => {
@@ -70,15 +70,15 @@ export default function Home() {
               <button onClick={goToClient} className="flex h-16 w-full sm:w-auto items-center justify-center gap-3 rounded-[1.25rem] bg-blue-600 px-8 text-sm font-black uppercase tracking-widest text-white shadow-xl shadow-blue-600/30 transition-all hover:scale-105 hover:bg-blue-700 active:scale-95">
                 <Truck size={20} /> Fazer Cotação Agora
               </button>
-              {/* 🔥 BOTÃO AJUSTADO PARA ALTO CONTRASTE */}
               <button onClick={goToDriver} className="flex h-16 w-full sm:w-auto items-center justify-center gap-3 rounded-[1.25rem] border-2 border-slate-900 bg-transparent px-8 text-sm font-black uppercase tracking-widest text-slate-900 transition-all hover:bg-slate-900 hover:text-white active:scale-95">
                 <Smartphone size={20} /> Quero ser Parceiro
               </button>
             </div>
             
-            <div className="mt-10 flex items-center gap-6 text-sm font-bold text-slate-500">
+            <div className="mt-10 flex flex-wrap items-center gap-6 text-sm font-bold text-slate-500">
               <div className="flex items-center gap-2"><CheckCircle size={16} className="text-emerald-500"/> Zero Mensalidade</div>
               <div className="flex items-center gap-2"><CheckCircle size={16} className="text-emerald-500"/> Rastreio Ao Vivo</div>
+              <div className="flex items-center gap-2"><CheckCircle size={16} className="text-emerald-500"/> Liberação por PIN Seguro</div>
             </div>
           </div>
 
@@ -92,34 +92,17 @@ export default function Home() {
                     <div className="h-3 w-3 rounded-full bg-amber-400"></div>
                     <div className="h-3 w-3 rounded-full bg-emerald-400"></div>
                   </div>
-                  <span className="text-xs font-black uppercase tracking-widest text-slate-400">Radar Fretogo</span>
+                  <span className="text-xs font-black uppercase tracking-widest text-slate-400">Garantia Fretogo</span>
                 </div>
                 
-                <div className="p-6 md:p-8">
-                  <div className="mb-6 flex items-center justify-between">
-                     <div>
-                       <p className="text-[10px] font-black uppercase tracking-widest text-blue-600">Status Operacional</p>
-                       <h3 className="text-2xl font-black text-slate-900">Buscando Parceiro</h3>
-                     </div>
-                     <Radar className="h-10 w-10 text-blue-500 animate-spin" style={{ animationDuration: '4s' }}/>
+                <div className="p-6 md:p-10 text-center">
+                  <div className="mx-auto w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-6">
+                    <ShieldCheck size={32} />
                   </div>
-
-                  <div className="space-y-4">
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5 flex items-center gap-4 shadow-sm">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600"><MapPin /></div>
-                      <div>
-                        <p className="text-sm font-bold text-slate-900">Coleta Exata</p>
-                        <p className="text-xs text-slate-500">Roteamento otimizado pelo Google</p>
-                      </div>
-                    </div>
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5 flex items-center gap-4 shadow-sm">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600"><Clock /></div>
-                      <div>
-                        <p className="text-sm font-bold text-slate-900">Tempo Real</p>
-                        <p className="text-xs text-slate-500">Acompanhe cada etapa do trajeto</p>
-                      </div>
-                    </div>
-                  </div>
+                  <h3 className="text-2xl font-black text-slate-900 mb-4">Você no controle total</h3>
+                  <p className="text-slate-600 leading-relaxed font-medium">
+                    O pagamento que você realiza fica retido de forma segura na plataforma. O motorista só recebe o valor após você informar a sua <strong>Senha Exclusiva (PIN)</strong> no momento do descarregamento.
+                  </p>
                 </div>
               </div>
             </div>
@@ -138,12 +121,15 @@ export default function Home() {
         </div>
       </footer>
 
-      {/* BOTÃO FIXO DE WHATSAPP (SUPORTE CLIENTE) */}
+      {/* BOTÃO FIXO DE WHATSAPP ORIGINAL (SVG OFICIAL) */}
       <button 
         onClick={openWhatsAppSupport}
-        className="fixed bottom-6 right-6 z-[100] flex h-14 w-14 items-center justify-center rounded-full bg-green-500 text-white shadow-[0_10px_30px_rgba(34,197,94,0.4)] transition-all hover:scale-110 hover:bg-green-400 active:scale-95"
+        title="Suporte Fretogo"
+        className="fixed bottom-6 right-6 z-[100] flex h-16 w-16 items-center justify-center rounded-full bg-[#25D366] text-white shadow-[0_10px_30px_rgba(37,211,102,0.4)] transition-all hover:scale-110 hover:bg-[#1ebe57] active:scale-95"
       >
-        <MessageCircle size={32} />
+        <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor">
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.305-.885-.653-1.482-1.46-1.656-1.758-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.41C7.314 7.518 6.5 8.275 6.5 9.81c0 1.536 1.341 3.02 1.528 3.268.188.249 2.23 3.407 5.4 4.704 3.17 1.298 3.17.868 3.765.818.594-.05 1.93-.792 2.203-1.558.273-.766.273-1.423.198-1.558-.075-.135-.272-.224-.569-.373zM12.015 22.42c-1.725 0-3.414-.464-4.896-1.34l-.35-.207-3.642.954.97-3.552-.227-.361C2.868 16.326 2.33 14.218 2.33 12c0-5.513 4.49-10 10.007-10 5.514 0 10 4.486 10 10s-4.486 10-10 10zm0-21.724C5.556.696.284 5.968.284 12c0 2.07.54 4.093 1.564 5.877L.284 23.504l5.772-1.513A9.68 9.68 0 0 0 12.015 24c6.458 0 11.716-5.27 11.716-11.716 0-6.457-5.258-11.588-11.716-11.588z"/>
+        </svg>
       </button>
 
     </div>
