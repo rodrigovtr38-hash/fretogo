@@ -1,7 +1,7 @@
 // =========================================================
 // NOME DO ARQUIVO: src/pages/Cliente.tsx
 // =========================================================
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -13,6 +13,7 @@ import ClientCancelModal from '../components/client/ClientCancelModal';
 
 // IMPORTS DA NOVA ARQUITETURA
 import { TripState } from '../state/tripStateMachine';
+import { mapsLoader } from '../services/mapsLoader'; // 🔥 O MOTOR DO MAPA VOLTOU!
 
 interface AddressData { cep: string; bairro: string; rua: string; num: string; lat?: number; lng?: number; }
 interface Coords { lat: number; lng: number; }
@@ -86,12 +87,14 @@ export default function Cliente() {
   const [paradasGPS, setParadasGPS] = useState<Coords[]>([]);
   const [motoristasProximos, setMotoristasProximos] = useState(0);
 
+  const [mapsReady, setMapsReady] = useState(false); // 🔥 O STATUS DO MAPA VOLTOU!
+
   const coordsCache = useRef<Record<string, Coords>>({});
   const isProcessingPayment = useRef(false);
 
   // Inicializa o Google Maps silenciosamente
   useEffect(() => {
-    mapsLoader.load().then(() => setStep('form')).catch(console.error);
+    mapsLoader.load().then(() => setMapsReady(true)).catch(console.error);
   }, []);
 
   const validDistancia = useMemo(() => Number.isNaN(distanciaReal) || distanciaReal <= 0 ? (5 * entregas.length) : distanciaReal, [distanciaReal, entregas.length]);
@@ -209,7 +212,7 @@ export default function Cliente() {
       const data = snap.data() as OrderData;
       setOrderData(data);
 
-      // 🔥 RE-INJEÇÃO DE GPS PARA A TELA DE BUSCA (A MAGIA DO MAPA)
+      // 🔥 RE-INJEÇÃO DE GPS PARA A TELA DE BUSCA
       if (data.origemLat && data.origemLng) {
         setOrigemGPS({ lat: data.origemLat, lng: data.origemLng });
       }
@@ -333,7 +336,6 @@ export default function Cliente() {
       const pinColeta = Math.floor(1000 + Math.random() * 9000).toString();
       const pinEntregas = entregas.map(() => Math.floor(1000 + Math.random() * 9000).toString());
 
-      // Cronograma simulado de gatilhos push/WhatsApp salvo estruturalmente para uso operacional
       const gatilhosNotificacaoAgenda = [
         "Notificação Push/WhatsApp disparada 24h antes com botão de confirmação.",
         "Notificação de alerta logístico disparada 12h antes.",
@@ -457,7 +459,7 @@ export default function Cliente() {
           </div>
           <div className="hidden items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-5 py-2 md:flex">
             <ShieldCheck className="h-4 w-4 text-blue-600" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-800">Plataforma Logística Segura</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-800">Plataforma Segura</span>
           </div>
         </nav>
       </header>
@@ -482,7 +484,7 @@ export default function Cliente() {
               </h2>
               <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
                 <input className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base md:text-lg font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="Seu Nome Completo" value={nome} onChange={(e) => setNome(e.target.value)} />
-                <input className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base md:text-lg font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="WhatsApp (DDD)" value={whatsapp} onChange={(e) => setWhatsApp(e.target.value)} />
+                <input className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base md:text-lg font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="WhatsApp (DDD)" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
                 <input className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base md:text-lg font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="CPF ou CNPJ" value={documento} onChange={(e) => setDocumento(e.target.value)} />
               </div>
             </div>
@@ -620,7 +622,7 @@ export default function Cliente() {
               </div>
 
               <div className="h-[220px] md:h-[420px] w-full overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-100 shadow-inner relative">
-                {origemGPS && destinoGPS ? (
+                {mapsReady && origemGPS && destinoGPS ? (
                   <MapaCliente 
                     origem={origemGPS} 
                     destino={destinoGPS} 
@@ -706,7 +708,16 @@ export default function Cliente() {
 
               <div className="relative mt-8 h-[350px] md:h-[500px] overflow-hidden rounded-[2rem] border border-slate-200 shadow-inner">
                  {orderData?.status === TripState.DISPONIVEL && <div className="pointer-events-none absolute inset-0 z-10 animate-pulse bg-blue-500/5 mix-blend-overlay"></div>}
-                 <MapaCliente motoristaId={orderData?.motoristaId} origem={origemGPS} destino={destinoGPS} paradasExtras={paradasGPS} />
+                 
+                 {/* O MAPA DO GOOGLE REAL */}
+                 {mapsReady && origemGPS && destinoGPS ? (
+                   <MapaCliente motoristaId={orderData?.motoristaId} origem={origemGPS} destino={destinoGPS} paradasExtras={paradasGPS} />
+                 ) : (
+                   <div className="absolute inset-0 flex flex-col items-center justify-center text-blue-500 bg-slate-50">
+                     <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-3"></div>
+                     <p className="text-[10px] font-black uppercase tracking-widest">Iniciando Satélites...</p>
+                   </div>
+                 )}
               </div>
 
               {currentOrderId && orderData?.motoristaNome && (
@@ -736,6 +747,7 @@ export default function Cliente() {
         </div>
       )}
 
+      {/* O MODAL QUE QUEBROU A VERCEL ESTÁ AQUI IMPORTADO DA FORMA CERTA AGORA */}
       <ClientCancelModal 
         open={showCancelModal} 
         isCancelling={isCancelling} 
