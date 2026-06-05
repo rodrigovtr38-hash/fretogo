@@ -6,7 +6,6 @@ import {
   Truck,
   MapPin,
   ShieldCheck,
-  Star,
   CheckCircle2,
   RotateCcw,
   Banknote,
@@ -83,7 +82,6 @@ export default function DriverRadar({
       <div className="overflow-hidden rounded-[2.5rem] border border-slate-800 bg-slate-950 p-6 md:p-8 shadow-2xl">
         <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
           
-          {/* Identidade do Motorista */}
           <div className="flex items-center gap-6">
             <div className={`flex h-20 w-20 items-center justify-center rounded-3xl border-2 ${isElite ? 'border-purple-500 bg-purple-500/10 text-purple-400' : 'border-blue-500 bg-blue-500/10 text-blue-400'}`}>
               <Truck size={36} />
@@ -101,7 +99,6 @@ export default function DriverRadar({
             </div>
           </div>
 
-          {/* O BOTÃO GIGANTE DE ONLINE/OFFLINE */}
           <div className="w-full lg:max-w-xs">
             <button
               onClick={() => setIsOnline(!isOnline)}
@@ -127,7 +124,7 @@ export default function DriverRadar({
         </div>
       </div>
 
-      {/* ÁREA VISUAL DO RADAR (A MÁGICA DA ESPERA) */}
+      {/* ÁREA VISUAL DO RADAR */}
       <div className={`mt-6 flex flex-col items-center justify-center rounded-[2.5rem] border border-slate-800 py-16 md:py-24 transition-colors duration-700 ${isOnline ? 'bg-slate-900/50' : 'bg-slate-950'}`}>
         <div className="relative flex h-32 w-32 items-center justify-center">
           {isOnline && (
@@ -152,9 +149,9 @@ export default function DriverRadar({
         </div>
       </div>
 
-      {/* MODO RETORNO (Só aparece se estiver online) */}
+      {/* MODO RETORNO */}
       {isOnline && (
-        <div className="mt-6 w-full rounded-[2rem] border border-blue-500/20 bg-blue-500/5 p-6 md:p-8 backdrop-blur-md flex flex-col md:flex-row items-center justify-between gap-6">
+        <div className="mt-6 w-full rounded-[2rem] border border-blue-500/20 bg-blue-500/5 p-6 md:p-8 backdrop-blur-md flex flex-col md:flex-row items-center justify-between gap-6 shadow-[0_10px_30px_rgba(59,130,246,0.05)]">
           <div className="flex items-start gap-4">
             <div className="p-3 bg-blue-500/20 rounded-2xl border border-blue-500/30 shrink-0">
               <RotateCcw className={`w-8 h-8 ${modoRetornoAtivo ? 'text-cyan-400 animate-spin' : 'text-blue-400'}`} style={{ animationDuration: '4s' }} />
@@ -178,7 +175,7 @@ export default function DriverRadar({
               <button 
                 onClick={desativarModoRetorno}
                 disabled={loadingRetorno}
-                className="w-full md:w-auto px-6 py-4 bg-slate-900 border border-red-500/30 text-red-400 font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-red-500/10 transition-colors"
+                className="w-full md:w-auto px-6 py-4 bg-transparent border border-red-500/50 text-red-400 font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-red-500/10 transition-colors"
               >
                 {loadingRetorno ? 'Desativando...' : 'Cancelar Retorno'}
               </button>
@@ -186,7 +183,7 @@ export default function DriverRadar({
               <button 
                 onClick={() => setIsRetornoModalOpen(true)}
                 disabled={retornosRestantes <= 0 || loadingRetorno}
-                className={`w-full md:w-auto px-8 py-4 font-black text-xs md:text-sm uppercase tracking-widest rounded-2xl transition-all shadow-lg ${retornosRestantes > 0 ? 'bg-blue-600 text-white hover:bg-blue-500 hover:scale-[1.02] shadow-blue-600/20' : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'}`}
+                className={`w-full md:w-auto px-8 py-4 font-black text-xs md:text-sm uppercase tracking-widest rounded-2xl transition-all shadow-lg ${retornosRestantes > 0 ? 'bg-blue-600 text-white hover:bg-blue-500 hover:scale-[1.02] shadow-blue-600/20' : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-white/5'}`}
               >
                 Ativar Retorno
               </button>
@@ -195,14 +192,14 @@ export default function DriverRadar({
         </div>
       )}
 
-      {/* MURAL DE VALORES FRETOGO (A proposta de valor clara) */}
+      {/* MURAL DE VALORES FRETOGO (SUA COMUNICAÇÃO DE VALOR) */}
       <div className="mt-6 rounded-[2.5rem] border border-slate-800 bg-slate-950 p-6 md:p-10">
         <div className="flex items-center justify-between mb-8">
           <h2 className="text-2xl font-black text-white italic tracking-tighter">
             Padrão <span className="text-blue-500">Fretogo</span>
           </h2>
           <button onClick={openWhatsAppSupport} className="hidden md:flex items-center gap-2 bg-[#25D366]/10 text-[#25D366] px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-[#25D366] hover:text-slate-950 transition-colors border border-[#25D366]/30">
-            <MessageCircle size={16} /> Falar com Suporte
+            <MessageCircle size={16} /> Falar com Administração
           </button>
         </div>
         
@@ -218,7 +215,7 @@ export default function DriverRadar({
               </div>
               <h3 className="text-lg font-black text-white uppercase tracking-tight">Repasse em 24h</h3>
               <p className="mt-2 text-xs font-medium leading-relaxed text-slate-400">
-                O seu pagamento é garantido. Após a finalização da entrega com o PIN de segurança, transferimos o valor para sua conta em até um dia útil.
+                O seu pagamento é garantido. Após a finalização da entrega com o PIN do cliente, transferimos o valor para sua conta em até um dia útil. A meta da Fretogo é garantir que vocês sejam reconhecidos como merecem.
               </p>
             </div>
           </div>
@@ -233,7 +230,7 @@ export default function DriverRadar({
               </div>
               <h3 className="text-lg font-black text-white uppercase tracking-tight">Zero Mensalidade</h3>
               <p className="mt-2 text-xs font-medium leading-relaxed text-slate-400">
-                Nós somos parceiros do seu crescimento. Você não paga nenhuma taxa fixa mensal para usar a plataforma. Ganhe dinheiro rodando.
+                Nós somos parceiros do seu crescimento. Vocês não pagam nenhuma mensalidade ou taxa de entrada. Em breve fecharemos contratos exclusivos com empresas grandes para os motoristas da base.
               </p>
             </div>
           </div>
@@ -248,19 +245,24 @@ export default function DriverRadar({
               </div>
               <h3 className="text-lg font-black text-white uppercase tracking-tight">As Melhores Cargas</h3>
               <p className="mt-2 text-xs font-medium leading-relaxed text-slate-400">
-                Conectamos 7 categorias de veículos, da moto ao bitrem, direto com mais de 5.000 embarcadores logísticos na sua região de atuação.
+                Conectamos 7 categorias de veículos (da moto ao bitrem) direto com empresários que buscam frete todo dia. Indique seus amigos! Nossa missão é acabar com as dificuldades que vocês encontram hoje.
               </p>
             </div>
           </div>
 
         </div>
 
-        <button onClick={openWhatsAppSupport} className="mt-6 md:hidden w-full flex items-center justify-center gap-2 bg-[#25D366]/10 text-[#25D366] px-6 py-4 rounded-2xl text-xs font-black uppercase tracking-widest active:scale-95 transition-transform border border-[#25D366]/30">
-          <MessageCircle size={18} /> Chamar Administração
-        </button>
+        <div className="mt-6 border-t border-white/10 pt-6">
+           <p className="text-xs text-slate-400 text-center font-medium italic">
+             Problemas acontecem em qualquer operação. Vocês têm total liberdade de chamar a administração pelo botão abaixo para analisarmos melhorias que ajudem todos da plataforma.
+           </p>
+           <button onClick={openWhatsAppSupport} className="mt-4 md:hidden w-full flex items-center justify-center gap-2 bg-[#25D366]/10 text-[#25D366] px-6 py-4 rounded-2xl text-xs font-black uppercase tracking-widest active:scale-95 transition-transform border border-[#25D366]/30">
+             <MessageCircle size={18} /> Chamar Administração
+           </button>
+        </div>
       </div>
 
-      {/* MODAL PARA DIGITAR O DESTINO DE RETORNO */}
+      {/* MODAL RETORNO */}
       {isRetornoModalOpen && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="w-full max-w-sm rounded-[2.5rem] border border-blue-500/30 bg-slate-900 p-8 shadow-2xl relative">
@@ -271,31 +273,24 @@ export default function DriverRadar({
             <p className="text-center text-xs font-bold text-slate-400 mb-6 uppercase tracking-widest leading-relaxed">
               Para qual cidade você está voltando?
             </p>
-            
             <input 
               type="text" 
               value={destinoRetorno}
               onChange={(e) => setDestinoRetorno(e.target.value)}
               placeholder="Ex: Guarulhos"
-              className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-5 text-center text-lg font-black uppercase text-white outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 mb-6 placeholder:text-slate-600"
+              className="w-full rounded-2xl border border-white/10 bg-slate-950 p-5 text-center text-lg font-black uppercase text-white outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 mb-6 placeholder:text-slate-600"
             />
-            
             <div className="flex gap-3">
-              <button onClick={() => setIsRetornoModalOpen(false)} className="flex-1 rounded-xl bg-transparent border border-slate-700 py-4 text-xs font-black uppercase tracking-widest text-slate-400 hover:text-white hover:bg-slate-800 transition-colors">
+              <button onClick={() => setIsRetornoModalOpen(false)} className="flex-1 rounded-xl bg-transparent border border-white/10 py-4 text-xs font-black uppercase tracking-widest text-slate-400 hover:text-white transition-colors">
                 Cancelar
               </button>
-              <button 
-                onClick={ativarModoRetorno} 
-                disabled={!destinoRetorno.trim() || loadingRetorno}
-                className="flex-[2] rounded-xl bg-blue-600 py-4 text-xs font-black uppercase tracking-[0.2em] text-white shadow-lg shadow-blue-600/30 transition-all hover:bg-blue-500 active:scale-95 disabled:opacity-50"
-              >
-                {loadingRetorno ? 'Salvando...' : 'Ativar Retorno'}
+              <button onClick={ativarModoRetorno} disabled={!destinoRetorno.trim() || loadingRetorno} className="flex-[2] rounded-xl bg-blue-600 py-4 text-xs font-black uppercase tracking-[0.2em] text-white shadow-lg shadow-blue-600/30 transition-all hover:bg-blue-500 active:scale-95 disabled:opacity-50">
+                {loadingRetorno ? 'Buscando...' : 'Ativar Retorno'}
               </button>
             </div>
           </div>
         </div>
       )}
-
     </div>
   );
 }
