@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AppTripState, isFinalState } from '../state/tripStateMachine';
-import { clientFreightService } from '../services/clientFreightService';
+// O import abaixo não existe mais na nova estrutura, mas mantemos o catch do firebase no useEffect
+// import { clientFreightService } from '../services/clientFreightService';
 
 /*
 =========================================================
@@ -28,7 +29,6 @@ type RuntimeOperationalState =
 
 type RuntimeSnapshot = Record<string, any> & { id: string };
 
-const HEARTBEAT_INTERVAL = 15000;
 const STORAGE_PREFIX = 'fretogo_runtime_client_';
 const safeNow = () => Date.now();
 
@@ -43,7 +43,6 @@ export const useClientRealtime = ({ freightId }: UseClientRealtimeProps) => {
   const [runtimeState, setRuntimeState] = useState<RuntimeOperationalState>('OFFLINE');
 
   const mountedRef = useRef(false);
-  const heartbeatRef = useRef<NodeJS.Timeout | null>(null);
 
   /*
   =========================================================
@@ -104,33 +103,6 @@ export const useClientRealtime = ({ freightId }: UseClientRealtimeProps) => {
 
   /*
   =========================================================
-  HEARTBEAT (AVISA O PAINEL ADMIN QUE O CLIENTE ESTÁ VENDO)
-  =========================================================
-  */
-  useEffect(() => {
-    if (!freightId) return;
-
-    if (heartbeatRef.current) clearInterval(heartbeatRef.current);
-
-    heartbeatRef.current = setInterval(async () => {
-      try {
-        if (isOffline || !mountedRef.current) return;
-        await clientFreightService.atualizarFrete(freightId, {
-          lastSeenCliente: new Date(),
-          runtimeHeartbeat: safeNow(),
-        });
-      } catch (error) {
-        console.warn('HEARTBEAT SILENT FAIL:', error);
-      }
-    }, HEARTBEAT_INTERVAL);
-
-    return () => {
-      if (heartbeatRef.current) clearInterval(heartbeatRef.current);
-    };
-  }, [freightId, isOffline]);
-
-  /*
-  =========================================================
   REALTIME LISTENER (O OUVIDO DO CLIENTE)
   =========================================================
   */
@@ -148,23 +120,21 @@ export const useClientRealtime = ({ freightId }: UseClientRealtimeProps) => {
 
       const data: RuntimeSnapshot = { id: snapshot.id, ...snapshot.data() };
       
-      // Atualiza os dados na tela instantaneamente
       setOrderData(data);
       persistRuntime(data);
       setConnected(true);
       setIsRealtimeReady(true);
       setIsOffline(false);
 
-      // Sincroniza Flags Visuais
       if (data.motoristaId) setDriverFound(true);
       if (isFinalState(data.status)) setTripFinished(true);
 
-      // Define o estado operacional para a UI
-      if (data.status === AppTripState.DISPONIVEL || data.status === AppTripState.OFERTANDO || data.status === AppTripState.PROCURANDO_MOTORISTA) {
+      // 🔥 CORREÇÃO DA MÁQUINA DE ESTADO: Nomes padronizados
+      if (data.status === AppTripState.DISPONIVEL || data.status === AppTripState.OFERTANDO || data.status === AppTripState.BUSCANDO_MOTORISTA) {
         setRuntimeState('SEARCHING_DRIVER');
       } else if (data.status === AppTripState.ACEITO) {
         setRuntimeState('DRIVER_ACCEPTED');
-      } else if (data.status === AppTripState.COLETANDO || data.status === AppTripState.EM_TRANSPORTE) {
+      } else if (data.status === AppTripState.COLETANDO || data.status === AppTripState.EM_TRANSPORTE || data.status === AppTripState.INDO_COLETA) {
         setRuntimeState('IN_TRANSIT');
       } else if (data.status === AppTripState.ENTREGUE || data.status === 'finalizado') {
         setRuntimeState('DELIVERED');
@@ -186,17 +156,17 @@ export const useClientRealtime = ({ freightId }: UseClientRealtimeProps) => {
 
   /*
   =========================================================
-  MEMOS (Para os componentes React não piscarem)
+  MEMOS
   =========================================================
   */
   const isWaitingDriver = useMemo(() => 
     orderData?.status === AppTripState.DISPONIVEL || 
     orderData?.status === AppTripState.OFERTANDO || 
-    orderData?.status === AppTripState.PROCURANDO_MOTORISTA, 
+    orderData?.status === AppTripState.BUSCANDO_MOTORISTA, 
   [orderData]);
 
   const isDriverAccepted = useMemo(() => orderData?.status === AppTripState.ACEITO, [orderData]);
-  const isInTransit = useMemo(() => orderData?.status === AppTripState.EM_TRANSPORTE || orderData?.status === AppTripState.COLETANDO, [orderData]);
+  const isInTransit = useMemo(() => orderData?.status === AppTripState.EM_TRANSPORTE || orderData?.status === AppTripState.COLETANDO || orderData?.status === AppTripState.INDO_COLETA, [orderData]);
   const isCancelled = useMemo(() => orderData?.status === AppTripState.CANCELADO, [orderData]);
   const isCompleted = useMemo(() => orderData?.status === AppTripState.ENTREGUE || orderData?.status === 'finalizado', [orderData]);
 
