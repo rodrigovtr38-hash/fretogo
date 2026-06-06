@@ -45,10 +45,10 @@ export class DispatchQueueService {
 
   static async processarFila(frete: FretePayload, motoristas: MotoristaMatch[], state: QueueState) {
     try {
-      // 1. Check de segurança: O frete ainda está disponível?
       const freteSnap = await getDoc(doc(db, 'fretes', frete.id));
-      if (!freteSnap.exists() || freteSnap.data().status !== 'disponivel') {
-        return; // Frete já foi aceito ou cancelado, para a fila agora.
+      // Se frete não existe ou não está mais para despacho, aborta.
+      if (!freteSnap.exists() || (freteSnap.data().status !== 'disponivel' && freteSnap.data().status !== 'aguardando_resposta')) {
+        return;
       }
 
       if (state.index >= motoristas.length || state.tentativa > MAX_REDISPATCH_ATTEMPTS) {
@@ -64,6 +64,7 @@ export class DispatchQueueService {
       const enviado = await enviarOfertaMotorista(motorista.id, frete);
 
       if (!enviado) {
+        // Se a oferta não pôde ser enviada, pula imediatamente para o próximo
         await DispatchQueueService.processarFila(frete, motoristas, { index: state.index + 1, tentativa: state.tentativa + 1 });
         return;
       }
@@ -77,17 +78,17 @@ export class DispatchQueueService {
         updatedAt: serverTimestamp(),
       });
 
-      // 🔥 WATCHDOG: Trava de 30s com verificação atômica de status
+      // Watchdog de 30s
       setTimeout(async () => {
         try {
           const snapshot = await getDoc(doc(db, 'fretes', frete.id));
           if (!snapshot.exists()) return;
           
           const data = snapshot.data();
-          // Só prossegue se ainda estiver esperando a resposta deste motorista
+          // Verificação atômica: se ainda está aguardando o motorista atual, passa a vez
           if (data.status === 'aguardando_resposta' && data.motoristaAtualDestaque === motorista.id) {
             await updateDoc(doc(db, 'fretes', frete.id), {
-              status: 'disponivel', // Volta para disponível para pegar o próximo
+              status: 'disponivel',
               updatedAt: serverTimestamp(),
             });
 
@@ -98,6 +99,8 @@ export class DispatchQueueService {
           }
         } catch (error) {
           console.error('[DISPATCH_WATCHDOG_ERROR]', error);
+          // Em caso de erro no Watchdog, tenta forçar o próximo para não travar o frete
+          await DispatchQueueService.processarFila(frete, motoristas, { index: state.index + 1, tentativa: state.tentativa + 1 });
         }
       }, DRIVER_RESPONSE_TIMEOUT);
       
