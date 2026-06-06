@@ -7,6 +7,7 @@ import {
   FretePayload, 
   MotoristaMatch 
 } from './matchingEngine';
+import { AppTripState } from '../state/tripStateMachine'; // 🔥 Importação do Enum Oficial
 
 const DRIVER_RESPONSE_TIMEOUT = 30000; 
 const MAX_REDISPATCH_ATTEMPTS = 10;
@@ -23,7 +24,7 @@ export class DispatchQueueService {
 
       if (!motoristas || motoristas.length === 0) {
         await updateDoc(doc(db, 'fretes', frete.id), {
-          status: 'sem_motorista',
+          status: AppTripState.SEM_MOTORISTA, // 🔥 Usando Enum
           dispatchStatus: 'encerrado',
           updatedAt: serverTimestamp(),
         });
@@ -31,7 +32,7 @@ export class DispatchQueueService {
       }
 
       await updateDoc(doc(db, 'fretes', frete.id), {
-        status: 'disponivel',
+        status: AppTripState.DISPONIVEL, // 🔥 Usando Enum
         dispatchStatus: 'em_andamento',
         filaTotal: motoristas.length,
         updatedAt: serverTimestamp(),
@@ -47,13 +48,13 @@ export class DispatchQueueService {
     try {
       const freteSnap = await getDoc(doc(db, 'fretes', frete.id));
       // Se frete não existe ou não está mais para despacho, aborta.
-      if (!freteSnap.exists() || (freteSnap.data().status !== 'disponivel' && freteSnap.data().status !== 'aguardando_resposta')) {
+      if (!freteSnap.exists() || (freteSnap.data().status !== AppTripState.DISPONIVEL && freteSnap.data().status !== AppTripState.AGUARDANDO_ACEITE)) {
         return;
       }
 
       if (state.index >= motoristas.length || state.tentativa > MAX_REDISPATCH_ATTEMPTS) {
         await updateDoc(doc(db, 'fretes', frete.id), {
-          status: 'sem_motorista',
+          status: AppTripState.SEM_MOTORISTA, // 🔥 Usando Enum
           dispatchStatus: 'encerrado',
           updatedAt: serverTimestamp(),
         });
@@ -74,7 +75,7 @@ export class DispatchQueueService {
         motoristaAtualNome: motorista.nome,
         dispatchIndex: state.index,
         dispatchTentativa: state.tentativa,
-        status: 'aguardando_resposta',
+        status: AppTripState.AGUARDANDO_ACEITE, // 🔥 Usando Enum
         updatedAt: serverTimestamp(),
       });
 
@@ -86,9 +87,9 @@ export class DispatchQueueService {
           
           const data = snapshot.data();
           // Verificação atômica: se ainda está aguardando o motorista atual, passa a vez
-          if (data.status === 'aguardando_resposta' && data.motoristaAtualDestaque === motorista.id) {
+          if (data.status === AppTripState.AGUARDANDO_ACEITE && data.motoristaAtualDestaque === motorista.id) {
             await updateDoc(doc(db, 'fretes', frete.id), {
-              status: 'disponivel',
+              status: AppTripState.DISPONIVEL, // 🔥 Usando Enum
               updatedAt: serverTimestamp(),
             });
 
