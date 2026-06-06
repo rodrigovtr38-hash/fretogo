@@ -1,6 +1,7 @@
 // src/services/dispatchRealtimeService.ts
 import { firebaseRealtimeService } from './firebaseRealtimeService';
-import { locationRealtimeService } from './locationRealtimeService'; // 🔥 Injetamos a Antena!
+import { locationRealtimeService } from './locationRealtimeService';
+import { DriverState } from '../state/driverStateMachine';
 
 class DispatchRealtimeService {
   async setDriverOnline(driverId: string) {
@@ -8,10 +9,9 @@ class DispatchRealtimeService {
       await firebaseRealtimeService.updateDriverRealtime(driverId, {
         online: true,
         disponivel: true,
-        state: 'ONLINE',
+        state: DriverState.ONLINE,
         atualizadoEm: Date.now(),
       });
-      // 🔥 GATILHO DA ANTENA: Liga o GPS imediatamente ao ficar online
       locationRealtimeService.start(driverId);
     } catch (error) {
       console.error('ERRO DRIVER ONLINE:', error);
@@ -23,10 +23,9 @@ class DispatchRealtimeService {
       await firebaseRealtimeService.updateDriverRealtime(driverId, {
         online: false,
         disponivel: false,
-        state: 'OFFLINE',
+        state: DriverState.OFFLINE,
         atualizadoEm: Date.now(),
       });
-      // 🛑 DESLIGA A ANTENA para economizar bateria do motorista
       locationRealtimeService.stop();
     } catch (error) {
       console.error('ERRO DRIVER OFFLINE:', error);
@@ -41,7 +40,7 @@ class DispatchRealtimeService {
           status: 'pendente',
           criadaEm: Date.now(),
         },
-        state: 'RECEBENDO_OFERTA',
+        state: DriverState.RECEBENDO_OFERTA,
         atualizadoEm: Date.now(),
       });
     } catch (error) {
@@ -52,12 +51,11 @@ class DispatchRealtimeService {
   async aceitarCorrida(driverId: string, freteId: string) {
     try {
       await firebaseRealtimeService.updateDriverRealtime(driverId, {
-        state: 'ACEITOU',
+        state: DriverState.ACEITOU,
         freteAtualId: freteId,
-        disponivel: false, // Tira ele da roleta para não receber 2 viagens
+        disponivel: false,
         atualizadoEm: Date.now(),
       });
-      // 🔥 Atualiza a Antena para injetar o GPS direto no Frete (Para o Cliente ver!)
       locationRealtimeService.start(driverId, freteId);
     } catch (error) {
       console.error('ERRO ACEITE:', error);
@@ -67,7 +65,7 @@ class DispatchRealtimeService {
   async iniciarColeta(driverId: string) {
     try {
       await firebaseRealtimeService.updateDriverRealtime(driverId, {
-        state: 'INDO_COLETA',
+        state: DriverState.INDO_COLETA,
         atualizadoEm: Date.now(),
       });
     } catch (error) {
@@ -78,7 +76,7 @@ class DispatchRealtimeService {
   async chegouColeta(driverId: string) {
     try {
       await firebaseRealtimeService.updateDriverRealtime(driverId, {
-        state: 'COLETANDO',
+        state: DriverState.COLETANDO,
         atualizadoEm: Date.now(),
       });
     } catch (error) {
@@ -89,7 +87,7 @@ class DispatchRealtimeService {
   async iniciarTransporte(driverId: string) {
     try {
       await firebaseRealtimeService.updateDriverRealtime(driverId, {
-        state: 'EM_TRANSPORTE',
+        state: DriverState.EM_TRANSPORTE,
         atualizadoEm: Date.now(),
       });
     } catch (error) {
@@ -100,19 +98,17 @@ class DispatchRealtimeService {
   async finalizarEntrega(driverId: string) {
     try {
       await firebaseRealtimeService.updateDriverRealtime(driverId, {
-        state: 'FINALIZANDO',
-        disponivel: true, // Volta para a roleta!
+        state: DriverState.FINALIZANDO,
+        disponivel: true,
         freteAtualId: null,
         atualizadoEm: Date.now(),
       });
-      // 🔥 A viagem acabou, o GPS para de mandar dados para a corrida
       locationRealtimeService.start(driverId); 
     } catch (error) {
       console.error('ERRO FINALIZAÇÃO:', error);
     }
   }
 
-  // Funções que o Motorista pode usar para atualizar a viagem em si (Ex: Heartbeat)
   async atualizarTripRealtime(tripId: string, payload: any) {
     try {
       await firebaseRealtimeService.updateTripRealtime(tripId, {
