@@ -1,24 +1,21 @@
+// src/hooks/useRealtimeSystem.ts
 import { useEffect } from 'react';
+import { realtimeOrchestrator } from '../services/realtimeOrchestrator';
+import { firebaseRealtimeService } from '../services/firebaseRealtimeService';
 
-import {
-  realtimeOrchestrator,
-} from '../services/realtimeOrchestrator';
-
-export const useRealtimeSystem = (
-  driverId?: string,
-  tripId?: string,
-) => {
+export const useRealtimeSystem = (driverId?: string, tripId?: string) => {
   useEffect(() => {
-    realtimeOrchestrator.initialize({
-      driverId,
-      tripId,
-    });
+    // 1. Inicia o orquestrador para esse usuário
+    realtimeOrchestrator.initialize({ driverId, tripId });
 
+    // 2. Limpeza segura (Evita Memory Leak quando a tela fecha)
     return () => {
-      realtimeOrchestrator.destroy({
-        driverId,
-        tripId,
-      });
+      if (driverId) {
+        firebaseRealtimeService.stopDriverListener(driverId);
+      }
+      if (tripId) {
+        firebaseRealtimeService.stopTripListener(tripId);
+      }
     };
   }, [driverId, tripId]);
 };
