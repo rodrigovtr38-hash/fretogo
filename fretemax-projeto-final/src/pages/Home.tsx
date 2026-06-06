@@ -1,3 +1,6 @@
+// =========================================================
+// NOME DO ARQUIVO: src/pages/Home.tsx (ORIGINAL COM AJUSTE DE LINKS)
+// =========================================================
 import { Zap, Truck, ShieldCheck, ArrowRight, Smartphone, CheckCircle } from 'lucide-react';
 
 export default function Home() {
@@ -31,9 +34,8 @@ export default function Home() {
             <span className="text-2xl font-black italic tracking-tighter text-slate-900">FRETOGO</span>
           </div>
           
+          {/* BOTÕES REMOVIDOS E NAVBAR MANTIDA */}
           <div className="hidden md:flex items-center gap-8">
-            <a href="#solucoes" className="text-sm font-bold text-slate-500 hover:text-blue-600 transition-colors">Soluções</a>
-            <a href="#seguranca" className="text-sm font-bold text-slate-500 hover:text-blue-600 transition-colors">Segurança</a>
             <button onClick={goToDriver} className="text-sm font-bold text-slate-500 hover:text-blue-600 transition-colors">
               Sou Motorista
             </button>
@@ -121,7 +123,7 @@ export default function Home() {
         </div>
       </footer>
 
-      {/* BOTÃO FIXO DE WHATSAPP ORIGINAL (SVG OFICIAL) */}
+      {/* BOTÃO FIXO DE WHATSAPP */}
       <button 
         onClick={openWhatsAppSupport}
         title="Suporte Fretogo"
