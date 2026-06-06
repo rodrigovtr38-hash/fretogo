@@ -3,10 +3,10 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import crypto from 'crypto';
 
-// Importa o serviço de fila que criamos para ligar a roleta imediatamente
-import DispatchQueueService from '../src/services/dispatchQueueService';
+// Ajuste na importação para garantir compatibilidade serverless
+import { DispatchQueueService } from '../src/services/dispatchQueueService';
+import { AppTripState } from '../src/state/tripStateMachine';
 
-// 🔐 Inicializa o Firebase apenas uma vez na Vercel (Padrão Serverless Seguro)
 if (!getApps().length) {
   if (process.env.FIREBASE_ADMIN_CREDENTIAL) {
     initializeApp({
@@ -23,7 +23,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).send('Método não permitido');
 
   try {
-    // 🛡️ Validação de Assinatura HMAC (Antifraude do Mercado Pago)
+    // 🛡️ Validação de Assinatura (Mantenha igual, está correta)
     const xSignature = req.headers['x-signature'];
     const xRequestId = req.headers['x-request-id'];
     const dataId = req.query?.['data.id'] || req.body?.data?.id;
@@ -44,27 +44,19 @@ export default async function handler(req, res) {
 
     const payment = req.body; 
 
-    if (payment && payment.type === 'payment' && payment.data && payment.data.id) {
+    if (payment?.type === 'payment' && payment.data?.id) {
       const paymentId = payment.data.id;
       
-      console.log(`[WEBHOOK] Notificação de pagamento recebida. ID do MP: ${paymentId}`);
-
       const mpResponse = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
         headers: { Authorization: `Bearer ${process.env.MERCADO_PAGO_ACCESS_TOKEN}` }
       });
 
-      if (!mpResponse.ok) {
-        console.error(`[WEBHOOK] Erro ao consultar Mercado Pago: Status ${mpResponse.status}`);
-        return res.status(500).send('Erro ao validar pagamento');
-      }
+      if (!mpResponse.ok) return res.status(500).send('Erro ao consultar MP');
 
       const paymentData = await mpResponse.json();
       const pedidoId = paymentData.external_reference;
 
-      if (!pedidoId) {
-        console.warn(`[WEBHOOK] Pagamento ${paymentId} não possui external_reference. Ignorando.`);
-        return res.status(400).send('Sem referência de pedido');
-      }
+      if (!pedidoId) return res.status(400).send('Sem referência');
 
       const freteRef = db.collection('fretes').doc(pedidoId);
       const freteSnap = await freteRef.get();
@@ -72,52 +64,35 @@ export default async function handler(req, res) {
       if (freteSnap.exists) {
         const freteData = freteSnap.data();
 
-        if (paymentData.status === 'rejected' || paymentData.status === 'cancelled') {
-          if (!['disponivel', 'aceito', 'em_transporte', 'entregue'].includes(freteData.status)) {
-            await freteRef.update({
-              status: 'erro_pagamento',
-              atualizadoEm: FieldValue.serverTimestamp()
-            });
-            console.warn(`[WEBHOOK] Pagamento recusado. Frete ${pedidoId} marcado como erro.`);
-          }
-          return res.status(200).send('OK'); 
-        }
-
-        // 🔥 PAGAMENTO APROVADO OPERACIONAL
+        // 🔥 PAGAMENTO APROVADO - Sincronização com AppTripState
         if (paymentData.status === 'approved' && paymentData.status_detail === 'accredited') {
           
-          if (!['disponivel', 'aceito', 'em_transporte', 'entregue'].includes(freteData.status)) {
+          // Verifica se já não foi processado (Idempotência)
+          if (freteData.pagamentoStatus !== 'aprovado') {
             
-            // Atualiza o banco com os recibos financeiros de auditoria de 24h
             await freteRef.update({
-              status: 'disponivel',
+              status: AppTripState.BUSCANDO_MOTORISTA, // Sincronizado com a máquina de estados
               pagamentoStatus: 'aprovado',
-              dispatchStatus: 'dispatch_ready',
+              dispatchStatus: 'em_andamento',
               pagoEm: FieldValue.serverTimestamp(),
               pagamentoId: paymentId,
-              pagamentoValor: paymentData.transaction_amount,
               atualizadoEm: FieldValue.serverTimestamp()
             });
             
-            console.log(`[WEBHOOK SUCESSO] Frete ${pedidoId} liberado. Iniciando Roleta Operacional...`);
-            
-            // 🔥 GATILHO DE DESPACHO INJETADO: O motor começa a girar aqui!
+            // 🔥 GATILHO DE DESPACHO
             try {
-              const payloadFrete = { id: pedidoId, ...freteData, status: 'disponivel' };
+              const payloadFrete = { id: pedidoId, ...freteData, status: AppTripState.BUSCANDO_MOTORISTA };
               await DispatchQueueService.iniciarFila(payloadFrete);
             } catch (queueError) {
-              console.error(`[WEBHOOK] Erro ao disparar fila do frete ${pedidoId}:`, queueError);
+              console.error(`[WEBHOOK] Erro ao disparar fila:`, queueError);
             }
           }
         }
-      } else {
-        console.warn(`[WEBHOOK] Documento de frete ${pedidoId} não encontrado no Firestore.`);
       }
     }
-
     res.status(200).send('OK');
   } catch (err) {
     console.error(`[WEBHOOK ERRO CRÍTICO]:`, err);
-    res.status(500).send('Erro interno do servidor');
+    res.status(500).send('Erro interno');
   }
 }
