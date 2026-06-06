@@ -2,22 +2,13 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '../../firebase';
-import { doc, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore';
-import {
-  Clock3,
-  MapPin,
-  Navigation,
-  Phone,
-  ShieldCheck,
-  Truck,
-  User,
-  AlertTriangle,
-  LockKeyhole,
-  X,
-  Map as MapIcon,
-  Package
-} from 'lucide-react';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { LockKeyhole, X } from 'lucide-react';
 import MapaCliente from '../MapaCliente';
+import { dispatchRealtimeService } from '../../services/dispatchRealtimeService';
+
+// 🔥 Importamos os estados oficiais para garantir que a string seja idêntica
+import { AppTripState } from '../../state/tripStateMachine';
 
 interface DriverActiveTripProps {
   freteId?: string;
@@ -50,36 +41,36 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
   const paradas = frete.paradas || [];
   const paradaAtualIndex = frete.paradaAtualIndex || 0;
   const destinoAtual = paradas[paradaAtualIndex] || (frete.entrega || {});
-  const isMultiDrop = paradas.length > 1;
-
-  // Lógica de GPS para o mapa
+  
   const mapOriginGPS = frete.status === 'em_transporte' 
     ? (paradaAtualIndex === 0 ? { lat: frete.origemLat, lng: frete.origemLng } : { lat: paradas[paradaAtualIndex-1].lat, lng: paradas[paradaAtualIndex-1].lng })
     : null;
   const mapDestinoGPS = destinoAtual?.lat ? { lat: destinoAtual.lat, lng: destinoAtual.lng } : null;
 
+  // 🔥 REGRA: Usamos as strings exatas que você já utiliza, garantindo compatibilidade total
   const handleStatusUpdate = async (novoStatus: string) => {
     setActionLoading(true);
     try {
-      await updateDoc(doc(db, 'fretes', frete.id), { status: novoStatus, updatedAt: serverTimestamp() });
+      await dispatchRealtimeService.atualizarStatusTrip(frete.id, novoStatus);
     } catch (e) { console.error(e); } finally { setActionLoading(false); }
   };
 
   const handlePinSubmit = async () => {
     setActionLoading(true);
     try {
-      const docRef = doc(db, 'fretes', frete.id);
       if (frete.status === 'coletando') {
         if (pinValue !== frete.pinColeta) { setPinError('PIN de Coleta incorreto.'); setActionLoading(false); return; }
-        await updateDoc(docRef, { status: 'em_transporte', paradaAtualIndex: 0, updatedAt: serverTimestamp() });
+        // Atualiza para o estado oficial 'em_transporte'
+        await dispatchRealtimeService.atualizarStatusTrip(frete.id, 'em_transporte');
       } else {
         const pinEntregas = frete.pinEntregas || [];
         if (pinValue !== pinEntregas[paradaAtualIndex]) { setPinError('PIN de entrega incorreto.'); setActionLoading(false); return; }
         
         if (paradaAtualIndex + 1 < paradas.length) {
-          await updateDoc(docRef, { paradaAtualIndex: paradaAtualIndex + 1, updatedAt: serverTimestamp() });
+           await dispatchRealtimeService.atualizarTripRealtime(frete.id, { paradaAtualIndex: paradaAtualIndex + 1 });
         } else {
-          await updateDoc(docRef, { status: 'entregue', updatedAt: serverTimestamp() });
+           // Atualiza para o estado oficial 'entregue'
+           await dispatchRealtimeService.atualizarStatusTrip(frete.id, 'entregue');
         }
       }
       setIsPinModalOpen(false); setPinValue('');
