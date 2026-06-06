@@ -1,13 +1,8 @@
-import {
-  DriverState,
-} from '../state/driverStateMachine';
-
-import {
-  AppTripState,
-} from '../state/tripStateMachine';
+import { DriverState } from '../state/driverStateMachine';
+import { AppTripState } from '../state/tripStateMachine';
 
 /* =========================================================
-   TYPES
+   TYPES (Mapeamento unificado)
 ========================================================= */
 
 export type DispatchOperationalState =
@@ -38,421 +33,137 @@ export type AvailabilityOperationalState =
 
 export interface OperationalSyncResult {
   driverState: DriverState;
-
   tripState: AppTripState;
-
   dispatchState: DispatchOperationalState;
-
   trackingState: TrackingOperationalState;
-
   availabilityState: AvailabilityOperationalState;
-
   operationalRuntime: {
     matching: boolean;
-
     tracking: boolean;
-
     radar: boolean;
-
     dispatch: boolean;
-
     returning: boolean;
-
     realtime: boolean;
   };
 }
 
 /* =========================================================
-   SERVICE
+   SERVICE - Sincronização de Estado Blindada
 ========================================================= */
 
 export class StateSynchronizationService {
-  /* =========================================================
-     SYNCHRONIZE
-  ========================================================= */
-
   static synchronize(
     driverState: DriverState,
     tripState: AppTripState,
   ): OperationalSyncResult {
+    
+    // Core Logic: O status da tripState dita o comportamento de todo o sistema
     switch (tripState) {
-      /*
-      =========================================================
-      MATCHING
-      =========================================================
-      */
-
+      
       case AppTripState.BUSCANDO_MOTORISTA:
-
+      case AppTripState.DISPONIVEL:
         return {
-          driverState:
-            DriverState.ONLINE,
-
+          driverState: DriverState.ONLINE,
           tripState,
-
-          dispatchState:
-            'MATCHING',
-
-          trackingState:
-            'IDLE',
-
-          availabilityState:
-            'AVAILABLE',
-
-          operationalRuntime: {
-            matching: true,
-
-            tracking: false,
-
-            radar: true,
-
-            dispatch: true,
-
-            returning: false,
-
-            realtime: true,
-          },
+          dispatchState: 'MATCHING',
+          trackingState: 'IDLE',
+          availabilityState: 'AVAILABLE',
+          operationalRuntime: { matching: true, tracking: false, radar: true, dispatch: true, returning: false, realtime: true },
         };
-
-      /*
-      =========================================================
-      RESERVED
-      =========================================================
-      */
 
       case AppTripState.OFERTANDO:
-
         return {
-          driverState:
-            DriverState.RECEBENDO_OFERTA,
-
+          driverState: DriverState.RECEBENDO_OFERTA,
           tripState,
-
-          dispatchState:
-            'RESERVED',
-
-          trackingState:
-            'ACTIVE',
-
-          availabilityState:
-            'RESERVED',
-
-          operationalRuntime: {
-            matching: true,
-
-            tracking: true,
-
-            radar: true,
-
-            dispatch: true,
-
-            returning: false,
-
-            realtime: true,
-          },
+          dispatchState: 'RESERVED',
+          trackingState: 'ACTIVE',
+          availabilityState: 'RESERVED',
+          operationalRuntime: { matching: true, tracking: true, radar: true, dispatch: true, returning: false, realtime: true },
         };
-
-      /*
-      =========================================================
-      ACTIVE TRIP
-      =========================================================
-      */
 
       case AppTripState.ACEITO:
-
         return {
-          driverState:
-            DriverState.ACEITOU,
-
+          driverState: DriverState.ACEITOU,
           tripState,
-
-          dispatchState:
-            'ACTIVE_TRIP',
-
-          trackingState:
-            'ACTIVE',
-
-          availabilityState:
-            'BUSY',
-
-          operationalRuntime: {
-            matching: false,
-
-            tracking: true,
-
-            radar: false,
-
-            dispatch: true,
-
-            returning: false,
-
-            realtime: true,
-          },
+          dispatchState: 'ACTIVE_TRIP',
+          trackingState: 'ACTIVE',
+          availabilityState: 'BUSY',
+          operationalRuntime: { matching: false, tracking: true, radar: false, dispatch: true, returning: false, realtime: true },
         };
 
-      /*
-      =========================================================
-      COLLECTING
-      =========================================================
-      */
-
       case AppTripState.INDO_COLETA:
-
         return {
-          driverState:
-            DriverState.INDO_COLETA,
-
+          driverState: DriverState.INDO_COLETA,
           tripState,
-
-          dispatchState:
-            'COLLECTING',
-
-          trackingState:
-            'COLLECTING',
-
-          availabilityState:
-            'BUSY',
-
-          operationalRuntime: {
-            matching: false,
-
-            tracking: true,
-
-            radar: false,
-
-            dispatch: true,
-
-            returning: false,
-
-            realtime: true,
-          },
+          dispatchState: 'COLLECTING',
+          trackingState: 'COLLECTING',
+          availabilityState: 'BUSY',
+          operationalRuntime: { matching: false, tracking: true, radar: false, dispatch: true, returning: false, realtime: true },
         };
 
       case AppTripState.COLETANDO:
-
         return {
-          driverState:
-            DriverState.COLETANDO,
-
+          driverState: DriverState.COLETANDO,
           tripState,
-
-          dispatchState:
-            'COLLECTING',
-
-          trackingState:
-            'COLLECTING',
-
-          availabilityState:
-            'BUSY',
-
-          operationalRuntime: {
-            matching: false,
-
-            tracking: true,
-
-            radar: false,
-
-            dispatch: true,
-
-            returning: false,
-
-            realtime: true,
-          },
+          dispatchState: 'COLLECTING',
+          trackingState: 'COLLECTING',
+          availabilityState: 'BUSY',
+          operationalRuntime: { matching: false, tracking: true, radar: false, dispatch: true, returning: false, realtime: true },
         };
-
-      /*
-      =========================================================
-      IN TRANSIT
-      =========================================================
-      */
 
       case AppTripState.EM_TRANSPORTE:
-
         return {
-          driverState:
-            DriverState.EM_TRANSPORTE,
-
+          driverState: DriverState.EM_TRANSPORTE,
           tripState,
-
-          dispatchState:
-            'IN_TRANSIT',
-
-          trackingState:
-            'MOVING',
-
-          availabilityState:
-            'BUSY',
-
-          operationalRuntime: {
-            matching: false,
-
-            tracking: true,
-
-            radar: false,
-
-            dispatch: true,
-
-            returning: false,
-
-            realtime: true,
-          },
+          dispatchState: 'IN_TRANSIT',
+          trackingState: 'MOVING',
+          availabilityState: 'BUSY',
+          operationalRuntime: { matching: false, tracking: true, radar: false, dispatch: true, returning: false, realtime: true },
         };
-
-      /*
-      =========================================================
-      DELIVERING
-      =========================================================
-      */
 
       case AppTripState.FINALIZANDO:
-
         return {
-          driverState:
-            DriverState.FINALIZANDO,
-
+          driverState: DriverState.FINALIZANDO,
           tripState,
-
-          dispatchState:
-            'DELIVERING',
-
-          trackingState:
-            'DELIVERING',
-
-          availabilityState:
-            'BUSY',
-
-          operationalRuntime: {
-            matching: false,
-
-            tracking: true,
-
-            radar: false,
-
-            dispatch: true,
-
-            returning: false,
-
-            realtime: true,
-          },
+          dispatchState: 'DELIVERING',
+          trackingState: 'DELIVERING',
+          availabilityState: 'BUSY',
+          operationalRuntime: { matching: false, tracking: true, radar: false, dispatch: true, returning: false, realtime: true },
         };
-
-      /*
-      =========================================================
-      RETURNING
-      =========================================================
-      */
 
       case AppTripState.ENTREGUE:
-
         return {
-          driverState:
-            DriverState.ONLINE,
-
-          tripState:
-            AppTripState.BUSCANDO_MOTORISTA,
-
-          dispatchState:
-            'RETURNING',
-
-          trackingState:
-            'RETURNING',
-
-          availabilityState:
-            'RETURNING',
-
-          operationalRuntime: {
-            matching: true,
-
-            tracking: true,
-
-            radar: true,
-
-            dispatch: true,
-
-            returning: true,
-
-            realtime: true,
-          },
+          driverState: DriverState.ENTREGUE,
+          tripState,
+          dispatchState: 'RETURNING',
+          trackingState: 'RETURNING',
+          availabilityState: 'RETURNING',
+          operationalRuntime: { matching: false, tracking: true, radar: true, dispatch: true, returning: true, realtime: true },
         };
 
-      /*
-      =========================================================
-      FALLBACKS
-      =========================================================
-      */
-
+      // Estados de Erro / Cancelamento
       case AppTripState.CANCELADO:
-
-      case AppTripState.EXPIRADO:
-
+      case AppTripState.CANCELADO_CLIENTE:
+      case AppTripState.CANCELADO_MOTORISTA:
       case AppTripState.SEM_MOTORISTA:
-
+      case AppTripState.ERRO_PAGAMENTO:
         return {
-          driverState:
-            DriverState.ONLINE,
-
-          tripState:
-            AppTripState.BUSCANDO_MOTORISTA,
-
-          dispatchState:
-            'MATCHING',
-
-          trackingState:
-            'IDLE',
-
-          availabilityState:
-            'AVAILABLE',
-
-          operationalRuntime: {
-            matching: true,
-
-            tracking: false,
-
-            radar: true,
-
-            dispatch: true,
-
-            returning: false,
-
-            realtime: true,
-          },
+          driverState: DriverState.ONLINE,
+          tripState,
+          dispatchState: 'ONLINE',
+          trackingState: 'IDLE',
+          availabilityState: 'AVAILABLE',
+          operationalRuntime: { matching: true, tracking: false, radar: true, dispatch: true, returning: false, realtime: true },
         };
-
-      /*
-      =========================================================
-      DEFAULT
-      =========================================================
-      */
 
       default:
-
         return {
           driverState,
-
           tripState,
-
-          dispatchState:
-            'ONLINE',
-
-          trackingState:
-            'ACTIVE',
-
-          availabilityState:
-            'AVAILABLE',
-
-          operationalRuntime: {
-            matching: true,
-
-            tracking: true,
-
-            radar: true,
-
-            dispatch: true,
-
-            returning: false,
-
-            realtime: true,
-          },
+          dispatchState: 'ONLINE',
+          trackingState: 'IDLE',
+          availabilityState: 'AVAILABLE',
+          operationalRuntime: { matching: true, tracking: false, radar: true, dispatch: true, returning: false, realtime: true },
         };
     }
   }
