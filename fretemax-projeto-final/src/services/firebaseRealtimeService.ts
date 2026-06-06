@@ -1,45 +1,24 @@
-import {
-  doc,
-  onSnapshot,
-  updateDoc,
-  serverTimestamp,
-  Unsubscribe,
-} from 'firebase/firestore';
-
+// src/services/firebaseRealtimeService.ts
+import { doc, onSnapshot, updateDoc, serverTimestamp, Unsubscribe } from 'firebase/firestore';
 import { db } from '../firebase';
-
-import {
-  eventBusService,
-  AppEvents,
-} from './eventBusService';
+import { eventBusService, AppEvents } from './eventBusService';
+import { DriverState } from '../state/driverStateMachine';
 
 class FirebaseRealtimeService {
   private listeners = new Map<string, Unsubscribe>();
-
   private activeKeys = new Set<string>();
 
   private emitConnected() {
-    eventBusService.emit(
-      AppEvents.REALTIME_CONNECTED,
-    );
+    eventBusService.emit(AppEvents.REALTIME_CONNECTED);
   }
 
   private emitDisconnected() {
-    eventBusService.emit(
-      AppEvents.REALTIME_DISCONNECTED,
-    );
+    eventBusService.emit(AppEvents.REALTIME_DISCONNECTED);
   }
 
-  private registerListener(
-    key: string,
-    unsubscribe: Unsubscribe,
-  ) {
-    if (this.listeners.has(key)) {
-      return;
-    }
-
+  private registerListener(key: string, unsubscribe: Unsubscribe) {
+    if (this.listeners.has(key)) return;
     this.listeners.set(key, unsubscribe);
-
     this.activeKeys.add(key);
   }
 
@@ -49,220 +28,108 @@ class FirebaseRealtimeService {
 
   listenDriver(driverId: string) {
     try {
-      if (!driverId) {
-        return;
-      }
-
+      if (!driverId) return;
       const key = `driver_${driverId}`;
+      if (this.hasListener(key)) return;
 
-      if (this.hasListener(key)) {
-        return;
-      }
-
-      const driverRef = doc(
-        db,
-        'motoristas',
-        driverId,
-      );
+      const driverRef = doc(db, 'motoristas', driverId);
 
       const unsubscribe = onSnapshot(
         driverRef,
         snapshot => {
-          if (!snapshot.exists()) {
-            return;
-          }
-
-          const data = {
-            id: snapshot.id,
-            ...snapshot.data(),
-          };
-
+          if (!snapshot.exists()) return;
+          const data = { id: snapshot.id, ...snapshot.data() };
           this.emitConnected();
-
-          eventBusService.emit(
-            AppEvents.DRIVER_STATUS_CHANGED,
-            data,
-          );
+          eventBusService.emit(AppEvents.DRIVER_STATUS_CHANGED, data);
         },
         error => {
-          console.error(
-            'REALTIME DRIVER ERROR:',
-            error,
-          );
-
+          console.error('REALTIME DRIVER ERROR:', error);
           this.emitDisconnected();
-        },
+        }
       );
 
-      this.registerListener(
-        key,
-        unsubscribe,
-      );
+      this.registerListener(key, unsubscribe);
     } catch (error) {
-      console.error(
-        'ERRO LISTEN DRIVER:',
-        error,
-      );
+      console.error('ERRO LISTEN DRIVER:', error);
     }
   }
 
   listenTrip(tripId: string) {
     try {
-      if (!tripId) {
-        return;
-      }
-
+      if (!tripId) return;
       const key = `trip_${tripId}`;
+      if (this.hasListener(key)) return;
 
-      if (this.hasListener(key)) {
-        return;
-      }
-
-      const tripRef = doc(
-        db,
-        'fretes',
-        tripId,
-      );
+      const tripRef = doc(db, 'fretes', tripId);
 
       const unsubscribe = onSnapshot(
         tripRef,
         snapshot => {
-          if (!snapshot.exists()) {
-            return;
-          }
-
-          const data = {
+          if (!snapshot.exists()) return;
+          const data = snapshot.data();
+          
+          // 🔥 PROTEÇÃO ANTI-DRIFT: Garante os estados corretos para o Orquestrador
+          eventBusService.emit(AppEvents.TRIP_STATUS_CHANGED, {
             id: snapshot.id,
-            ...snapshot.data(),
-          };
+            tripState: data.status,
+            driverState: data.driverState || DriverState.ONLINE, // Fallback seguro
+            ...data,
+          });
 
           this.emitConnected();
-
-          eventBusService.emit(
-            AppEvents.TRIP_STATUS_CHANGED,
-            data,
-          );
         },
         error => {
-          console.error(
-            'REALTIME TRIP ERROR:',
-            error,
-          );
-
+          console.error('REALTIME TRIP ERROR:', error);
           this.emitDisconnected();
-        },
+        }
       );
 
-      this.registerListener(
-        key,
-        unsubscribe,
-      );
+      this.registerListener(key, unsubscribe);
     } catch (error) {
-      console.error(
-        'ERRO LISTEN TRIP:',
-        error,
-      );
+      console.error('ERRO LISTEN TRIP:', error);
     }
   }
 
-  async updateDriverRealtime(
-    driverId: string,
-    payload: Record<string, any>,
-  ) {
+  async updateDriverRealtime(driverId: string, payload: Record<string, any>) {
     try {
-      if (!driverId) {
-        return;
-      }
-
-      const driverRef = doc(
-        db,
-        'motoristas',
-        driverId,
-      );
-
-      await updateDoc(driverRef, {
-        ...payload,
-        updatedAt: serverTimestamp(),
-      });
+      if (!driverId) return;
+      const driverRef = doc(db, 'motoristas', driverId);
+      await updateDoc(driverRef, { ...payload, updatedAt: serverTimestamp() });
     } catch (error) {
-      console.error(
-        'ERRO UPDATE DRIVER:',
-        error,
-      );
+      console.error('ERRO UPDATE DRIVER:', error);
     }
   }
 
-  async updateTripRealtime(
-    tripId: string,
-    payload: Record<string, any>,
-  ) {
+  async updateTripRealtime(tripId: string, payload: Record<string, any>) {
     try {
-      if (!tripId) {
-        return;
-      }
-
-      const tripRef = doc(
-        db,
-        'fretes',
-        tripId,
-      );
-
-      await updateDoc(tripRef, {
-        ...payload,
-        updatedAt: serverTimestamp(),
-      });
+      if (!tripId) return;
+      const tripRef = doc(db, 'fretes', tripId);
+      await updateDoc(tripRef, { ...payload, updatedAt: serverTimestamp() });
     } catch (error) {
-      console.error(
-        'ERRO UPDATE TRIP:',
-        error,
-      );
+      console.error('ERRO UPDATE TRIP:', error);
     }
   }
 
   stopListener(key: string) {
     const listener = this.listeners.get(key);
-
-    if (!listener) {
-      return;
-    }
-
+    if (!listener) return;
     listener();
-
     this.listeners.delete(key);
-
     this.activeKeys.delete(key);
   }
 
   stopDriverListener(driverId: string) {
-    this.stopListener(
-      `driver_${driverId}`,
-    );
+    this.stopListener(`driver_${driverId}`);
   }
 
   stopTripListener(tripId: string) {
-    this.stopListener(
-      `trip_${tripId}`,
-    );
+    this.stopListener(`trip_${tripId}`);
   }
 
-  disconnectScoped(config: {
-    driverId?: string;
-    tripId?: string;
-  }) {
-    if (config.driverId) {
-      this.stopDriverListener(
-        config.driverId,
-      );
-    }
-
-    if (config.tripId) {
-      this.stopTripListener(
-        config.tripId,
-      );
-    }
+  disconnectScoped(config: { driverId?: string; tripId?: string }) {
+    if (config.driverId) this.stopDriverListener(config.driverId);
+    if (config.tripId) this.stopTripListener(config.tripId);
   }
 }
 
-export const firebaseRealtimeService =
-  new FirebaseRealtimeService();
-
+export const firebaseRealtimeService = new FirebaseRealtimeService();
