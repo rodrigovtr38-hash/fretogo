@@ -1,7 +1,7 @@
 // src/pages/Motorista.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { auth, db } from '../firebase';
-import { collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import DriverApp from '../components/DriverApp';
 import ChatFrete from '../components/ChatFrete';
 import DriverHeader from '../components/motorista/DriverHeader';
@@ -12,6 +12,10 @@ import DriverActiveTrip from '../components/motorista/DriverActiveTrip';
 import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
 import type { OperationalFreight } from '../components/driver/dashboard/DriverDashboardLayout';
 import { Download } from 'lucide-react'; 
+
+// 🔥 Import da catraca oficial de transição (O Guarda)
+import { TripLifecycleService } from '../services/TripLifecycleService';
+import { AppTripState } from '../state/tripStateMachine';
 
 interface DriverData { id?: string; nome?: string; whatsapp?: string; categoria?: string; status?: 'pendente' | 'aprovado' | 'rejeitado'; }
 
@@ -35,7 +39,6 @@ export default function Motorista() {
   const [isOnline, setIsOnline] = useState(false);
   const [radarLoading, setRadarLoading] = useState(false);
 
-  // Instalação PWA
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
 
@@ -58,16 +61,13 @@ export default function Motorista() {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setIsInstallable(false);
-    }
+    if (outcome === 'accepted') setIsInstallable(false);
     setDeferredPrompt(null);
   };
 
-  // Centraliza o preenchimento de Oferta visual
   const normalizeFreight = useCallback((id: string, data: any): OperationalFreight => {
     const feePercent = CATEGORY_FEES[data.categoria] ?? 0.2;
-    const valorCliente = Number(data.valorCliente || data.valorTotal || data.valor || 0); // Correção do valor pro radar
+    const valorCliente = Number(data.valorCliente || data.valorTotal || data.valor || 0);
     const valorMotorista = data.valorMotorista ?? valorCliente * (1 - feePercent);
     const distanciaColetaKm = Number(data.distanciaColetaKm || 0);
     const distanciaEntregaKm = Number(data.distanciaEntregaKm || data.distancia || 0);
@@ -85,9 +85,9 @@ export default function Motorista() {
       distanciaTotalKm: distanciaColetaKm + distanciaEntregaKm,
       valorCliente,
       valorMotorista,
-      pesoKg: Number(data.pesoKg || data.peso || 0), // Puxa dado da string antiga do formulário
-      volumes: Number(data.volumes || data.qtdVolumes || 1), // Puxa do formulário antigo
-      tipoCarga: data.tipoMaterial || data.tipoCarga || 'Geral', // Tipo da Carga
+      pesoKg: Number(data.pesoKg || data.peso || 0),
+      volumes: Number(data.volumes || data.qtdVolumes || 1),
+      tipoCarga: data.tipoMaterial || data.tipoCarga || 'Geral',
       etaMinutes: Number(data.etaMinutes || 20),
       motoristaId: data.motoristaId || null,
       createdAt: data.createdAt,
@@ -102,15 +102,19 @@ export default function Motorista() {
     return () => { mountedRef.current = false; cancelAnimationFrame(frame); };
   }, []);
 
+  // 🔥 CORREÇÃO 1: Heartbeat direcionado para a Viagem, não para o Motorista
   useEffect(() => {
     if (!user?.uid || !isOnline) return;
     if (heartbeatRef.current) clearInterval(heartbeatRef.current);
     heartbeatRef.current = window.setInterval(async () => {
-      try { await dispatchRealtimeService.atualizarTripRealtime(user.uid, { heartbeat: Date.now() }); } 
-      catch (error) { console.error('HEARTBEAT ERROR:', error); }
+      try { 
+        if (activeFreight?.id) {
+          await dispatchRealtimeService.atualizarTripRealtime(activeFreight.id, { heartbeat: Date.now() }); 
+        }
+      } catch (error) { console.error('HEARTBEAT ERROR:', error); }
     }, 30000);
     return () => { if (heartbeatRef.current) clearInterval(heartbeatRef.current); };
-  }, [user, isOnline]);
+  }, [user, isOnline, activeFreight?.id]);
 
   useEffect(() => {
     if (authReadyRef.current) return;
@@ -147,14 +151,12 @@ export default function Motorista() {
       setAvailableFreights([]); return;
     }
     setRadarLoading(true);
-    // 🔥 Agora busca "disponivel" ou "aguardando_resposta"
     const freightsQuery = query(collection(db, 'fretes'), where('veiculo', '==', operationalCategory), where('status', 'in', ['disponivel', 'aguardando_resposta']), orderBy('createdAt', 'desc'), limit(10));
     
     const unsubscribe = onSnapshot(freightsQuery, snapshot => {
       if (!mountedRef.current) return;
-      
       const next = snapshot.docs.map(document => normalizeFreight(document.id, document.data()))
-        .filter(freight => !freight.motoristaId || freight.motoristaId === user.uid); // Exibe se for aberto ou mandado pro Motorista
+        .filter(freight => !freight.motoristaId || freight.motoristaId === user.uid);
 
       setAvailableFreights(next); 
       setRadarLoading(false);
@@ -192,18 +194,21 @@ export default function Motorista() {
   const handleSelectFreight = useCallback((freight: OperationalFreight) => { setSelectedFreight(freight); }, []);
   const handleCloseFreight = useCallback(() => { setSelectedFreight(null); }, []);
 
+  // 🔥 CORREÇÃO 2: Bypass Eliminado. O Motorista agora usa a Catraca Oficial para Aceitar a Viagem
   const handleAcceptFreight = useCallback(async (freight: OperationalFreight) => {
     if (!user?.uid || !driverData) return;
     try {
-      await updateDoc(doc(db, 'fretes', freight.id), {
-        status: 'aceito', 
-        motoristaId: user.uid, 
-        motoristaNome: driverData.nome || 'Motorista',
-        motoristaZap: driverData.whatsapp || '', 
-        acceptedAt: serverTimestamp(), 
-        atualizadoEm: serverTimestamp(),
-        aguardandoResposta: false // Remove a tag da roleta para o webhook parar!
-      });
+      await TripLifecycleService.alterarStatusViagem(
+        freight.id,
+        AppTripState.ACEITO,
+        user.uid,
+        'motorista',
+        { 
+          motoristaNome: driverData.nome, 
+          motoristaZap: driverData.whatsapp 
+        }
+      );
+      
       await dispatchRealtimeService.aceitarCorrida(user.uid, freight.id);
       setSelectedFreight(null);
     } catch (error) { console.error('ACCEPT FREIGHT ERROR:', error); }
@@ -242,7 +247,6 @@ export default function Motorista() {
   return (
     <div className="min-h-screen bg-[#020617] text-white pb-10">
       
-      {/* BANNER INSTALAÇÃO PWA */}
       {isInstallable && (
         <div className="sticky top-0 z-[100] w-full bg-cyan-600 px-4 py-3 flex items-center justify-between shadow-[0_4px_20px_rgba(8,145,178,0.3)]">
           <div>
@@ -259,12 +263,10 @@ export default function Motorista() {
       )}
 
       <DriverHeader user={user} />
-
       <DriverRadar isOnline={isOnline} setIsOnline={setIsOnline} user={user} driver={driverData} />
       
       <DriverApp freights={availableFreights} selectedFreight={selectedFreight} activeFreight={activeFreight} isOnline={isOnline} loading={radarLoading} driverCategory={operationalCategory} driverName={driverData.nome} onToggleOnline={handleToggleOnline} onSelectFreight={handleSelectFreight} onCloseFreight={handleCloseFreight} onAcceptFreight={handleAcceptFreight} onRejectFreight={handleRejectFreight}>
         
-        {/* 🔥 TELA DE VIAGEM (QUANDO ACEITOU O FRETE) INJETADA AQUI */}
         {activeFreight?.id && (
           <div className="mx-auto mt-10 max-w-7xl px-4 pb-24 md:px-6">
             <DriverActiveTrip freteId={activeFreight.id} />
