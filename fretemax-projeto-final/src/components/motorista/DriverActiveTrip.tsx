@@ -7,7 +7,7 @@ import { LockKeyhole, X } from 'lucide-react';
 import MapaCliente from '../MapaCliente';
 import { dispatchRealtimeService } from '../../services/dispatchRealtimeService';
 
-// 🔥 Importamos os estados oficiais para garantir que a string seja idêntica
+// 🔥 Importamos os estados oficiais para garantir sincronização perfeita
 import { AppTripState } from '../../state/tripStateMachine';
 
 interface DriverActiveTripProps {
@@ -42,13 +42,14 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
   const paradaAtualIndex = frete.paradaAtualIndex || 0;
   const destinoAtual = paradas[paradaAtualIndex] || (frete.entrega || {});
   
-  const mapOriginGPS = frete.status === 'em_transporte' 
+  // 🔥 Usando o Enum oficial para o mapa
+  const mapOriginGPS = frete.status === AppTripState.EM_TRANSPORTE 
     ? (paradaAtualIndex === 0 ? { lat: frete.origemLat, lng: frete.origemLng } : { lat: paradas[paradaAtualIndex-1].lat, lng: paradas[paradaAtualIndex-1].lng })
     : null;
   const mapDestinoGPS = destinoAtual?.lat ? { lat: destinoAtual.lat, lng: destinoAtual.lng } : null;
 
-  // 🔥 REGRA: Usamos as strings exatas que você já utiliza, garantindo compatibilidade total
-  const handleStatusUpdate = async (novoStatus: string) => {
+  // 🔥 REGRA: Tipado com AppTripState para evitar erros de digitação (Case Sensitivity)
+  const handleStatusUpdate = async (novoStatus: AppTripState) => {
     setActionLoading(true);
     try {
       await dispatchRealtimeService.atualizarStatusTrip(frete.id, novoStatus);
@@ -58,10 +59,11 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
   const handlePinSubmit = async () => {
     setActionLoading(true);
     try {
-      if (frete.status === 'coletando') {
+      // 🔥 Usando o Enum oficial para validação da coleta
+      if (frete.status === AppTripState.COLETANDO) {
         if (pinValue !== frete.pinColeta) { setPinError('PIN de Coleta incorreto.'); setActionLoading(false); return; }
-        // Atualiza para o estado oficial 'em_transporte'
-        await dispatchRealtimeService.atualizarStatusTrip(frete.id, 'em_transporte');
+        
+        await dispatchRealtimeService.atualizarStatusTrip(frete.id, AppTripState.EM_TRANSPORTE);
       } else {
         const pinEntregas = frete.pinEntregas || [];
         if (pinValue !== pinEntregas[paradaAtualIndex]) { setPinError('PIN de entrega incorreto.'); setActionLoading(false); return; }
@@ -69,8 +71,8 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
         if (paradaAtualIndex + 1 < paradas.length) {
            await dispatchRealtimeService.atualizarTripRealtime(frete.id, { paradaAtualIndex: paradaAtualIndex + 1 });
         } else {
-           // Atualiza para o estado oficial 'entregue'
-           await dispatchRealtimeService.atualizarStatusTrip(frete.id, 'entregue');
+           // 🔥 Usando o Enum oficial para a entrega final
+           await dispatchRealtimeService.atualizarStatusTrip(frete.id, AppTripState.ENTREGUE);
         }
       }
       setIsPinModalOpen(false); setPinValue('');
@@ -85,9 +87,30 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
         </div>
         
         <div className="space-y-4">
-          {frete.status === 'aceito' && <button onClick={() => handleStatusUpdate('indo_coleta')} className="w-full bg-blue-600 py-4 font-black uppercase tracking-widest rounded-xl">Deslocar p/ Coleta</button>}
-          {frete.status === 'indo_coleta' && <button onClick={() => handleStatusUpdate('coletando')} className="w-full bg-amber-500 py-4 font-black uppercase tracking-widest rounded-xl text-black">Cheguei (Coletar)</button>}
-          {['coletando', 'em_transporte'].includes(frete.status) && <button onClick={() => setIsPinModalOpen(true)} className="w-full bg-cyan-500 py-4 font-black uppercase tracking-widest rounded-xl text-black">Validar PIN</button>}
+          {/* 🔥 Fluxo completo blindado com Enums, incluindo o CHEGOU_COLETA que faltava */}
+          {frete.status === AppTripState.ACEITO && (
+            <button onClick={() => handleStatusUpdate(AppTripState.INDO_COLETA)} disabled={actionLoading} className="w-full bg-blue-600 py-4 font-black uppercase tracking-widest rounded-xl disabled:opacity-50">
+              Deslocar p/ Coleta
+            </button>
+          )}
+          
+          {frete.status === AppTripState.INDO_COLETA && (
+            <button onClick={() => handleStatusUpdate(AppTripState.CHEGOU_COLETA)} disabled={actionLoading} className="w-full bg-indigo-500 py-4 font-black uppercase tracking-widest rounded-xl text-white disabled:opacity-50">
+              Cheguei no Local
+            </button>
+          )}
+
+          {frete.status === AppTripState.CHEGOU_COLETA && (
+            <button onClick={() => handleStatusUpdate(AppTripState.COLETANDO)} disabled={actionLoading} className="w-full bg-amber-500 py-4 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50">
+              Iniciar Coleta
+            </button>
+          )}
+
+          {[AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE].includes(frete.status) && (
+            <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full bg-cyan-500 py-4 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50">
+              Validar PIN
+            </button>
+          )}
         </div>
       </motion.div>
 
@@ -98,7 +121,9 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
               <h3 className="text-white text-center font-black mb-6 uppercase">Digite o PIN</h3>
               <input type="text" maxLength={4} value={pinValue} onChange={(e) => setPinValue(e.target.value.replace(/\D/g, ''))} className="w-full p-4 text-center text-4xl bg-slate-950 text-white rounded-xl mb-4" />
               {pinError && <p className="text-red-400 text-xs text-center mb-4">{pinError}</p>}
-              <button onClick={handlePinSubmit} className="w-full bg-cyan-500 py-4 font-black uppercase rounded-xl">Confirmar</button>
+              <button onClick={handlePinSubmit} disabled={actionLoading} className="w-full bg-cyan-500 py-4 font-black uppercase rounded-xl disabled:opacity-50">
+                {actionLoading ? 'Validando...' : 'Confirmar'}
+              </button>
             </motion.div>
           </motion.div>
         )}
