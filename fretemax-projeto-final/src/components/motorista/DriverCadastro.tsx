@@ -9,9 +9,12 @@ import {
   ShieldCheck,
   Truck,
   User,
-  ListFilter
+  ListFilter,
+  FileImage,
+  CheckCircle2
 } from 'lucide-react';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { auth, db } from '../../firebase';
 
 interface DriverCadastroProps {
@@ -24,13 +27,17 @@ export default function DriverCadastro({
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  // Estados para as fotos reais
+  const [cnhFile, setCnhFile] = useState<File | null>(null);
+  const [docVeiculoFile, setDocVeiculoFile] = useState<File | null>(null);
+
   const [formData, setFormData] = useState({
     nome: '',
     telefone: '',
     cpf: '',
     placa: '',
     veiculo: '',
-    categoria: '', // 🔥 CAMPO CRÍTICO ADICIONADO PARA A ROLETA
+    categoria: '', // Chave primária do algoritmo
   });
 
   const handleChange = (
@@ -42,12 +49,24 @@ export default function DriverCadastro({
     });
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'cnh' | 'doc') => {
+    if (e.target.files && e.target.files[0]) {
+      if (type === 'cnh') setCnhFile(e.target.files[0]);
+      if (type === 'doc') setDocVeiculoFile(e.target.files[0]);
+    }
+  };
+
   const handleSubmit = async () => {
     setErrorMsg('');
     
-    // Validação básica para não salvar cadastro vazio
-    if (!formData.nome || !formData.telefone || !formData.cpf || !formData.placa || !formData.categoria) {
-      setErrorMsg('Preencha todos os campos obrigatórios.');
+    // Validação estrita: Sem dados ou sem fotos, não avança.
+    if (!formData.nome || !formData.telefone || !formData.cpf || !formData.placa || !formData.categoria || !formData.veiculo) {
+      setErrorMsg('Preencha todos os campos obrigatórios em texto.');
+      return;
+    }
+
+    if (!cnhFile || !docVeiculoFile) {
+      setErrorMsg('É obrigatório enviar a foto da CNH e do Documento do Veículo.');
       return;
     }
 
@@ -59,27 +78,39 @@ export default function DriverCadastro({
         throw new Error("Sessão expirada. Faça login novamente.");
       }
 
-      console.log('CADASTRANDO MOTORISTA (FIRESTORE):', formData);
+      const storage = getStorage();
+      
+      // 1. Upload da foto da CNH
+      const cnhRef = ref(storage, `motoristas_docs/${user.uid}/cnh_${Date.now()}`);
+      await uploadBytes(cnhRef, cnhFile);
+      const cnhUrl = await getDownloadURL(cnhRef);
 
-      // 🔥 CORREÇÃO: Salva de verdade no banco de dados com status 'pendente'
+      // 2. Upload da foto do Documento do Veículo
+      const docRef = ref(storage, `motoristas_docs/${user.uid}/doc_${Date.now()}`);
+      await uploadBytes(docRef, docVeiculoFile);
+      const docUrl = await getDownloadURL(docRef);
+
+      // 3. Salva tudo no Firestore (Textos + Links das Fotos)
       await setDoc(doc(db, 'motoristas_cadastros', user.uid), {
         nome: formData.nome,
         whatsapp: formData.telefone,
         cpf: formData.cpf,
         placa: formData.placa.toUpperCase(),
-        modeloVeiculo: formData.veiculo,
-        categoria: formData.categoria, // Chave primária para o Dispatch
-        status: 'pendente', // Gatilho para o Painel Admin
+        modeloVeiculo: formData.veiculo, // Ex: Carreta Baú, Grade Baixa, etc.
+        categoria: formData.categoria, // Ex: carreta (Para o motor de busca)
+        fotoCnh: cnhUrl, // Link seguro gerado pelo Firebase
+        fotoDocumento: docUrl, // Link seguro gerado pelo Firebase
+        status: 'pendente', // Gatilho de segurança para o Admin aprovar
         criadoEm: serverTimestamp(),
         uid: user.uid,
       });
 
-      // Avança a tela apenas se salvou com sucesso
+      // Avança a tela apenas se salvou com sucesso total
       onFinish();
 
     } catch (error: any) {
       console.error('ERRO AO CADASTRAR MOTORISTA:', error);
-      setErrorMsg('Ocorreu um erro ao enviar seu cadastro. Tente novamente.');
+      setErrorMsg('Ocorreu um erro no upload. Verifique sua conexão e tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -106,7 +137,7 @@ export default function DriverCadastro({
             Cadastro do Motorista
           </h1>
           <p className="mt-3 text-sm text-slate-400">
-            Complete seu perfil para começar a receber fretes em tempo real.
+            Complete seu perfil e envie os documentos para análise.
           </p>
         </div>
 
@@ -118,64 +149,32 @@ export default function DriverCadastro({
 
         {/* FORM */}
         <div className="grid gap-5 md:grid-cols-2">
-          {/* NOME */}
           <div>
             <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-300">
               <User size={16} /> Nome completo
             </label>
-            <input
-              type="text"
-              name="nome"
-              value={formData.nome}
-              onChange={handleChange}
-              placeholder="Digite seu nome"
-              className="w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-white outline-none transition-all focus:border-cyan-400"
-            />
+            <input type="text" name="nome" value={formData.nome} onChange={handleChange} placeholder="Digite seu nome" className="w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-white outline-none transition-all focus:border-cyan-400" />
           </div>
 
-          {/* TELEFONE */}
           <div>
             <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-300">
               <Phone size={16} /> Telefone
             </label>
-            <input
-              type="text"
-              name="telefone"
-              value={formData.telefone}
-              onChange={handleChange}
-              placeholder="(11) 99999-9999"
-              className="w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-white outline-none transition-all focus:border-cyan-400"
-            />
+            <input type="text" name="telefone" value={formData.telefone} onChange={handleChange} placeholder="(11) 99999-9999" className="w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-white outline-none transition-all focus:border-cyan-400" />
           </div>
 
-          {/* CPF */}
           <div>
             <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-300">
               <CreditCard size={16} /> CPF
             </label>
-            <input
-              type="text"
-              name="cpf"
-              value={formData.cpf}
-              onChange={handleChange}
-              placeholder="000.000.000-00"
-              className="w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-white outline-none transition-all focus:border-cyan-400"
-            />
+            <input type="text" name="cpf" value={formData.cpf} onChange={handleChange} placeholder="000.000.000-00" className="w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-white outline-none transition-all focus:border-cyan-400" />
           </div>
 
-          {/* PLACA */}
           <div>
             <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-300">
               <BadgeCheck size={16} /> Placa do veículo
             </label>
-            <input
-              type="text"
-              name="placa"
-              value={formData.placa}
-              onChange={handleChange}
-              placeholder="ABC1D23"
-              className="w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-white outline-none transition-all focus:border-cyan-400"
-            />
+            <input type="text" name="placa" value={formData.placa} onChange={handleChange} placeholder="ABC1D23" className="w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-white outline-none transition-all focus:border-cyan-400" />
           </div>
         </div>
 
@@ -184,12 +183,7 @@ export default function DriverCadastro({
           <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-300">
             <ListFilter size={16} /> Categoria Operacional (Para o Radar)
           </label>
-          <select
-            name="categoria"
-            value={formData.categoria}
-            onChange={handleChange}
-            className="w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-white outline-none transition-all focus:border-cyan-400 [&>option]:bg-slate-900"
-          >
+          <select name="categoria" value={formData.categoria} onChange={handleChange} className="w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-white outline-none transition-all focus:border-cyan-400 [&>option]:bg-slate-900">
             <option value="">Selecione a categoria principal</option>
             <option value="moto">Moto</option>
             <option value="carro">Carro Pequeno / Hatch</option>
@@ -204,30 +198,51 @@ export default function DriverCadastro({
         {/* VEÍCULO MODELO */}
         <div className="mt-5">
           <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-300">
-            <Truck size={16} /> Modelo exato do veículo
+            <Truck size={16} /> Modelo exato (Ex: Carreta Baú, HR, Fiorino)
           </label>
-          <input
-            type="text"
-            name="veiculo"
-            value={formData.veiculo}
-            onChange={handleChange}
-            placeholder="Ex: HR, Fiorino, Scania FH..."
-            className="w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-white outline-none transition-all focus:border-cyan-400"
-          />
+          <input type="text" name="veiculo" value={formData.veiculo} onChange={handleChange} placeholder="Descreva o modelo e tipo de carroceria..." className="w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-white outline-none transition-all focus:border-cyan-400" />
         </div>
 
-        {/* DOCUMENTOS */}
+        {/* UPLOAD DE DOCUMENTOS REAIS */}
         <div className="mt-8 rounded-[2rem] border border-dashed border-cyan-500/30 bg-cyan-500/5 p-6">
-          <div className="flex flex-col items-center justify-center text-center">
+          <div className="mb-6 flex flex-col items-center justify-center text-center">
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-cyan-500/10">
               <Camera className="text-cyan-400" />
             </div>
-            <h3 className="text-lg font-black text-white">
-              Envio de documentos
-            </h3>
+            <h3 className="text-lg font-black text-white">Fotos Obrigatórias</h3>
             <p className="mt-2 max-w-md text-sm text-slate-400">
-              CNH, documento do veículo e selfie serão enviados na próxima etapa.
+              Precisamos validar sua identidade e seu veículo para garantir a segurança da plataforma.
             </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            {/* INPUT CNH */}
+            <div className="relative">
+              <input type="file" id="cnhUpload" accept="image/*" onChange={(e) => handleFileChange(e, 'cnh')} className="hidden" />
+              <label htmlFor="cnhUpload" className={`flex w-full cursor-pointer items-center justify-between rounded-xl border px-4 py-3 transition-all hover:bg-white/5 ${cnhFile ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-white/10 bg-white/5'}`}>
+                <div className="flex items-center gap-3 overflow-hidden">
+                  <FileImage className={cnhFile ? 'text-emerald-400' : 'text-cyan-400'} size={20} />
+                  <span className="truncate text-sm font-medium text-slate-200">
+                    {cnhFile ? cnhFile.name : 'Tirar foto da CNH'}
+                  </span>
+                </div>
+                {cnhFile && <CheckCircle2 className="text-emerald-400" size={18} />}
+              </label>
+            </div>
+
+            {/* INPUT DOCUMENTO VEÍCULO */}
+            <div className="relative">
+              <input type="file" id="docUpload" accept="image/*" onChange={(e) => handleFileChange(e, 'doc')} className="hidden" />
+              <label htmlFor="docUpload" className={`flex w-full cursor-pointer items-center justify-between rounded-xl border px-4 py-3 transition-all hover:bg-white/5 ${docVeiculoFile ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-white/10 bg-white/5'}`}>
+                <div className="flex items-center gap-3 overflow-hidden">
+                  <Truck className={docVeiculoFile ? 'text-emerald-400' : 'text-cyan-400'} size={20} />
+                  <span className="truncate text-sm font-medium text-slate-200">
+                    {docVeiculoFile ? docVeiculoFile.name : 'Foto do Doc (CRLV)'}
+                  </span>
+                </div>
+                {docVeiculoFile && <CheckCircle2 className="text-emerald-400" size={18} />}
+              </label>
+            </div>
           </div>
         </div>
 
@@ -235,12 +250,8 @@ export default function DriverCadastro({
         <div className="mt-8 flex items-center gap-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
           <ShieldCheck className="text-emerald-400" />
           <div>
-            <h3 className="font-bold text-white">
-              Dados protegidos
-            </h3>
-            <p className="text-sm text-slate-400">
-              Todas as informações são criptografadas e protegidas pela plataforma.
-            </p>
+            <h3 className="font-bold text-white">Dados protegidos</h3>
+            <p className="text-sm text-slate-400">Todas as fotos e documentos são criptografados.</p>
           </div>
         </div>
 
@@ -248,9 +259,14 @@ export default function DriverCadastro({
         <button
           onClick={handleSubmit}
           disabled={loading}
-          className="mt-8 w-full rounded-[1.5rem] bg-cyan-500 py-5 text-sm font-black uppercase tracking-[0.2em] text-black transition-all hover:scale-[1.02] hover:bg-cyan-400 disabled:opacity-60"
+          className="mt-8 w-full rounded-[1.5rem] bg-cyan-500 py-5 text-sm font-black uppercase tracking-[0.2em] text-black transition-all hover:scale-[1.02] hover:bg-cyan-400 disabled:opacity-60 flex items-center justify-center gap-2"
         >
-          {loading ? 'Validando...' : 'Finalizar Cadastro'}
+          {loading ? (
+            <>
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-black border-t-transparent"></div>
+              Enviando Documentos...
+            </>
+          ) : 'Finalizar Cadastro'}
         </button>
       </motion.div>
     </div>
