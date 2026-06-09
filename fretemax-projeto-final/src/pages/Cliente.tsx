@@ -1,11 +1,9 @@
-// =========================================================
-// NOME DO ARQUIVO: src/pages/Cliente.tsx
-// =========================================================
+// src/pages/Cliente.tsx
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Radar, Sparkles, User, Package, CalendarDays, Plus, Trash2, Flame } from 'lucide-react';
+import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Sparkles, User, Package, CalendarDays, Plus, Trash2, Flame } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import ChatFrete from '../components/ChatFrete';
 import ClientStatusCard from '../components/client/ClientStatusCard';
@@ -137,7 +135,6 @@ export default function Cliente() {
     };
   }, [validDistancia, vehicle, entregas.length, tipoMaterial, peso, qtdVolumes]);
 
-  const valorTotalBruto = calculoFinanceiro.precoFinalCliente;
   const valorAncora = (calculoFinanceiro.precoFinalCliente + calculoFinanceiro.tollCost) * 1.42;
 
   const isFormValid = nome.trim() !== '' && whatsapp.length >= 10 && documento.replace(/\D/g, '').length >= 11 && coleta.rua.trim() !== '' && entregas.every(e => e.rua.trim() !== '') && peso.trim() !== '' && qtdVolumes.trim() !== '' && (tipoFrete === 'imediato' || (tipoFrete === 'agendado' && dataAgendada.trim() !== ''));
@@ -269,7 +266,6 @@ export default function Cliente() {
       showToast('Calculando rota por estimativa de CEP.', 'warning');
       setDistanciaReal(15 * entregas.length); 
 
-      // 🔥 CORREÇÃO DA TELA INFINITA: Ativando GPS de fallback para não quebrar a tela!
       const fallbackOrigem = getFallbackCoordsByCEP(coleta.cep);
       const fallbackDestino = getFallbackCoordsByCEP(entregas[entregas.length - 1].cep);
       setOrigemGPS(fallbackOrigem);
@@ -674,7 +670,7 @@ export default function Cliente() {
           <div className="w-full grid grid-cols-1 gap-8 animate-in slide-in-from-bottom-6 duration-500 lg:grid-cols-[1fr_420px]">
             <div className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-6 md:p-10 shadow-2xl">
               
-              {/* O CARD DE STATUS OPERACIONAL DO CLIENTE */}
+              {/* O CARD DE STATUS OPERACIONAL DO CLIENTE COM O PIN */}
               <ClientStatusCard 
                 status={orderData?.status}
                 loadingMessage={loadingMessage}
