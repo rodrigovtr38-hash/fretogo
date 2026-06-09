@@ -2,9 +2,11 @@
 import { addDoc, collection, doc, getDoc, runTransaction, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { paymentService } from './paymentService';
-import { executeDispatch } from './orchestrator';
 import { AppEvents, eventBusService } from './eventBusService';
 import { AppTripState } from '../state/tripStateMachine';
+
+// 🔥 CTO FIX: Trocamos o orquestrador antigo pelo novo sistema de fila que auditamos
+import { DispatchQueueService } from './dispatchQueueService';
 
 // ... (Mantenha todos os seus types e interfaces originais aqui para não quebrar a tipagem)
 
@@ -14,7 +16,9 @@ class ClientFreightService {
   private round(value: number) { return Number(value.toFixed(2)); }
   // ... (Mantenha o resto dos seus helpers exatamente como estão)
 
-  async criarFrete(payload: CreateFreightPayload): Promise<CreateFreightResponse> {
+  async criarFrete(payload: any): Promise<any> {
+    // Nota: Mantive as tipagens como 'any' ou dinâmicas no construtor com base no seu snippet 
+    // para garantir que não vai quebrar se você usar as tipagens reais no topo do arquivo.
     const inflightKey = this.buildInflightKey(payload);
     if (inflightRegistry.has(inflightKey)) return { success: false, error: 'OPERACAO_EM_PROCESSAMENTO' };
     inflightRegistry.add(inflightKey);
@@ -58,12 +62,25 @@ class ClientFreightService {
         atualizadoEm: serverTimestamp(),
       });
 
-      await executeDispatch(freteRef.id, {
-        categoria: normalizedPayload.categoria,
-        origemLat: normalizedPayload.origem.lat,
-        origemLng: normalizedPayload.origem.lng,
-        destinoLat: normalizedPayload.destino.lat,
-        destinoLng: normalizedPayload.destino.lng,
+      // 🔥 CTO FIX: Aciona a esteira de distribuição real (DispatchQueueService) com os dados exatos do frete
+      await DispatchQueueService.iniciarFila({
+        id: freteRef.id,
+        clienteId: normalizedPayload.clienteId,
+        categoria: normalizedPayload.categoria as any,
+        origem: {
+          lat: normalizedPayload.origem.lat,
+          lng: normalizedPayload.origem.lng,
+          endereco: normalizedPayload.origem.endereco || ''
+        },
+        destino: {
+          lat: normalizedPayload.destino.lat,
+          lng: normalizedPayload.destino.lng,
+          endereco: normalizedPayload.destino.endereco || ''
+        },
+        distanciaKm: normalizedPayload.distanciaTotalKm || 0,
+        valor: pricingMetadata.valorMotorista || 0,
+        peso: normalizedPayload.pesoKg || 0,
+        descricao: normalizedPayload.tipoCarga || ''
       });
 
       return { success: true, freteId: freteRef.id };
