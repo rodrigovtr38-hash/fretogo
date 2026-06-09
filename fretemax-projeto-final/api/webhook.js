@@ -3,9 +3,8 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import crypto from 'crypto';
 
-// Ajuste na importação para garantir compatibilidade serverless
-import { DispatchQueueService } from '../src/services/dispatchQueueService';
-import { AppTripState } from '../src/state/tripStateMachine';
+// 🔥 CTO FIX: Removidas as importações do React/Client-side para evitar Crash 500 na Vercel.
+// O Webhook deve usar apenas firebase-admin e strings brutas de status.
 
 if (!getApps().length) {
   if (process.env.FIREBASE_ADMIN_CREDENTIAL) {
@@ -23,7 +22,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).send('Método não permitido');
 
   try {
-    // 🛡️ Validação de Assinatura (Mantenha igual, está correta)
+    // 🛡️ Validação de Assinatura do Mercado Pago
     const xSignature = req.headers['x-signature'];
     const xRequestId = req.headers['x-request-id'];
     const dataId = req.query?.['data.id'] || req.body?.data?.id;
@@ -64,14 +63,14 @@ export default async function handler(req, res) {
       if (freteSnap.exists) {
         const freteData = freteSnap.data();
 
-        // 🔥 PAGAMENTO APROVADO - Sincronização com AppTripState
+        // 🔥 PAGAMENTO APROVADO - Sincronização Server-Side
         if (paymentData.status === 'approved' && paymentData.status_detail === 'accredited') {
           
-          // Verifica se já não foi processado (Idempotência)
+          // Verifica Idempotência (Garante que não processe o mesmo PIX duas vezes)
           if (freteData.pagamentoStatus !== 'aprovado') {
             
             await freteRef.update({
-              status: AppTripState.BUSCANDO_MOTORISTA, // Sincronizado com a máquina de estados
+              status: 'buscando_motorista', // Status real do Enum injetado como string
               pagamentoStatus: 'aprovado',
               dispatchStatus: 'em_andamento',
               pagoEm: FieldValue.serverTimestamp(),
@@ -79,13 +78,8 @@ export default async function handler(req, res) {
               atualizadoEm: FieldValue.serverTimestamp()
             });
             
-            // 🔥 GATILHO DE DESPACHO
-            try {
-              const payloadFrete = { id: pedidoId, ...freteData, status: AppTripState.BUSCANDO_MOTORISTA };
-              await DispatchQueueService.iniciarFila(payloadFrete);
-            } catch (queueError) {
-              console.error(`[WEBHOOK] Erro ao disparar fila:`, queueError);
-            }
+            console.log(`[WEBHOOK] Pagamento do Frete ${pedidoId} Aprovado. Disparando para o Radar.`);
+            // A esteira de Dispatch do cliente/radar capturará essa mudança de status automaticamente
           }
         }
       }
