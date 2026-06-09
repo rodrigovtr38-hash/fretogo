@@ -38,15 +38,16 @@ export default function DriverHeader({ user, driverData }: DriverHeaderProps) {
   const score = driverData?.score ? Number(driverData.score).toFixed(1) : '5.0';
 
   return (
-    <header className="relative z-50 w-full border-b border-white/5 bg-slate-950/80 backdrop-blur-xl">
-      <nav className="mx-auto flex w-full max-w-[1400px] items-center justify-between px-4 py-3 lg:px-8">
+    // 🔥 CTO FIX: Adicionado h-20 para dar altura padrão e z-50 para ficar sempre no topo
+    <header className="relative z-50 w-full h-20 border-b border-white/5 bg-slate-950/80 backdrop-blur-xl">
+      <nav className="mx-auto flex w-full h-full max-w-[1400px] items-center justify-between px-4 lg:px-8 relative">
         
-        {/* PERFIL DO MOTORISTA (PADRÃO UBER) */}
-        <div className="flex items-center gap-3">
+        {/* LADO ESQUERDO: PERFIL DO MOTORISTA */}
+        <div className="flex items-center gap-3 z-10">
           <div className="flex h-11 w-11 items-center justify-center rounded-full border border-cyan-500/30 bg-slate-900 shadow-[0_0_15px_rgba(6,182,212,0.1)]">
             <Truck className="h-5 w-5 text-cyan-400" />
           </div>
-          <div className="flex flex-col">
+          <div className="flex flex-col hidden sm:flex"> {/* Esconde os dados em telas muito pequenas para não espremer a logo */}
             <span className="text-sm font-black uppercase tracking-tight text-white truncate max-w-[120px] md:max-w-[200px]">
               {driverData?.nome || 'Motorista'}
             </span>
@@ -63,15 +64,28 @@ export default function DriverHeader({ user, driverData }: DriverHeaderProps) {
           </div>
         </div>
 
-        {/* AÇÕES: PWA E SAIR */}
-        <div className="flex items-center gap-2">
+        {/* 🔥 O CENTRO: A MARCA FRETOGO NÍTIDA E ABSOLUTA */}
+        {/* A marca agora flutua exatamente no meio da tela do celular */}
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center gap-2">
+           <img 
+              src="/icon-192.png" 
+              alt="Logo" 
+              className="w-10 h-10 object-contain rounded-md shadow-lg"
+           />
+           <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tighter uppercase italic drop-shadow-md">
+             Freto<span className="text-yellow-400">Go</span>
+           </h1>
+        </div>
+
+        {/* LADO DIREITO: AÇÕES PWA E SAIR */}
+        <div className="flex items-center gap-2 z-10">
           {isInstallable && (
             <button
               onClick={handleInstallClick}
               className="flex items-center gap-1.5 rounded-xl bg-cyan-500 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-black transition-all hover:bg-cyan-400 active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.3)]"
             >
               <Download size={14} />
-              <span className="hidden sm:inline">Instalar App</span>
+              <span className="hidden sm:inline">Instalar</span>
             </button>
           )}
 
