@@ -1,4 +1,3 @@
-// src/pages/Motorista.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { auth, db } from '../firebase';
 import { collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
@@ -64,30 +63,29 @@ export default function Motorista() {
     setDeferredPrompt(null);
   };
 
-  // Centraliza o preenchimento de Oferta visual
   const normalizeFreight = useCallback((id: string, data: any): OperationalFreight => {
     const feePercent = CATEGORY_FEES[data.categoria] ?? 0.2;
-    const valorCliente = Number(data.valorCliente || data.valorTotal || data.valor || 0); // Correção do valor pro radar
+    const valorCliente = Number(data.valorCliente || data.valorTotal || data.valor || 0); 
     const valorMotorista = data.valorMotorista ?? valorCliente * (1 - feePercent);
     const distanciaColetaKm = Number(data.distanciaColetaKm || 0);
     const distanciaEntregaKm = Number(data.distanciaEntregaKm || data.distancia || 0);
 
     return {
       id,
-      status: data.status || 'disponivel',
+      status: data.status || 'DISPONIVEL',
       prioridade: Boolean(data.prioridade),
       agendado: Boolean(data.agendado),
       categoria: data.categoria || 'carro',
-      enderecoColetaTexto: data.enderecoColetaTexto || 'Coleta não informada',
-      enderecoEntregaTexto: data.enderecoEntregaTexto || 'Entrega não informada',
+      enderecoColetaTexto: data.enderecoColetaTexto || data.origem?.endereco || 'Coleta não informada',
+      enderecoEntregaTexto: data.enderecoEntregaTexto || data.destino?.endereco || 'Entrega não informada',
       distanciaColetaKm,
       distanciaEntregaKm,
-      distanciaTotalKm: distanciaColetaKm + distanciaEntregaKm,
+      distanciaTotalKm: distanciaColetaKm + distanciaEntregaKm || data.distanciaTotalKm || 0,
       valorCliente,
       valorMotorista,
-      pesoKg: Number(data.pesoKg || data.peso || 0), // Puxa dado da string antiga do formulário
-      volumes: Number(data.volumes || data.qtdVolumes || 1), // Puxa do formulário antigo
-      tipoCarga: data.tipoMaterial || data.tipoCarga || 'Geral', // Tipo da Carga
+      pesoKg: Number(data.pesoKg || data.peso || 0), 
+      volumes: Number(data.volumes || data.qtdVolumes || 1), 
+      tipoCarga: data.tipoMaterial || data.tipoCarga || 'Geral',
       etaMinutes: Number(data.etaMinutes || 20),
       motoristaId: data.motoristaId || null,
       createdAt: data.createdAt,
@@ -102,17 +100,16 @@ export default function Motorista() {
     return () => { mountedRef.current = false; cancelAnimationFrame(frame); };
   }, []);
 
-  // 🔥 AJUSTE CIRÚRGICO: O Heartbeat agora aponta para o ID da viagem, não do usuário.
+  // Heartbeat do Motorista
   useEffect(() => {
     if (!user?.uid || !isOnline) return;
     if (heartbeatRef.current) clearInterval(heartbeatRef.current);
     heartbeatRef.current = window.setInterval(async () => {
       try { 
-        // Se houver viagem ativa, atualiza a viagem. Senão, atualiza o motorista no radar.
         if (activeFreight?.id) {
           await dispatchRealtimeService.atualizarTripRealtime(activeFreight.id, { heartbeat: Date.now() }); 
         } else {
-          await dispatchRealtimeService.atualizarTripRealtime(user.uid, { heartbeat: Date.now() }); 
+          await updateDoc(doc(db, 'motoristas_online', user.uid), { heartbeat: Date.now() }); 
         }
       } 
       catch (error) { console.error('HEARTBEAT ERROR:', error); }
@@ -149,20 +146,27 @@ export default function Motorista() {
     };
   }, []);
 
-  // MOTOR DE BUSCA (A Roleta)
+  // 🔥 MOTOR DE BUSCA (A Roleta Sincronizada com o Cliente)
   useEffect(() => {
     if (!runtimeReady || !user?.uid || !driverData || !isOnline) {
       setAvailableFreights([]); return;
     }
     setRadarLoading(true);
-    // 🔥 Agora busca "disponivel" ou "aguardando_resposta"
-    const freightsQuery = query(collection(db, 'fretes'), where('veiculo', '==', operationalCategory), where('status', 'in', ['disponivel', 'aguardando_resposta']), orderBy('createdAt', 'desc'), limit(10));
+    
+    // CTO FIX: Agora o radar escuta os status corretos que a esteira do cliente envia
+    const freightsQuery = query(
+      collection(db, 'fretes'), 
+      where('categoria', '==', operationalCategory), 
+      where('status', 'in', ['DISPONIVEL', 'disponivel', 'BUSCANDO_MOTORISTA', 'AGUARDANDO_ACEITE']), 
+      orderBy('createdAt', 'desc'), 
+      limit(10)
+    );
     
     const unsubscribe = onSnapshot(freightsQuery, snapshot => {
       if (!mountedRef.current) return;
       
       const next = snapshot.docs.map(document => normalizeFreight(document.id, document.data()))
-        .filter(freight => !freight.motoristaId || freight.motoristaId === user.uid); // Exibe se for aberto ou mandado pro Motorista
+        .filter(freight => !freight.motoristaId || freight.motoristaId === user.uid || snapshot.docs.find(d => d.id === freight.id)?.data().motoristaAtualDestaque === user.uid); 
 
       setAvailableFreights(next); 
       setRadarLoading(false);
@@ -210,7 +214,6 @@ export default function Motorista() {
         motoristaZap: driverData.whatsapp || '', 
         acceptedAt: serverTimestamp(), 
         atualizadoEm: serverTimestamp(),
-        aguardandoResposta: false // Remove a tag da roleta para o webhook parar!
       });
       await dispatchRealtimeService.aceitarCorrida(user.uid, freight.id);
       setSelectedFreight(null);
@@ -227,7 +230,7 @@ export default function Motorista() {
       <div className="flex min-h-screen items-center justify-center bg-[#020617] text-white">
         <div className="text-center">
           <h1 className="text-4xl font-black">FRETOGO</h1>
-          <p className="mt-4 text-slate-400">Iniciando cockpit de voo...</p>
+          <p className="mt-4 text-slate-400 animate-pulse">Iniciando cockpit de voo...</p>
         </div>
       </div>
     );
@@ -268,20 +271,19 @@ export default function Motorista() {
 
       <DriverHeader user={user} />
 
-      <DriverRadar isOnline={isOnline} setIsOnline={setIsOnline} user={user} driver={driverData} />
-      
-      <DriverApp freights={availableFreights} selectedFreight={selectedFreight} activeFreight={activeFreight} isOnline={isOnline} loading={radarLoading} driverCategory={operationalCategory} driverName={driverData.nome} onToggleOnline={handleToggleOnline} onSelectFreight={handleSelectFreight} onCloseFreight={handleCloseFreight} onAcceptFreight={handleAcceptFreight} onRejectFreight={handleRejectFreight}>
-        
-        {/* 🔥 TELA DE VIAGEM (QUANDO ACEITOU O FRETE) INJETADA AQUI */}
-        {activeFreight?.id && (
-          <div className="mx-auto mt-10 max-w-7xl px-4 pb-24 md:px-6">
-            <DriverActiveTrip freteId={activeFreight.id} />
-            <div className="mt-8">
-              <ChatFrete freteId={activeFreight.id} tipoUsuario="motorista" nome={driverData.nome || 'Motorista'} />
-            </div>
+      {activeFreight?.id ? (
+        <div className="mx-auto mt-10 max-w-7xl px-4 pb-24 md:px-6">
+          <DriverActiveTrip freteId={activeFreight.id} />
+          <div className="mt-8">
+            <ChatFrete freteId={activeFreight.id} tipoUsuario="motorista" nome={driverData.nome || 'Motorista'} />
           </div>
-        )}
-      </DriverApp>
+        </div>
+      ) : (
+        <>
+          <DriverRadar isOnline={isOnline} setIsOnline={handleToggleOnline} user={user} driver={driverData} />
+          <DriverApp freights={availableFreights} selectedFreight={selectedFreight} activeFreight={activeFreight} isOnline={isOnline} loading={radarLoading} driverCategory={operationalCategory} driverName={driverData.nome} onToggleOnline={handleToggleOnline} onSelectFreight={handleSelectFreight} onCloseFreight={handleCloseFreight} onAcceptFreight={handleAcceptFreight} onRejectFreight={handleRejectFreight} />
+        </>
+      )}
     </div>
   );
 }
