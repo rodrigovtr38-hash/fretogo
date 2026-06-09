@@ -19,6 +19,7 @@ type DriverRealtimePayload = {
   gpsHeading: number;
   gpsSpeed: number;
   gpsUpdatedAt: number;
+  gpsFalhou?: boolean; // 🔥 CTO FIX: Adicionado campo de alerta de falha de GPS
 };
 
 type TrackingStatus =
@@ -45,7 +46,7 @@ declare global {
 class LocationRealtimeService {
   private watchId: number | null = null;
   private trackingDriverId: string | null = null;
-  private currentTripId: string | null = null; // 🔥 FASE 4: Guardamos o Frete Atual para sincronia
+  private currentTripId: string | null = null; 
   private trackingStatus: TrackingStatus = 'idle';
   private lastSentAt = 0;
   private lastPosition: Coordinates | null = null;
@@ -53,11 +54,13 @@ class LocationRealtimeService {
   private queuedPayload: DriverRealtimePayload | null = null;
   private visibilityPaused = false;
   private reconnectTimeout: number | null = null;
+  private gpsWatchdogInterval: number | null = null; // 🔥 CTO FIX: Cronômetro do GPS
 
   private readonly MIN_DISTANCE_METERS = 35;
   private readonly MIN_UPDATE_INTERVAL = 12000;
   private readonly MAX_BACKGROUND_INTERVAL = 30000;
   private readonly MAX_GPS_ACCURACY = 120;
+  private readonly GPS_TIMEOUT_THRESHOLD = 60000; // 🔥 CTO FIX: 1 minuto sem GPS gera alerta
 
   constructor() {
     if (typeof document !== 'undefined') {
@@ -65,6 +68,7 @@ class LocationRealtimeService {
     }
     if (typeof window !== 'undefined') {
       window.addEventListener('online', this.handleReconnect);
+      window.addEventListener('offline', this.handleOffline);
     }
   }
 
@@ -75,20 +79,56 @@ class LocationRealtimeService {
       console.log('📴 Tracking em background.');
     } else {
       console.log('📡 Tracking retomado.');
+      this.handleReconnect(); // Força reconexão do GPS ao abrir o app
     }
+  };
+
+  private handleOffline = () => {
+    console.log('⚠️ Sem internet (Modo Offline).');
+    this.trackingStatus = 'paused';
   };
 
   private handleReconnect = () => {
     if (!this.trackingDriverId) return;
-    if (this.watchId !== null) return;
     if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
 
     this.reconnectTimeout = window.setTimeout(() => {
       if (!this.trackingDriverId) return;
-      console.log('♻️ Reconnect tracking realtime.');
+      console.log('♻️ Reconnect tracking realtime (Túnel/Sinal).');
+      
+      // Reinicia o hardware de GPS do zero para limpar lixo de memória
+      if (this.watchId !== null) {
+        navigator.geolocation.clearWatch(this.watchId);
+        this.watchId = null;
+      }
+      
       this.start(this.trackingDriverId, this.currentTripId || undefined);
     }, 2500);
   };
+
+  // 🔥 CTO FIX: Cão de Guarda do GPS (Avisa se o motorista desligar o GPS no meio da viagem)
+  private startGpsWatchdog() {
+    if (this.gpsWatchdogInterval) window.clearInterval(this.gpsWatchdogInterval);
+    
+    this.gpsWatchdogInterval = window.setInterval(() => {
+      if (this.trackingStatus === 'stopped') return;
+      
+      const now = Date.now();
+      if (now - this.lastSentAt > this.GPS_TIMEOUT_THRESHOLD) {
+        console.warn('⚠️ Alerta Crítico: GPS parado ou sem permissão há muito tempo!');
+        
+        // Envia alerta para o banco de dados
+        this.enqueueWrite({
+          location: this.lastPosition || { lat: 0, lng: 0 },
+          gpsAccuracy: 0,
+          gpsHeading: 0,
+          gpsSpeed: 0,
+          gpsUpdatedAt: now,
+          gpsFalhou: true // A luz vermelha acende no Admin e Cliente
+        });
+      }
+    }, 30000); // Checa a cada 30 segundos
+  }
 
   private calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number) {
     const R = 6371000;
@@ -107,15 +147,14 @@ class LocationRealtimeService {
     this.queuedPayload = null;
 
     try {
-      // 1. Atualiza a ficha do Motorista
       await firebaseRealtimeService.updateDriverRealtime(this.trackingDriverId, payload);
       
-      // 🔥 FASE 4: 2. Sincroniza o GPS na ficha do FRETE para o Cliente ver o carro mexer!
       if (this.currentTripId) {
          await firebaseRealtimeService.updateTripRealtime(this.currentTripId, {
              motoristaLat: payload.location.lat,
              motoristaLng: payload.location.lng,
-             motoristaHeading: payload.gpsHeading
+             motoristaHeading: payload.gpsHeading,
+             gpsFalhou: payload.gpsFalhou || false // Reflete o erro no frete ativo
          });
       }
     } catch (error) {
@@ -140,7 +179,6 @@ class LocationRealtimeService {
     return distance >= this.MIN_DISTANCE_METERS || interval >= effectiveInterval;
   }
 
-  // 🔥 FASE 4: Start agora aceita o ID do Frete ativo para amarrar os dois lados
   start(driverId: string, tripId?: string) {
     if (typeof window === 'undefined' || !navigator.geolocation) {
       console.error('❌ Geolocation não suportada.');
@@ -148,8 +186,6 @@ class LocationRealtimeService {
     }
 
     if (!driverId) return;
-    
-    // Atualiza o Frete ativo se ele mudar
     if (tripId) this.currentTripId = tripId;
 
     if (this.watchId !== null) {
@@ -163,6 +199,9 @@ class LocationRealtimeService {
     this.trackingDriverId = driverId;
     this.trackingStatus = 'starting';
     console.log('📡 Tracking realtime iniciado.');
+
+    // 🔥 CTO FIX: Inicia o Cão de Guarda assim que o Tracking liga
+    this.startGpsWatchdog();
 
     this.watchId = navigator.geolocation.watchPosition(
       async position => {
@@ -185,6 +224,7 @@ class LocationRealtimeService {
             gpsHeading: position.coords.heading || 0,
             gpsSpeed: position.coords.speed || 0,
             gpsUpdatedAt: now,
+            gpsFalhou: false // Limpa o erro pois achou GPS
           });
         } catch (error) {
           console.error('❌ GPS REALTIME ERROR:', error);
@@ -193,6 +233,15 @@ class LocationRealtimeService {
       error => {
         console.error('❌ GPS WATCH ERROR:', error);
         this.trackingStatus = 'paused';
+        
+        // Se der permissão negada, envia logo de cara a falha
+        if (error.code === error.PERMISSION_DENIED) {
+          this.enqueueWrite({
+            location: this.lastPosition || { lat: 0, lng: 0 },
+            gpsAccuracy: 0, gpsHeading: 0, gpsSpeed: 0, gpsUpdatedAt: Date.now(),
+            gpsFalhou: true
+          });
+        }
       },
       {
         enableHighAccuracy: true,
@@ -210,6 +259,10 @@ class LocationRealtimeService {
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
+    }
+    if (this.gpsWatchdogInterval) {
+      clearInterval(this.gpsWatchdogInterval);
+      this.gpsWatchdogInterval = null;
     }
     this.trackingDriverId = null;
     this.currentTripId = null;
