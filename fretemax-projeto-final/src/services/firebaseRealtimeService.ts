@@ -17,7 +17,10 @@ class FirebaseRealtimeService {
   }
 
   private registerListener(key: string, unsubscribe: Unsubscribe) {
-    if (this.listeners.has(key)) return;
+    if (this.listeners.has(key)) {
+      // Se já existir, desliga o antigo antes de plugar o novo para evitar Memory Leak
+      this.listeners.get(key)!();
+    }
     this.listeners.set(key, unsubscribe);
     this.activeKeys.add(key);
   }
@@ -72,7 +75,7 @@ class FirebaseRealtimeService {
           eventBusService.emit(AppEvents.TRIP_STATUS_CHANGED, {
             id: snapshot.id,
             tripState: data.status,
-            driverState: data.driverState || DriverState.ONLINE, // Fallback seguro
+            driverState: data.driverState || DriverState.ONLINE, 
             ...data,
           });
 
@@ -113,7 +116,7 @@ class FirebaseRealtimeService {
   stopListener(key: string) {
     const listener = this.listeners.get(key);
     if (!listener) return;
-    listener();
+    listener(); // Chama a função do Firebase que mata o Listener (Mata o Memory Leak)
     this.listeners.delete(key);
     this.activeKeys.delete(key);
   }
