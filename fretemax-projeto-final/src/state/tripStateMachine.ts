@@ -165,23 +165,17 @@ export const VALID_TRANSITIONS:
   */
 
   [AppTripState.AGUARDANDO_PAGAMENTO]: [
-
     AppTripState.PAGAMENTO_APROVADO,
-
     AppTripState.ERRO_PAGAMENTO,
-
     AppTripState.CANCELADO,
   ],
 
   [AppTripState.PAGAMENTO_APROVADO]: [
-
     AppTripState.DISPONIVEL,
-
     AppTripState.AGENDADO,
   ],
 
   [AppTripState.ERRO_PAGAMENTO]: [
-
     AppTripState.CANCELADO,
   ],
 
@@ -192,9 +186,7 @@ export const VALID_TRANSITIONS:
   */
 
   [AppTripState.AGENDADO]: [
-
     AppTripState.DISPONIVEL,
-
     AppTripState.CANCELADO,
   ],
 
@@ -205,34 +197,24 @@ export const VALID_TRANSITIONS:
   */
 
   [AppTripState.DISPONIVEL]: [
-
     AppTripState.BUSCANDO_MOTORISTA,
-
     AppTripState.CANCELADO,
   ],
 
   [AppTripState.BUSCANDO_MOTORISTA]: [
-
     AppTripState.EXPANDINDO_BUSCA,
-
     AppTripState.OFERTANDO,
-
     AppTripState.SEM_MOTORISTA,
-
     AppTripState.CANCELADO,
   ],
 
   [AppTripState.EXPANDINDO_BUSCA]: [
-
     AppTripState.OFERTANDO,
-
     AppTripState.SEM_MOTORISTA,
-
     AppTripState.CANCELADO,
   ],
 
   [AppTripState.SEM_MOTORISTA]: [
-
     AppTripState.CANCELADO,
   ],
 
@@ -243,124 +225,94 @@ export const VALID_TRANSITIONS:
   */
 
   [AppTripState.OFERTANDO]: [
-
     AppTripState.MOTORISTA_ENCONTRADO,
-
     AppTripState.AGUARDANDO_ACEITE,
-
     AppTripState.REDISPATCH,
-
     AppTripState.TIMEOUT,
-
     AppTripState.CANCELADO,
   ],
 
   [AppTripState.MOTORISTA_ENCONTRADO]: [
-
     AppTripState.AGUARDANDO_ACEITE,
-
     AppTripState.ACEITO,
-
     AppTripState.REDISPATCH,
   ],
 
   [AppTripState.AGUARDANDO_ACEITE]: [
-
     AppTripState.ACEITO,
-
     AppTripState.TIMEOUT,
-
     AppTripState.REDISPATCH,
-
     AppTripState.CANCELADO,
   ],
 
   [AppTripState.TIMEOUT]: [
-
     AppTripState.REDISPATCH,
-
     AppTripState.SEM_MOTORISTA,
   ],
 
   [AppTripState.REDISPATCH]: [
-
     AppTripState.BUSCANDO_MOTORISTA,
-
     AppTripState.OFERTANDO,
-
     AppTripState.SEM_MOTORISTA,
-
     AppTripState.CANCELADO,
   ],
 
   [AppTripState.EXPIRADO]: [
-
     AppTripState.CANCELADO,
   ],
 
   /*
   =====================================================
-  ACEITE
+  ACEITE (🔥 BLINDAGEM ANTI-FANTASMA ADICIONADA)
   =====================================================
   */
 
   [AppTripState.ACEITO]: [
-
     AppTripState.INDO_COLETA,
-
     AppTripState.CANCELADO_MOTORISTA,
-
     AppTripState.CANCELADO_CLIENTE,
+    AppTripState.REDISPATCH, // Adicionado
   ],
 
   /*
   =====================================================
-  COLETA
+  COLETA (🔥 BLINDAGEM ANTI-FANTASMA ADICIONADA)
   =====================================================
   */
 
   [AppTripState.INDO_COLETA]: [
-
     AppTripState.CHEGOU_COLETA,
-
     AppTripState.CANCELADO,
-
     AppTripState.REDISPATCH,
   ],
 
   [AppTripState.CHEGOU_COLETA]: [
-
     AppTripState.COLETANDO,
-
     AppTripState.CANCELADO,
+    AppTripState.REDISPATCH, // Adicionado
   ],
 
   [AppTripState.COLETANDO]: [
-
     AppTripState.EM_TRANSPORTE,
-
     AppTripState.CANCELADO,
+    AppTripState.REDISPATCH, // Adicionado
   ],
 
   /*
   =====================================================
-  TRANSPORTE
+  TRANSPORTE (🔥 BLINDAGEM ANTI-FANTASMA ADICIONADA)
   =====================================================
   */
 
   [AppTripState.EM_TRANSPORTE]: [
-
     AppTripState.PARADO_OPERACIONAL,
-
     AppTripState.FINALIZANDO,
-
     AppTripState.ERRO,
+    AppTripState.REDISPATCH, // Adicionado caso abandone a carga
   ],
 
   [AppTripState.PARADO_OPERACIONAL]: [
-
     AppTripState.EM_TRANSPORTE,
-
     AppTripState.ERRO,
   ],
 
@@ -371,18 +323,13 @@ export const VALID_TRANSITIONS:
   */
 
   [AppTripState.FINALIZANDO]: [
-
     AppTripState.VALIDANDO_COMPROVANTE,
-
     AppTripState.ENTREGUE,
-
     AppTripState.ERRO,
   ],
 
   [AppTripState.VALIDANDO_COMPROVANTE]: [
-
     AppTripState.ENTREGUE,
-
     AppTripState.ERRO,
   ],
 
@@ -399,9 +346,7 @@ export const VALID_TRANSITIONS:
   [AppTripState.CANCELADO_CLIENTE]: [],
 
   [AppTripState.CANCELADO_MOTORISTA]: [
-
     AppTripState.REDISPATCH,
-
     AppTripState.CANCELADO,
   ],
 
@@ -412,9 +357,7 @@ export const VALID_TRANSITIONS:
   */
 
   [AppTripState.ERRO]: [
-
     AppTripState.CANCELADO,
-
     AppTripState.REDISPATCH,
   ],
 };
@@ -448,21 +391,13 @@ export const isFinalState = (
 ): boolean => {
 
   return [
-
     AppTripState.ENTREGUE,
-
     AppTripState.CANCELADO,
-
     AppTripState.CANCELADO_CLIENTE,
-
     AppTripState.CANCELADO_MOTORISTA,
-
     AppTripState.EXPIRADO,
-
     AppTripState.SEM_MOTORISTA,
-
     AppTripState.ERRO_PAGAMENTO,
-
   ].includes(
     status as AppTripState,
   );
@@ -479,31 +414,18 @@ export const isActiveState = (
 ): boolean => {
 
   return [
-
     AppTripState.BUSCANDO_MOTORISTA,
-
     AppTripState.EXPANDINDO_BUSCA,
-
     AppTripState.OFERTANDO,
-
     AppTripState.AGUARDANDO_ACEITE,
-
     AppTripState.ACEITO,
-
     AppTripState.INDO_COLETA,
-
     AppTripState.CHEGOU_COLETA,
-
     AppTripState.COLETANDO,
-
     AppTripState.EM_TRANSPORTE,
-
     AppTripState.PARADO_OPERACIONAL,
-
     AppTripState.FINALIZANDO,
-
     AppTripState.VALIDANDO_COMPROVANTE,
-
   ].includes(
     status as AppTripState,
   );
@@ -520,21 +442,13 @@ export const isOperationalState = (
 ): boolean => {
 
   return [
-
     AppTripState.ACEITO,
-
     AppTripState.INDO_COLETA,
-
     AppTripState.CHEGOU_COLETA,
-
     AppTripState.COLETANDO,
-
     AppTripState.EM_TRANSPORTE,
-
     AppTripState.PARADO_OPERACIONAL,
-
     AppTripState.FINALIZANDO,
-
   ].includes(
     status as AppTripState,
   );
