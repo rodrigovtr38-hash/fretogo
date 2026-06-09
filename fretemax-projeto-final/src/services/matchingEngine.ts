@@ -46,7 +46,7 @@ export interface MotoristaMatch {
   id: string;
   nome: string;
   telefone?: string;
-  categoria?: string;
+  categoria?: string | string[]; // Ajustado para aceitar Array
   latitude?: number;
   longitude?: number;
   online?: boolean;
@@ -54,7 +54,7 @@ export interface MotoristaMatch {
   ultimoHeartbeat?: number;
   destinoRetornoLat?: number;
   destinoRetornoLng?: number;
-  distanciaAteColeta?: number; // Calculado em tempo real
+  distanciaAteColeta?: number;
 }
 
 // 🔥 UTILIDADE: Calcula a distância em linha reta via GPS (Fórmula de Haversine)
@@ -109,10 +109,17 @@ export async function buscarMotoristasCompativeis(
         } as MotoristaMatch;
       })
       .filter(motorista => {
-        const motoristaCategoria = normalizeCategoria(motorista.categoria);
+        // 🔥 AJUSTE CTO: Proteção caso a categoria seja um Array ou String
+        const categoriasMotorista = Array.isArray(motorista.categoria) 
+          ? motorista.categoria 
+          : [motorista.categoria];
+        
+        const categoriaCompativel = categoriasMotorista.some(
+          cat => normalizeCategoria(cat as string) === categoriaFrete
+        );
         
         // 1. Validação Categoria Exata
-        if (motoristaCategoria !== categoriaFrete) return false;
+        if (!categoriaCompativel) return false;
 
         // 2. Validação Motorista Fantasma (Heartbeat de 2 minutos)
         // Se o motorista não atualiza o app há mais de 120.000 ms (2 min), ele é ignorado.
