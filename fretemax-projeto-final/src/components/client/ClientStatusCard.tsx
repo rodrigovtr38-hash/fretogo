@@ -15,7 +15,7 @@ interface ClientStatusCardProps {
   veiculo?: string | null;
   distancia?: number | null;
   valorTotal?: number | null;
-  // 🔥 FASE 4: Injeção de dependências realtime para exibição de PINs e progresso multi-drop
+  // 🔥 Injeção de dependências realtime para exibição de PINs e progresso multi-drop
   pinColeta?: string | null;
   pinEntregas?: string[] | null;
   paradaAtualIndex?: number;
@@ -120,7 +120,7 @@ export default function ClientStatusCard({
           </div>
         </div>
 
-        {/* 🔥 FASE 4: PAINEL DE PINS DE SEGURANÇA VISÍVEIS APENAS PARA O CLIENTE */}
+        {/* 🔥 PAINEL DE PINS DE SEGURANÇA VISÍVEIS APENAS PARA O CLIENTE */}
         {(pinColeta || (pinEntregas && pinEntregas.length > 0)) && (
           <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4 mt-6">
             <p className="text-[10px] font-black uppercase tracking-widest text-cyan-400 flex items-center gap-1.5 mb-3">
