@@ -146,8 +146,12 @@ export class DriverMatchingService {
           const data =
             docSnap.data();
 
-          const categorias =
-            data.categoria || [];
+          // TRAVA DE SEGURANÇA APLICADA PELO CTO:
+          // Garante que 'categorias' seja sempre um Array, mesmo se o Firebase retornar uma String.
+          const rawCategoria = data.categoria;
+          const categorias = Array.isArray(rawCategoria) 
+            ? rawCategoria 
+            : [rawCategoria].filter(Boolean);
 
           const categoriaCompativel =
             categorias.includes(
