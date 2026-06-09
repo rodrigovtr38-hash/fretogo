@@ -1,306 +1,183 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { db } from '../../firebase';
+import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { LockKeyhole, X } from 'lucide-react';
+import MapaCliente from '../MapaCliente';
+import { dispatchRealtimeService } from '../../services/dispatchRealtimeService';
+import { AppTripState } from '../../state/tripStateMachine';
 
-import {
-  doc,
-  onSnapshot,
-} from 'firebase/firestore';
-
-import {
-  db,
-} from '../../firebase';
-
-import {
-  Activity,
-  Camera,
-  CheckCircle,
-  Clock3,
-  MapPin,
-  Package,
-  ShieldCheck,
-  Truck,
-  Zap,
-} from 'lucide-react';
-
-import MapaCliente from '../components/MapaCliente';
-
-import {
-  TripLifecycleService,
-} from '../../services/tripLifecycleService';
-
-interface Props {
-  freteId: string;
+interface DriverActiveTripProps {
+  freteId?: string;
 }
 
-export default function DriverActiveTrip({
-  freteId,
-}: Props) {
-  const mountedRef = useRef(false);
-  const snapshotGuardRef = useRef('');
-
+export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
   const [frete, setFrete] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [runtimeReady, setRuntimeReady] = useState(false);
-
-  // 🔥 AJUSTE CTO: Estado para o Modal de Validação de PIN
-  const [pinModal, setPinModal] = useState<{isOpen: boolean, type: 'coleta' | 'entrega' | null, targetStatus: string | null}>({ isOpen: false, type: null, targetStatus: null });
+  const [loading, setLoading] = useState(true);
+  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [pinValue, setPinValue] = useState('');
   const [pinError, setPinError] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
-    mountedRef.current = true;
-    const frame = requestAnimationFrame(() => {
-      if (mountedRef.current) setRuntimeReady(true);
-    });
-    return () => {
-      mountedRef.current = false;
-      cancelAnimationFrame(frame);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!runtimeReady || !freteId) return;
-
-    const unsubscribe = onSnapshot(
-      doc(db, 'fretes', freteId),
-      snapshot => {
-        if (!mountedRef.current || !snapshot.exists()) return;
-
-        const next = snapshot.data();
-        const fingerprint = JSON.stringify({
-          status: next.status,
-          updatedAt: next.updatedAt,
-        });
-
-        if (snapshotGuardRef.current === fingerprint) return;
-
-        snapshotGuardRef.current = fingerprint;
-        setFrete(next);
-      },
-    );
-
-    return () => unsubscribe();
-  }, [runtimeReady, freteId]);
-
-  const statusLabel = useMemo(() => {
-    switch (frete?.status) {
-      case 'aceito': return 'MATCHING CONFIRMADO';
-      case 'indo_coleta': return 'INDO PARA COLETA';
-      case 'chegou_coleta': return 'COLETA CONFIRMADA';
-      case 'coletando': return 'COLETANDO CARGA';
-      case 'em_transporte': return 'TRANSPORTE ATIVO';
-      case 'em_entrega': return 'EM ENTREGA';
-      case 'returning': return 'RETORNANDO AO RADAR';
-      default: return 'OPERAÇÃO ATIVA';
-    }
-  }, [frete]);
-
-  // 🔥 AJUSTE CTO: Função real de update após a validação do PIN
-  const processStatusUpdate = async (nextStatus: string) => {
-    if (loading) return;
-    try {
-      setLoading(true);
-      switch (nextStatus) {
-        case 'indo_coleta':
-        case 'chegou_coleta':
-        case 'coletando':
-        case 'em_transporte':
-        case 'em_entrega':
-        case 'returning':
-          await TripLifecycleService.alterarStatusViagem(freteId, nextStatus as any);
-          break;
-        case 'entregue':
-          await TripLifecycleService.finalizarCorrida(freteId, frete.motoristaId);
-          break;
+    if (!freteId) { setLoading(false); return; }
+    const unsubscribe = onSnapshot(doc(db, 'fretes', freteId), (docSnap) => {
+      if (docSnap.exists()) {
+        setFrete({ id: docSnap.id, ...docSnap.data() });
+      } else {
+        setFrete(null);
       }
-    } catch (error) {
-      console.error('TRIP STATUS ERROR:', error);
-    } finally {
       setLoading(false);
-    }
+    });
+    return () => unsubscribe();
+  }, [freteId]);
+
+  if (loading) return <div className="flex h-64 items-center justify-center rounded-[2rem] border border-white/10 bg-white/5"><div className="h-8 w-8 animate-spin rounded-full border-4 border-cyan-500 border-t-transparent"></div></div>;
+  if (!frete) return null;
+
+  const paradas = frete.paradas || [];
+  const paradaAtualIndex = frete.paradaAtualIndex || 0;
+  const destinoAtual = paradas.length > 0 ? paradas[paradaAtualIndex] : (frete.destino || {});
+  
+  // Lógica do Mapa
+  const mapOriginGPS = frete.origem?.lat && frete.origem?.lng ? { lat: frete.origem.lat, lng: frete.origem.lng } : null;
+  const mapDestinoGPS = frete.destino?.lat && frete.destino?.lng ? { lat: frete.destino.lat, lng: frete.destino.lng } : null;
+  
+  const currentMapOrigin = (frete.status === 'em_transporte' && paradaAtualIndex > 0 && paradas[paradaAtualIndex - 1]?.lat)
+    ? { lat: paradas[paradaAtualIndex - 1].lat, lng: paradas[paradaAtualIndex - 1].lng }
+    : mapOriginGPS;
+  
+  const currentMapDestino = destinoAtual?.lat && destinoAtual?.lng ? { lat: destinoAtual.lat, lng: destinoAtual.lng } : mapDestinoGPS;
+
+  const handleStatusUpdate = async (novoStatus: string) => {
+    setActionLoading(true);
+    try {
+      await dispatchRealtimeService.atualizarStatusTrip(frete.id, novoStatus);
+    } catch (e) { console.error(e); } finally { setActionLoading(false); }
   };
 
-  const updateStatus = useCallback(
-    async (nextStatus: string) => {
-      // Interceptador de PIN de Coleta
-      if (nextStatus === 'em_transporte') {
-        setPinValue('');
-        setPinError('');
-        setPinModal({ isOpen: true, type: 'coleta', targetStatus: nextStatus });
-        return;
-      }
-      // Interceptador de PIN de Entrega Final
-      if (nextStatus === 'entregue') {
-        setPinValue('');
-        setPinError('');
-        setPinModal({ isOpen: true, type: 'entrega', targetStatus: nextStatus });
-        return;
-      }
-      
-      // Se não exige PIN, avança direto
-      await processStatusUpdate(nextStatus);
-    },
-    [freteId, frete, loading],
-  );
+  const handlePinSubmit = async () => {
+    setActionLoading(true);
+    setPinError('');
+    try {
+      // Validação do PIN de Coleta
+      if (frete.status === 'coletando') {
+        if (pinValue !== frete.pinColeta) { setPinError('PIN de Coleta incorreto.'); setActionLoading(false); return; }
+        
+        await dispatchRealtimeService.atualizarStatusTrip(frete.id, 'em_transporte');
+      } 
+      // Validação do PIN de Entrega (Multi-drop)
+      else { 
+        const pinEntregas = frete.pinEntregas || [];
+        // Se houver array de PINs (Multi-drop) ou se for um frete simples com 1 destino
+        const expectedPin = pinEntregas.length > 0 ? pinEntregas[paradaAtualIndex] : frete.pinEntrega;
 
-  // 🔥 AJUSTE CTO: Lógica de verificação estrita do PIN
-  const validarPin = () => {
-    // Busca o PIN esperado no banco. Se for modo de teste e não existir, fallback temporário.
-    const expectedPin = pinModal.type === 'coleta' 
-      ? (frete?.pinColeta || '1234') 
-      : (frete?.pinEntrega || '4321');
-
-    if (pinValue === expectedPin) {
-      const target = pinModal.targetStatus;
-      setPinModal({ isOpen: false, type: null, targetStatus: null });
-      if (target) processStatusUpdate(target);
-    } else {
-      setPinError('PIN Incorreto. Solicite o código correto.');
-    }
+        if (pinValue !== expectedPin) { setPinError('PIN de entrega incorreto.'); setActionLoading(false); return; }
+        
+        // Verifica se há mais paradas ou se é a última entrega
+        if (pinEntregas.length > 0 && paradaAtualIndex + 1 < pinEntregas.length) {
+           await updateDoc(doc(db, 'fretes', frete.id), { paradaAtualIndex: paradaAtualIndex + 1 });
+        } else {
+           await dispatchRealtimeService.atualizarStatusTrip(frete.id, 'entregue');
+        }
+      }
+      setIsPinModalOpen(false); setPinValue('');
+    } catch (e) { setPinError('Erro ao validar.'); } finally { setActionLoading(false); }
   };
-
-  if (!runtimeReady || !frete) {
-    return (
-      <div className="flex h-[420px] items-center justify-center rounded-[2rem] border border-cyan-500/10 bg-slate-900/80 text-white">
-        <div className="text-center">
-          <Activity className="mx-auto mb-5 h-12 w-12 animate-pulse text-cyan-400" />
-          <h2 className="text-2xl font-black">Inicializando operação realtime...</h2>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div className="overflow-hidden rounded-[2rem] border border-cyan-500/10 bg-slate-900/70 backdrop-blur-xl">
-      <div className="border-b border-white/5 px-6 py-5">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-cyan-500/20 bg-cyan-500/10 px-4 py-2">
-              <Zap size={14} className="text-cyan-300" />
-              <span className="text-[10px] font-black uppercase tracking-[0.3em] text-cyan-300">
-                ACTIVE TRIP ENTERPRISE
-              </span>
-            </div>
-            <h1 className="mt-4 text-4xl font-black text-white">{statusLabel}</h1>
-            <p className="mt-3 text-slate-400">Operação sincronizada em realtime com tracking e dispatch.</p>
-          </div>
-
-          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-5 py-4">
-            <div className="flex items-center gap-3">
-              <ShieldCheck className="text-emerald-300" />
-              <div>
-                <p className="text-xs uppercase tracking-[0.25em] text-emerald-300">Runtime operacional</p>
-                <strong className="mt-1 block text-xl font-black text-white">TRACKING ATIVO</strong>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-6 p-6 lg:grid-cols-[1fr_380px]">
-        <div className="overflow-hidden rounded-[2rem] border border-white/5 bg-[#020617]">
-          <div className="h-[520px]">
-            <MapaCliente
-              motoristaId={frete.motoristaId}
-              origem={{ lat: frete.origemLat, lng: frete.origemLng }}
-              destino={{ lat: frete.destinoLat, lng: frete.destinoLng }}
-            />
-          </div>
+    <>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-[2rem] border border-cyan-500/20 bg-slate-900 shadow-2xl p-6">
+        
+        {/* Título Dinâmico informando a etapa */}
+        <div className="mb-4 text-center">
+          <h2 className="text-xl font-black text-cyan-400 uppercase tracking-widest">
+            {frete.status === 'aceito' || frete.status === 'indo_coleta' || frete.status === 'chegou_coleta' || frete.status === 'coletando' 
+              ? 'Etapa 1: Ir para a Coleta' 
+              : frete.pinEntregas && frete.pinEntregas.length > 1 
+                ? `Etapa 2: Entrega ${paradaAtualIndex + 1} de ${frete.pinEntregas.length}`
+                : 'Etapa 2: Ir para Entrega Final'}
+          </h2>
         </div>
 
-        <div className="space-y-5">
-          <div className="rounded-[2rem] border border-white/5 bg-[#020617] p-6">
-            <div className="mb-5 flex items-center gap-3">
-              <Truck className="text-cyan-400" />
-              <h2 className="text-xl font-black uppercase text-white">Status operacional</h2>
-            </div>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-black/20 px-4 py-4">
-                <span className="text-slate-400">Cliente</span>
-                <strong className="text-white">{frete.clienteNome}</strong>
-              </div>
-              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-black/20 px-4 py-4">
-                <span className="text-slate-400">Categoria</span>
-                <strong className="uppercase text-cyan-300">{frete.categoria}</strong>
-              </div>
-              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-black/20 px-4 py-4">
-                <span className="text-slate-400">ETA operacional</span>
-                <strong className="text-emerald-300">{frete.etaMinutes} min</strong>
-              </div>
-              <div className="flex items-center justify-between rounded-2xl border border-white/5 bg-black/20 px-4 py-4">
-                <span className="text-slate-400">Distância total</span>
-                <strong className="text-white">{frete.distanciaTotalKm} km</strong>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-[2rem] border border-white/5 bg-[#020617] p-6">
-            <div className="mb-5 flex items-center gap-3">
-              <Package className="text-yellow-400" />
-              <h2 className="text-xl font-black uppercase text-white">Fluxo operacional</h2>
-            </div>
-            <div className="space-y-4">
-              <button disabled={loading} onClick={() => updateStatus('indo_coleta')} className="flex h-14 w-full items-center justify-center gap-3 rounded-2xl bg-cyan-500 font-black uppercase text-slate-950 transition-all duration-300 hover:bg-cyan-400">
-                <MapPin size={18} /> Iniciar coleta
-              </button>
-              <button disabled={loading} onClick={() => updateStatus('chegou_coleta')} className="flex h-14 w-full items-center justify-center gap-3 rounded-2xl bg-yellow-500 font-black uppercase text-slate-950 transition-all duration-300 hover:bg-yellow-400">
-                <Clock3 size={18} /> Confirmar coleta
-              </button>
-              <button disabled={loading} onClick={() => updateStatus('em_transporte')} className="flex h-14 w-full items-center justify-center gap-3 rounded-2xl bg-purple-500 font-black uppercase text-white transition-all duration-300 hover:bg-purple-400">
-                <Truck size={18} /> Transporte ativo
-              </button>
-              <button disabled={loading} className="flex h-14 w-full items-center justify-center gap-3 rounded-2xl bg-slate-700 font-black uppercase text-white transition-all duration-300 hover:bg-slate-600">
-                <Camera size={18} /> Validar comprovante
-              </button>
-              <button disabled={loading} onClick={() => updateStatus('entregue')} className="flex h-14 w-full items-center justify-center gap-3 rounded-2xl bg-emerald-500 font-black uppercase text-slate-950 transition-all duration-300 hover:bg-emerald-400">
-                <CheckCircle size={18} /> Finalizar entrega
-              </button>
-            </div>
-          </div>
+        <div className="h-[250px] w-full mb-6 rounded-2xl overflow-hidden bg-slate-950">
+          <MapaCliente origem={currentMapOrigin} destino={currentMapDestino} operationalMessage="Navegando..." />
         </div>
-      </div>
+        
+        <div className="space-y-4">
+          {frete.status === 'aceito' && (
+            <button onClick={() => handleStatusUpdate('indo_coleta')} disabled={actionLoading} className="w-full bg-blue-600 py-4 font-black uppercase tracking-widest rounded-xl disabled:opacity-50">
+              Deslocar p/ Coleta
+            </button>
+          )}
+          
+          {frete.status === 'indo_coleta' && (
+            <button onClick={() => handleStatusUpdate('chegou_coleta')} disabled={actionLoading} className="w-full bg-indigo-500 py-4 font-black uppercase tracking-widest rounded-xl text-white disabled:opacity-50">
+              Cheguei no Local
+            </button>
+          )}
 
-      {/* 🔥 AJUSTE CTO: MODAL DE SEGURANÇA PIN ANTI-CALOTE */}
-      {pinModal.isOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="w-full max-w-sm rounded-[2rem] border border-cyan-500/30 bg-slate-900 p-8 shadow-2xl relative">
-            <h3 className="text-center text-2xl font-black italic uppercase tracking-tighter text-white mb-2">
-              {pinModal.type === 'coleta' ? 'PIN de Coleta' : 'PIN de Entrega'}
-            </h3>
-            <p className="text-center text-xs font-bold text-slate-400 mb-6 uppercase tracking-widest leading-relaxed">
-              {pinModal.type === 'coleta' 
-                ? 'Solicite o PIN de 4 dígitos ao embarcador para liberar a viagem.' 
-                : 'Solicite o PIN de 4 dígitos ao recebedor para garantir seu repasse.'}
-            </p>
-            <input
-              type="text"
-              maxLength={4}
-              value={pinValue}
-              onChange={(e) => {
-                setPinValue(e.target.value.replace(/\D/g, ''));
-                setPinError('');
-              }}
-              placeholder="0000"
-              className="w-full rounded-2xl border border-white/10 bg-slate-950 p-5 text-center text-3xl font-black tracking-[0.5em] text-cyan-400 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 mb-2 placeholder:text-slate-700"
-            />
-            {pinError && <p className="text-red-400 text-xs font-bold text-center mb-4">{pinError}</p>}
-            <div className="flex gap-3 mt-4">
-              <button onClick={() => setPinModal({ isOpen: false, type: null, targetStatus: null })} className="flex-1 rounded-xl bg-transparent border border-white/10 py-4 text-xs font-black uppercase tracking-widest text-slate-400 hover:text-white transition-colors">
-                Cancelar
-              </button>
-              <button onClick={validarPin} disabled={pinValue.length < 4} className="flex-[2] rounded-xl bg-cyan-600 py-4 text-xs font-black uppercase tracking-[0.2em] text-slate-950 shadow-lg shadow-cyan-600/30 transition-all hover:bg-cyan-500 active:scale-95 disabled:opacity-50">
-                Validar
-              </button>
-            </div>
-          </div>
+          {frete.status === 'chegou_coleta' && (
+            <button onClick={() => handleStatusUpdate('coletando')} disabled={actionLoading} className="w-full bg-amber-500 py-4 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50">
+              Iniciar Coleta
+            </button>
+          )}
+
+          {['coletando', 'em_transporte'].includes(frete.status) && (
+            <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full bg-cyan-500 py-4 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50 shadow-[0_0_20px_rgba(6,182,212,0.4)]">
+              Validar PIN para {frete.status === 'coletando' ? 'Sair com Carga' : 'Finalizar Entrega'}
+            </button>
+          )}
         </div>
-      )}
+      </motion.div>
 
-    </div>
+      <AnimatePresence>
+        {isPinModalOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }} 
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 50 }} 
+              animate={{ scale: 1, y: 0 }} 
+              exit={{ scale: 0.9, y: 50 }} 
+              className="bg-slate-900 p-8 rounded-3xl w-full max-w-sm border border-cyan-500"
+            >
+              <div className="flex justify-center mb-4">
+                <LockKeyhole size={40} className="text-cyan-400" />
+              </div>
+              <h3 className="text-white text-center font-black mb-2 uppercase">
+                {frete.status === 'coletando' ? 'PIN do Embarcador' : 'PIN do Recebedor'}
+              </h3>
+              <p className="text-slate-400 text-xs text-center mb-6">
+                Peça os 4 dígitos ao responsável no local para liberar o sistema.
+              </p>
+              
+              <input 
+                type="text" 
+                maxLength={4} 
+                value={pinValue} 
+                onChange={(e) => { setPinValue(e.target.value.replace(/\D/g, '')); setPinError(''); }} 
+                className="w-full p-4 text-center text-4xl font-black tracking-[0.5em] bg-slate-950 text-cyan-400 border border-cyan-500/30 rounded-xl mb-4 focus:outline-none focus:border-cyan-400"
+                placeholder="0000"
+              />
+              
+              {pinError && <p className="text-red-400 font-bold text-xs text-center mb-4 uppercase">{pinError}</p>}
+              
+              <div className="flex gap-2">
+                <button onClick={() => { setIsPinModalOpen(false); setPinValue(''); setPinError(''); }} className="w-1/3 bg-transparent border border-white/10 py-4 font-black uppercase text-xs rounded-xl text-slate-400">
+                  Voltar
+                </button>
+                <button onClick={handlePinSubmit} disabled={actionLoading || pinValue.length < 4} className="w-2/3 bg-cyan-500 py-4 font-black uppercase tracking-widest rounded-xl text-slate-950 disabled:opacity-50">
+                  {actionLoading ? 'Validando...' : 'Confirmar'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 }
