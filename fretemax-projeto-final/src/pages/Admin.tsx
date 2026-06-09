@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
-import { collection, onSnapshot, doc, query, orderBy, runTransaction, where, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, onSnapshot, doc, query, orderBy, runTransaction, where, updateDoc, serverTimestamp, limit } from 'firebase/firestore';
 import { 
   Loader2, CheckCircle, XCircle, Search, ShieldAlert, Truck, Users, 
   Calendar, DollarSign, Activity, Clock, AlertTriangle, Eye, 
-  Map as MapIcon, ArrowRight, Wallet, Filter, Zap, MessageCircle, ShieldCheck, RefreshCcw, Lock
+  Map as MapIcon, Wallet, Zap, MessageCircle, ShieldCheck, RefreshCcw, Lock
 } from 'lucide-react';
 
 // 🔥 SEGURANÇA: Painel trancado! Apenas a conta principal tem acesso.
@@ -24,40 +24,43 @@ export default function Admin() {
   
   const [loading, setLoading] = useState(true);
 
-  // Verificação de Identidade
+  // Verificação de Identidade e Bloqueio de Tela
   useEffect(() => {
-    return auth.onAuthStateChanged(u => {
+    const unsubscribe = auth.onAuthStateChanged(u => {
       setAuthUser(u);
-      if (!u && ADMIN_UIDS[0] !== '') setLoading(false);
+      setLoading(false); // O carregamento só termina quando o Firebase responde quem é o usuário
     });
+    return () => unsubscribe();
   }, []);
 
   // Monitoramento: Motoristas Online (Radar Realtime)
   useEffect(() => {
     if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
     const q = query(collection(db, 'motoristas_online'));
-    return onSnapshot(q, (snap) => {
+    const unsubscribe = onSnapshot(q, (snap) => {
       setMotoristasOnline(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
+    return () => unsubscribe();
   }, [authUser]);
 
   // Monitoramento: Motoristas Pendentes (Aprovação)
   useEffect(() => {
     if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
     const q = query(collection(db, 'motoristas_cadastros'), where('status', '==', 'pendente'));
-    return onSnapshot(q, (snap) => {
+    const unsubscribe = onSnapshot(q, (snap) => {
       setMotoristasPendentes(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
+    return () => unsubscribe();
   }, [authUser]);
 
-  // Monitoramento: Corridas (Fluxo Logístico) - REMOVIDO LIMIT(100) PARA ANALYTICS REAL
+  // Monitoramento: Corridas (Fluxo Logístico) - Com trava de limite para não estourar custos
   useEffect(() => {
     if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
-    const q = query(collection(db, 'fretes'), orderBy('createdAt', 'desc'));
-    return onSnapshot(q, (snap) => {
+    const q = query(collection(db, 'fretes'), orderBy('createdAt', 'desc'), limit(500));
+    const unsubscribe = onSnapshot(q, (snap) => {
       setFretes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setLoading(false);
     });
+    return () => unsubscribe();
   }, [authUser]);
 
   // Lógica de Filtragem de Tempo
@@ -93,7 +96,7 @@ export default function Admin() {
     });
   }, [fretes, searchTerm, statusFilter, timeFilter]);
 
-  // Cálculo de Métricas Operacionais (Baseado nos dados FILTRADOS pelo tempo)
+  // Cálculo de Métricas Operacionais
   const stats = useMemo(() => {
     const fretesDoPeriodo = fretes.filter(f => filterByTime(f, timeFilter));
 
@@ -128,17 +131,17 @@ export default function Admin() {
     if (!window.confirm(`Deseja confirmar a ação: ${status.toUpperCase()}?`)) return;
     try {
       await updateDoc(doc(db, 'motoristas_cadastros', id), { status });
-      alert(`Status atualizado: ${status}`);
-    } catch (e: any) { alert("Erro: " + e.message); }
+      alert(`Status atualizado para: ${status}`);
+    } catch (e: any) { alert("Erro ao atualizar o banco de dados: " + e.message); }
   };
 
   const forceStatus = async (id: string, novoStatus: string) => {
-    if (!window.confirm(`Alterar status para: ${novoStatus.toUpperCase()}?`)) return;
+    if (!window.confirm(`Atenção: Você tem certeza que deseja forçar o status para: ${novoStatus.toUpperCase()}?`)) return;
     try {
       await runTransaction(db, async (t) => {
         const ref = doc(db, 'fretes', id);
         const d = await t.get(ref);
-        if (!d.exists()) throw new Error("Não encontrado");
+        if (!d.exists()) throw new Error("Frete não encontrado no sistema.");
         t.update(ref, { 
           status: novoStatus,
           adminAction: true,
@@ -148,9 +151,9 @@ export default function Admin() {
     } catch (e: any) { alert(e.message); }
   };
 
-  // 🔥 NOVA FUNÇÃO: ESTORNO DO MERCADO PAGO MANUAL
+  // ESTORNO DO MERCADO PAGO MANUAL
   const handleReembolso = async (idPedido: string) => {
-    if (!window.confirm("ATENÇÃO: Deseja realmente estornar o PIX deste cliente no Mercado Pago? Esta ação não pode ser desfeita.")) return;
+    if (!window.confirm("CRÍTICO: Deseja realmente estornar o PIX deste cliente no Mercado Pago? O dinheiro será devolvido instantaneamente. Esta ação NÃO PODE ser desfeita.")) return;
     try {
       const res = await fetch('/api/reembolso', {
         method: 'POST',
@@ -159,12 +162,9 @@ export default function Admin() {
       });
       
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Falha de comunicação com a API do Mercado Pago');
       
-      if (!res.ok) {
-        throw new Error(data.error || 'Falha ao comunicar com a API do Mercado Pago');
-      }
-      
-      alert('SUCESSO! O PIX foi estornado e devolvido para a conta do cliente. O banco de dados foi atualizado.');
+      alert('SUCESSO! O PIX foi estornado e devolvido. O status no banco foi atualizado.');
     } catch (error: any) {
       alert(`Erro no Estorno: ${error.message}`);
     }
@@ -179,18 +179,20 @@ export default function Admin() {
   if (loading) return (
     <div className="h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
       <Loader2 className="animate-spin text-cyan-500 w-12 h-12" />
-      <p className="text-cyan-500 font-black animate-pulse uppercase tracking-widest text-xs">Iniciando Torre de Controle...</p>
+      <p className="text-cyan-500 font-black animate-pulse uppercase tracking-widest text-xs">Descriptografando Terminal de Comando...</p>
     </div>
   );
 
-  if (ADMIN_UIDS[0] !== '' && (!authUser || !ADMIN_UIDS.includes(authUser.uid))) {
+  // A tela de bloqueio foi movida para ca, garantindo que o Auth teve tempo de carregar
+  if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) {
     return (
       <div className="h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-24 h-24 bg-red-500/10 rounded-full flex items-center justify-center mb-6 border border-red-500/20">
+        <div className="w-24 h-24 bg-red-500/10 rounded-full flex items-center justify-center mb-6 border border-red-500/20 shadow-[0_0_50px_rgba(239,68,68,0.2)]">
           <ShieldAlert className="text-red-500 w-12 h-12" />
         </div>
-        <h2 className="text-white font-black text-3xl uppercase italic tracking-tighter">Acesso Negado</h2>
-        <p className="text-slate-500 mt-2 max-w-xs font-medium">Este terminal é restrito à diretoria operacional do FRETOGO.</p>
+        <h2 className="text-white font-black text-4xl uppercase italic tracking-tighter">Acesso Negado</h2>
+        <p className="text-slate-500 mt-3 max-w-sm font-medium leading-relaxed">Você está em uma área restrita. O seu UID não tem as credenciais da diretoria logística para visualizar o FRETOGO HQ.</p>
+        <p className="text-slate-700 mt-8 text-[10px] uppercase tracking-widest">Sua credencial atual: {authUser?.uid || 'Não autenticado'}</p>
       </div>
     );
   }
@@ -411,22 +413,27 @@ export default function Admin() {
                       <div className="bg-slate-950/50 p-4 rounded-2xl border border-white/5">
                         <p className="text-[9px] text-slate-500 font-black uppercase mb-1">Identidade Oficial</p>
                         <p className="text-sm font-black text-white tracking-wider mb-1">{m.cpf || '---'}</p>
-                        <p className="text-xs font-bold text-slate-400 uppercase">CNH: <span className="text-white">{m.cnh}</span></p>
+                        <p className="text-xs font-bold text-slate-400 uppercase">CNH: <span className="text-white">{m.cnh || '---'}</span></p>
                       </div>
                       <div className="bg-slate-950/50 p-4 rounded-2xl border border-white/5">
                         <p className="text-[9px] text-slate-500 font-black uppercase mb-1">Veículo Operacional</p>
-                        <p className="text-sm font-black text-cyan-400 uppercase italic mb-1">{m.categoria.replace('_',' ')}</p>
-                        <p className="text-xs font-bold text-slate-400 uppercase">{m.placa} • {m.renavam || '---'}</p>
+                        <p className="text-sm font-black text-cyan-400 uppercase italic mb-1">{(m.categoria || '').replace('_',' ')}</p>
+                        <p className="text-xs font-bold text-slate-400 uppercase">{m.placa || 'Sem placa'} • {m.renavam || '---'}</p>
                         <p className="text-[10px] font-bold text-slate-500 mt-1">{m.cidadeEstado}</p>
                       </div>
                     </div>
 
                     <div className="mb-8">
-                       <p className="text-[9px] text-slate-500 font-black uppercase mb-3 tracking-widest flex items-center gap-2"><Eye size={12}/> Verificação Visual (Selfie + CNH)</p>
-                       <div className="relative group/img overflow-hidden rounded-2xl h-48 border border-white/10 bg-black cursor-pointer shadow-inner">
-                          <img src={m.documentoUrl || m.cnhUrl} className="w-full h-full object-contain opacity-80 group-hover/img:scale-105 group-hover/img:opacity-100 transition-all" alt="Selfie de Verificação" />
+                       <p className="text-[9px] text-slate-500 font-black uppercase mb-3 tracking-widest flex items-center gap-2"><Eye size={12}/> Documento do Motorista</p>
+                       <div className="relative group/img overflow-hidden rounded-2xl h-48 border border-white/10 bg-black cursor-pointer shadow-inner flex items-center justify-center">
+                          {/* Tratamento para exibir imagem de forma segura */}
+                          {m.documentoUrl || m.cnhUrl ? (
+                            <img src={m.documentoUrl || m.cnhUrl} className="max-w-full max-h-full object-contain opacity-80 group-hover/img:scale-105 group-hover/img:opacity-100 transition-all" alt="Documento do Motorista" />
+                          ) : (
+                            <span className="text-slate-600 text-xs uppercase font-bold">Sem imagem anexada</span>
+                          )}
                           <div className="absolute inset-0 bg-blue-900/20 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
-                             <span className="bg-slate-900/80 text-white text-xs font-black uppercase px-4 py-2 rounded-lg backdrop-blur-sm border border-white/10">Clique p/ Ampliar</span>
+                             <a href={m.documentoUrl || m.cnhUrl} target="_blank" rel="noreferrer" className="bg-slate-900/80 text-white text-xs font-black uppercase px-4 py-2 rounded-lg backdrop-blur-sm border border-white/10">Ver Imagem Completa</a>
                           </div>
                        </div>
                     </div>
@@ -539,7 +546,7 @@ export default function Admin() {
                              </div>
                           </div>
                           
-                          {/* 🔥 NOVO: PAINEL DE PINs PARA O ADMIN ACUDIR O MOTORISTA */}
+                          {/* PAINEL DE PINs PARA O ADMIN ACUDIR O MOTORISTA */}
                           {(f.pinColeta || (f.pinEntregas && f.pinEntregas.length > 0)) && (
                             <div className="mt-6 bg-slate-950/50 p-4 rounded-xl border border-white/5">
                               <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-1"><Lock size={12}/> Códigos de Segurança (PIN)</p>
@@ -596,7 +603,7 @@ export default function Admin() {
                                    <span className="text-amber-400 font-black">R$ {Number(f.valorPedagio || 0).toFixed(2)}</span>
                                  </div>
                               </div>
-                              <p className="text-[9px] font-black text-slate-500 uppercase mt-3 italic">{f.veiculo?.replace('_',' ')} • {f.peso} • {f.qtdVolumes} • {f.distancia}km</p>
+                              <p className="text-[9px] font-black text-slate-500 uppercase mt-3 italic">{(f.veiculo || '').replace('_',' ')} • {f.peso} • {f.qtdVolumes} • {f.distancia}km</p>
                            </div>
                         </div>
 
