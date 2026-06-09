@@ -7,7 +7,6 @@ import {
   Map as MapIcon, Wallet, Zap, MessageCircle, ShieldCheck, RefreshCcw, Lock
 } from 'lucide-react';
 
-// 🔥 SEGURANÇA: Painel trancado! Apenas a conta principal tem acesso.
 const ADMIN_UIDS = ['uV1yeZoGfhZTRWDVL1CnMW6b6NY2']; 
 
 export default function Admin() {
@@ -18,22 +17,18 @@ export default function Admin() {
   const [motoristasOnline, setMotoristasOnline] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Filtros
   const [statusFilter, setStatusFilter] = useState('todos');
   const [timeFilter, setTimeFilter] = useState('hoje'); 
-  
   const [loading, setLoading] = useState(true);
 
-  // Verificação de Identidade e Bloqueio de Tela
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(u => {
       setAuthUser(u);
-      setLoading(false); // O carregamento só termina quando o Firebase responde quem é o usuário
+      setLoading(false); 
     });
     return () => unsubscribe();
   }, []);
 
-  // Monitoramento: Motoristas Online (Radar Realtime)
   useEffect(() => {
     if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
     const q = query(collection(db, 'motoristas_online'));
@@ -43,7 +38,6 @@ export default function Admin() {
     return () => unsubscribe();
   }, [authUser]);
 
-  // Monitoramento: Motoristas Pendentes (Aprovação)
   useEffect(() => {
     if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
     const q = query(collection(db, 'motoristas_cadastros'), where('status', '==', 'pendente'));
@@ -53,7 +47,6 @@ export default function Admin() {
     return () => unsubscribe();
   }, [authUser]);
 
-  // Monitoramento: Corridas (Fluxo Logístico) - Com trava de limite para não estourar custos
   useEffect(() => {
     if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
     const q = query(collection(db, 'fretes'), orderBy('createdAt', 'desc'), limit(500));
@@ -63,7 +56,6 @@ export default function Admin() {
     return () => unsubscribe();
   }, [authUser]);
 
-  // Lógica de Filtragem de Tempo
   const filterByTime = (frete: any, filterType: string) => {
     if (filterType === 'todos') return true;
     if (!frete.createdAt) return false;
@@ -80,7 +72,6 @@ export default function Admin() {
     return true;
   };
 
-  // Inteligência de Filtro Combinada
   const fretesFiltrados = useMemo(() => {
     return fretes.filter(f => {
       const matchSearch = 
@@ -96,7 +87,6 @@ export default function Admin() {
     });
   }, [fretes, searchTerm, statusFilter, timeFilter]);
 
-  // Cálculo de Métricas Operacionais
   const stats = useMemo(() => {
     const fretesDoPeriodo = fretes.filter(f => filterByTime(f, timeFilter));
 
@@ -120,10 +110,13 @@ export default function Admin() {
     const timeoutAguardando = fretes.filter(f => f.status === 'disponivel' && (now - (f.createdAt?.toMillis ? f.createdAt.toMillis() : now)) > 600000).length;
     const semComprovante = fretes.filter(f => f.status === 'entregue' && !f.comprovanteUrl).length;
     const motoristasOcupados = motoristasOnline.filter(m => m.status === 'ocupado').length;
+    
+    // 🔥 CTO FIX: Monitor de Insucessos do Motorista (Alerta Crítico)
+    const insucessos = fretes.filter(f => f.alertaInsucesso === true).length;
 
     return { 
       faturado, lucro, entregues, ticketMedio, ativos, aguardando, 
-      repasses, cancelados, timeoutAguardando, semComprovante, motoristasOcupados 
+      repasses, cancelados, timeoutAguardando, semComprovante, motoristasOcupados, insucessos 
     };
   }, [fretes, motoristasOnline, timeFilter]);
 
@@ -151,7 +144,12 @@ export default function Admin() {
     } catch (e: any) { alert(e.message); }
   };
 
-  // ESTORNO DO MERCADO PAGO MANUAL
+  const forceClearInsucesso = async (id: string) => {
+    try {
+      await updateDoc(doc(db, 'fretes', id), { alertaInsucesso: false });
+    } catch (e: any) { alert("Erro ao limpar alerta."); }
+  };
+
   const handleReembolso = async (idPedido: string) => {
     if (!window.confirm("CRÍTICO: Deseja realmente estornar o PIX deste cliente no Mercado Pago? O dinheiro será devolvido instantaneamente. Esta ação NÃO PODE ser desfeita.")) return;
     try {
@@ -183,7 +181,6 @@ export default function Admin() {
     </div>
   );
 
-  // A tela de bloqueio foi movida para ca, garantindo que o Auth teve tempo de carregar
   if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) {
     return (
       <div className="h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
@@ -200,7 +197,6 @@ export default function Admin() {
   return (
     <div className="min-h-screen bg-[#020617] text-slate-200 font-sans pb-24">
       
-      {/* HEADER / TOPBAR */}
       <header className="bg-slate-950/80 backdrop-blur-xl border-b border-white/5 p-4 sticky top-0 z-50 shadow-xl">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-3">
@@ -237,7 +233,6 @@ export default function Admin() {
 
       <main className="max-w-7xl mx-auto p-4 md:p-8">
         
-        {/* FILTRO GLOBAL DE TEMPO */}
         {tab === 'dashboard' && (
           <div className="flex justify-end mb-6 animate-in fade-in">
              <div className="bg-slate-900/50 border border-white/5 rounded-xl p-1 flex gap-1 backdrop-blur-sm">
@@ -260,43 +255,57 @@ export default function Admin() {
           </div>
         )}
 
-        {/* VIEW: DASHBOARD OVERVIEW */}
         {tab === 'dashboard' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             
             {/* ALERTAS CRÍTICOS OPERACIONAIS */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-              {stats.timeoutAguardando > 0 && (
-                <div className="bg-red-950/30 border border-red-500/30 p-4 rounded-2xl flex items-center justify-between shadow-[0_0_20px_rgba(239,68,68,0.1)]">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-red-500/20 rounded-full flex items-center justify-center animate-pulse">
-                       <Clock className="text-red-500 w-5 h-5" />
+              {/* 🔥 ALERTA CRÍTICO: INSUCESSO DE ENTREGA REPORTADO PELO MOTORISTA */}
+              {stats.insucessos > 0 && (
+                <div className="bg-red-950/50 border border-red-500/50 p-4 rounded-2xl flex items-center justify-between shadow-[0_0_30px_rgba(239,68,68,0.2)] col-span-1 md:col-span-2">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center animate-pulse">
+                       <AlertTriangle className="text-red-500 w-6 h-6" />
                     </div>
                     <div>
-                      <p className="text-[10px] font-black text-red-400 uppercase tracking-widest">Alerta de Ociosidade</p>
-                      <p className="text-sm font-bold text-red-200">{stats.timeoutAguardando} fretes aguardando motorista (+10min)</p>
+                      <p className="text-[10px] font-black text-red-400 uppercase tracking-widest">SOS MOTORISTA - INSUCESSO REPORTADO</p>
+                      <p className="text-sm font-bold text-red-200 mt-1">Atenção: {stats.insucessos} operação(ões) registraram local fechado ou recusa da carga.</p>
                     </div>
                   </div>
-                  <button onClick={() => {setTab('corridas'); setStatusFilter('disponivel'); setTimeFilter('todos');}} className="text-[10px] font-black bg-red-500 hover:bg-red-400 text-white px-4 py-2 rounded-lg uppercase transition-all">Ver Cargas</button>
+                  <button onClick={() => {setTab('corridas'); setStatusFilter('todos'); setTimeFilter('todos'); setSearchTerm('');}} className="text-[10px] font-black bg-red-600 hover:bg-red-500 text-white px-5 py-3 rounded-xl uppercase transition-all shadow-lg shadow-red-500/20">Analisar Crise</button>
                 </div>
               )}
-              {stats.semComprovante > 0 && (
+
+              {stats.timeoutAguardando > 0 && (
                 <div className="bg-amber-950/30 border border-amber-500/30 p-4 rounded-2xl flex items-center justify-between shadow-[0_0_20px_rgba(245,158,11,0.1)]">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-amber-500/20 rounded-full flex items-center justify-center animate-pulse">
-                       <AlertTriangle className="text-amber-500 w-5 h-5" />
+                       <Clock className="text-amber-500 w-5 h-5" />
                     </div>
                     <div>
-                      <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest">Alerta Operacional</p>
-                      <p className="text-sm font-bold text-amber-200">{stats.semComprovante} entregas concluídas SEM comprovante</p>
+                      <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest">Alerta de Ociosidade</p>
+                      <p className="text-sm font-bold text-amber-200">{stats.timeoutAguardando} fretes aguardando motorista (+10min)</p>
                     </div>
                   </div>
-                  <button onClick={() => {setTab('corridas'); setStatusFilter('entregue'); setTimeFilter('todos');}} className="text-[10px] font-black bg-amber-500 hover:bg-amber-400 text-slate-950 px-4 py-2 rounded-lg uppercase transition-all">Verificar</button>
+                  <button onClick={() => {setTab('corridas'); setStatusFilter('disponivel'); setTimeFilter('todos');}} className="text-[10px] font-black bg-amber-500 hover:bg-amber-400 text-slate-950 px-4 py-2 rounded-lg uppercase transition-all">Ver Cargas</button>
+                </div>
+              )}
+              {stats.semComprovante > 0 && (
+                <div className="bg-slate-900/60 border border-white/5 p-4 rounded-2xl flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-white/5 rounded-full flex items-center justify-center">
+                       <AlertTriangle className="text-slate-400 w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Auditoria Operacional</p>
+                      <p className="text-sm font-bold text-white">{stats.semComprovante} entregas concluídas SEM comprovante fiscal</p>
+                    </div>
+                  </div>
+                  <button onClick={() => {setTab('corridas'); setStatusFilter('entregue'); setTimeFilter('todos');}} className="text-[10px] font-black bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg uppercase transition-all border border-white/10">Verificar</button>
                 </div>
               )}
             </div>
 
-            {/* DASHBOARD FINANCEIRO E LOGÍSTICO VIVO */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-8">
               
               <div className="bg-slate-900/60 border border-white/5 p-6 rounded-[2rem] backdrop-blur-md relative overflow-hidden group hover:border-cyan-500/30 transition-all">
@@ -337,7 +346,6 @@ export default function Admin() {
 
             </div>
 
-            {/* GRÁFICO / TABELA DE RESUMO RÁPIDO */}
             <div className="bg-slate-900/60 border border-white/5 rounded-[2.5rem] p-6 md:p-8 backdrop-blur-md">
                <div className="flex justify-between items-center mb-6">
                  <h2 className="text-sm font-black uppercase italic text-white flex items-center gap-2"><Activity size={18} className="text-cyan-500"/> Feed Operacional Recente</h2>
@@ -349,11 +357,11 @@ export default function Admin() {
                    <div key={f.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 bg-slate-950/80 rounded-2xl border border-white/5 hover:border-cyan-500/20 transition-all gap-4">
                       <div className="flex items-center gap-4">
                         <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border ${
-                          f.status === 'cancelado' ? 'bg-red-500/10 text-red-500 border-red-500/20' : 
+                          f.status === 'cancelado' || f.status === 'cancelado_motorista' ? 'bg-red-500/10 text-red-500 border-red-500/20' : 
                           f.status === 'disponivel' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse' :
                           'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
                         }`}>
-                          {f.status === 'cancelado' ? <XCircle size={20}/> : f.status === 'disponivel' ? <Search size={20}/> : <Truck size={20}/>}
+                          {f.status === 'cancelado' || f.status === 'cancelado_motorista' ? <XCircle size={20}/> : f.status === 'disponivel' ? <Search size={20}/> : <Truck size={20}/>}
                         </div>
                         <div>
                           <p className="text-xs font-black text-white uppercase line-clamp-1">{f.cidadeOrigem} → {f.cidadeDestino}</p>
@@ -365,8 +373,9 @@ export default function Admin() {
                         <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-md mt-1 border ${
                           f.status === 'entregue' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
                           f.status === 'finalizado' ? 'bg-green-500/20 text-green-400 border-green-500/30' :
+                          f.alertaInsucesso ? 'bg-red-500 text-white border-red-600 animate-pulse' :
                           'bg-slate-900 text-slate-400 border-white/10'
-                        }`}>{f.status.replace('_', ' ')}</span>
+                        }`}>{f.alertaInsucesso ? 'FALHA NA ROTA' : f.status.replace('_', ' ')}</span>
                       </div>
                    </div>
                  ))}
@@ -375,7 +384,7 @@ export default function Admin() {
           </div>
         )}
 
-        {/* VIEW: MOTORISTAS (APROVAÇÃO ANTIFRAUDE UX) */}
+        {/* ... (VIEW DE MOTORISTAS PERMANECE EXATAMENTE IGUAL) ... */}
         {tab === 'motoristas' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex justify-between items-center mb-8">
@@ -426,7 +435,6 @@ export default function Admin() {
                     <div className="mb-8">
                        <p className="text-[9px] text-slate-500 font-black uppercase mb-3 tracking-widest flex items-center gap-2"><Eye size={12}/> Documento do Motorista</p>
                        <div className="relative group/img overflow-hidden rounded-2xl h-48 border border-white/10 bg-black cursor-pointer shadow-inner flex items-center justify-center">
-                          {/* Tratamento para exibir imagem de forma segura */}
                           {m.documentoUrl || m.cnhUrl ? (
                             <img src={m.documentoUrl || m.cnhUrl} className="max-w-full max-h-full object-contain opacity-80 group-hover/img:scale-105 group-hover/img:opacity-100 transition-all" alt="Documento do Motorista" />
                           ) : (
@@ -439,7 +447,7 @@ export default function Admin() {
                     </div>
 
                     <div className="flex gap-4 relative z-10 pt-6 border-t border-white/5">
-                      <button onClick={() => handleAprovacaoMotorista(m.id, 'rejeitado')} className="flex-1 bg-transparent border border-red-500/30 text-red-400 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-500 hover:text-white transition-all">Rejeitar</button>
+                      <button onClick={() => handleAprovacaoMotorista(m.id, 'rejeitado')} className="flex-1 bg-transparent border border-red-500/30 text-red-400 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-50 hover:text-white transition-all">Rejeitar</button>
                       <button onClick={() => handleAprovacaoMotorista(m.id, 'aprovado')} className="flex-[2] bg-cyan-600 text-white py-4 rounded-xl font-black uppercase text-xs tracking-widest shadow-[0_0_20px_rgba(8,145,178,0.3)] hover:bg-cyan-500 transition-all flex items-center justify-center gap-2"><ShieldCheck size={16}/> Aprovar Parceiro</button>
                     </div>
                   </div>
@@ -449,11 +457,9 @@ export default function Admin() {
           </div>
         )}
 
-        {/* VIEW: RADAR DE CORRIDAS (TIMELINE OPERACIONAL) */}
         {tab === 'corridas' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
              
-             {/* FERRAMENTAS DE PESQUISA & FILTROS */}
              <div className="bg-slate-900/60 backdrop-blur-md p-6 rounded-[2.5rem] border border-white/5 flex flex-col md:flex-row gap-4 mb-8 shadow-xl">
                 <div className="flex-1 relative">
                    <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-cyan-500 w-5 h-5" />
@@ -482,7 +488,6 @@ export default function Admin() {
                 </div>
              </div>
 
-             {/* LISTA DE FRETE (TORRE DE CONTROLE VISUAL) */}
              <div className="space-y-6">
                 {fretesFiltrados.length === 0 ? (
                   <div className="text-center py-24 bg-slate-900/30 rounded-[3rem] border border-dashed border-white/5 backdrop-blur-sm">
@@ -492,10 +497,10 @@ export default function Admin() {
                   </div>
                 ) : (
                   fretesFiltrados.map(f => (
-                    <div key={f.id} className="bg-slate-900/80 border border-white/5 rounded-[2.5rem] p-6 md:p-8 hover:border-cyan-500/30 transition-all relative overflow-hidden group shadow-2xl backdrop-blur-md">
+                    <div key={f.id} className={`bg-slate-900/80 border rounded-[2.5rem] p-6 md:p-8 transition-all relative overflow-hidden group shadow-2xl backdrop-blur-md ${f.alertaInsucesso ? 'border-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.1)]' : 'border-white/5 hover:border-cyan-500/30'}`}>
                       
-                      {/* Status Lateral Indicator (Led Profile) */}
                       <div className={`absolute top-0 left-0 bottom-0 w-1.5 transition-all ${
+                        f.alertaInsucesso ? 'bg-red-500 animate-pulse' :
                         ['disponivel'].includes(f.status) ? 'bg-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.8)]' :
                         ['aceito', 'indo_coleta', 'coletando'].includes(f.status) ? 'bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.8)]' :
                         ['em_transporte'].includes(f.status) ? 'bg-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.8)]' :
@@ -505,17 +510,17 @@ export default function Admin() {
 
                       <div className="flex flex-col lg:flex-row justify-between gap-8 pl-2">
                         
-                        {/* COLUNA 1: Rota e Timeline Básica */}
                         <div className="flex-[1.5]">
                           <div className="flex items-center gap-4 mb-6 border-b border-white/5 pb-4">
                             <span className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border ${
+                              f.alertaInsucesso ? 'bg-red-500 text-white border-red-600' :
                               ['disponivel'].includes(f.status) ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' :
                               ['entregue'].includes(f.status) ? 'bg-purple-500/20 text-purple-400 border-purple-500/30 animate-pulse' :
                               ['finalizado'].includes(f.status) ? 'bg-green-500/10 text-green-400 border-green-500/20' :
                               ['cancelado'].includes(f.status) ? 'bg-red-500/10 text-red-400 border-red-500/20' :
                               'bg-amber-500/10 text-amber-400 border-amber-500/20'
                             }`}>
-                              {f.status.replace('_', ' ')}
+                              {f.alertaInsucesso ? 'ALERTA DE ROTA' : f.status.replace('_', ' ')}
                             </span>
                             <span className="text-[10px] font-mono text-slate-500 font-bold">#{f.id.toUpperCase()}</span>
                             
@@ -527,6 +532,15 @@ export default function Admin() {
                             
                             <span className={`text-[10px] font-bold text-slate-500 flex items-center gap-1 ${f.dataAgendada ? '' : 'ml-auto'}`}><Calendar size={12}/> Criado: {formatarData(f.createdAt)}</span>
                           </div>
+
+                          {/* 🔥 ALERTA VISUAL SE HOUVER INSUCESSO REPORTADO */}
+                          {f.alertaInsucesso && (
+                             <div className="mb-6 bg-red-950/50 p-4 rounded-xl border border-red-500/30">
+                               <p className="text-[9px] font-black text-red-500 uppercase tracking-widest mb-1 flex items-center gap-1"><AlertTriangle size={12}/> Insucesso na Rota Mapeado</p>
+                               <p className="text-xs text-red-200 font-bold mb-3">O motorista acionou o botão de pânico para local fechado ou recusa de carga.</p>
+                               <button onClick={() => forceClearInsucesso(f.id)} className="text-[10px] bg-red-500 hover:bg-red-400 text-white px-4 py-2 rounded-lg uppercase font-black transition-all">Marcar como Analisado</button>
+                             </div>
+                          )}
 
                           <div className="flex items-start gap-5">
                              <div className="flex flex-col items-center gap-1 mt-1">
@@ -546,7 +560,6 @@ export default function Admin() {
                              </div>
                           </div>
                           
-                          {/* PAINEL DE PINs PARA O ADMIN ACUDIR O MOTORISTA */}
                           {(f.pinColeta || (f.pinEntregas && f.pinEntregas.length > 0)) && (
                             <div className="mt-6 bg-slate-950/50 p-4 rounded-xl border border-white/5">
                               <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-1"><Lock size={12}/> Códigos de Segurança (PIN)</p>
@@ -560,7 +573,6 @@ export default function Admin() {
                           )}
                         </div>
 
-                        {/* COLUNA 2: Entidades e Valores Financeiros Separados */}
                         <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
                            <div className="bg-slate-950/80 p-4 rounded-2xl border border-white/5 flex flex-col justify-between">
                               <div>
@@ -582,7 +594,6 @@ export default function Admin() {
                               </div>
                            </div>
                            
-                           {/* DIVISÃO FINANCEIRA REAL DO MARKUP REVERSO */}
                            <div className="bg-slate-950/80 p-4 rounded-2xl border border-white/5 col-span-1 sm:col-span-2">
                               <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-1"><DollarSign size={10}/> Resumo Financeiro da Operação</p>
                               <div className="grid grid-cols-2 gap-2 text-[10px] font-bold">
@@ -607,11 +618,9 @@ export default function Admin() {
                            </div>
                         </div>
 
-                        {/* COLUNA 3: Ações do Terminal */}
                         <div className="flex flex-col gap-3 min-w-[200px] border-l border-white/5 pl-4 lg:pl-8 justify-center">
                            <p className="text-[9px] font-black text-cyan-500 uppercase tracking-widest mb-2 text-center flex items-center justify-center gap-2"><Zap size={10}/> Operações</p>
                            
-                           {/* Fluxo de Repasse Premium */}
                            {f.status === 'entregue' && (
                              <button onClick={() => forceStatus(f.id, 'finalizado')} className="bg-purple-600 hover:bg-purple-500 text-white py-4 rounded-xl font-black text-[10px] tracking-widest uppercase shadow-[0_0_20px_rgba(168,85,247,0.4)] transition-all flex flex-col items-center justify-center gap-1 group">
                                <span className="flex items-center gap-1"><Wallet size={14} /> Liquidar Repasse</span>
@@ -619,7 +628,6 @@ export default function Admin() {
                              </button>
                            )}
                            
-                           {/* Fluxo de Reembolso Anti-Fraude */}
                            {f.status === 'cancelado' && !f.reembolsado && (
                              <button onClick={() => handleReembolso(f.id)} className="bg-amber-600 hover:bg-amber-500 text-slate-900 py-4 rounded-xl font-black text-[10px] tracking-widest uppercase shadow-[0_0_20px_rgba(245,158,11,0.4)] transition-all flex flex-col items-center justify-center gap-1 group">
                                <span className="flex items-center gap-1"><RefreshCcw size={14} /> Estornar PIX (MP)</span>
