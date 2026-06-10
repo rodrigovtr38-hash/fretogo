@@ -34,14 +34,22 @@ class RealtimeOrchestrator {
   }
 
   private registerEvents() {
-    eventBusService.on(AppEvents.TRIP_STATUS_CHANGED, async (payload: { driverState: DriverState, tripState: AppTripState }) => {
-      if (this.syncing) return;
+    // 🔥 CTO FIX P0 #1: Ajuste de Payload. O Firestore manda o documento bruto (com id, status, motoristaId).
+    // O Orchestrator agora traduz esse payload bruto para a Máquina de Estados entender.
+    eventBusService.on(AppEvents.TRIP_STATUS_CHANGED, async (payload: any) => {
+      if (this.syncing || !payload) return;
       
       this.syncing = true; // 🔥 LOCK: Impede eventos sobrepostos
       try {
+        // Converte o status que veio do banco para o AppTripState oficial
+        const tripStateRecebido = payload.status as AppTripState;
+        
+        // Se houver state do motorista no payload (opcional), usa, senão foca no tripState
+        const driverStateRecebido = payload.state as DriverState || DriverState.OCUPADO;
+
         const syncResult = StateSynchronizationService.synchronize(
-          payload.driverState,
-          payload.tripState
+          driverStateRecebido,
+          tripStateRecebido
         );
         
         // Emite o resultado da sincronização para todos os ouvintes
