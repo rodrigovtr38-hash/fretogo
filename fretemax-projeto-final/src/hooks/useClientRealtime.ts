@@ -4,8 +4,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AppTripState, isFinalState } from '../state/tripStateMachine';
-// O import abaixo não existe mais na nova estrutura, mas mantemos o catch do firebase no useEffect
-// import { clientFreightService } from '../services/clientFreightService';
 
 /*
 =========================================================
@@ -31,6 +29,7 @@ type RuntimeSnapshot = Record<string, any> & { id: string };
 
 const STORAGE_PREFIX = 'fretogo_runtime_client_';
 const safeNow = () => Date.now();
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 🔥 CTO FIX P1: TTL de 24 horas
 
 export const useClientRealtime = ({ freightId }: UseClientRealtimeProps) => {
   const [orderData, setOrderData] = useState<any>(null);
@@ -67,8 +66,16 @@ export const useClientRealtime = ({ freightId }: UseClientRealtimeProps) => {
       const raw = localStorage.getItem(`${STORAGE_PREFIX}${freightId}`);
       if (!raw) return;
       const parsed = JSON.parse(raw);
-      if (parsed?.data) {
-        setOrderData(parsed.data);
+      
+      // 🔥 CTO FIX P1: Verifica se o cache expirou (24h)
+      if (parsed?.data && parsed?.timestamp) {
+        const isExpired = (safeNow() - parsed.timestamp) > CACHE_TTL_MS;
+        if (!isExpired) {
+          setOrderData(parsed.data);
+          return;
+        } else {
+            localStorage.removeItem(`${STORAGE_PREFIX}${freightId}`);
+        }
       }
     } catch (error) {
       console.error('RUNTIME HYDRATE ERROR:', error);
@@ -129,9 +136,11 @@ export const useClientRealtime = ({ freightId }: UseClientRealtimeProps) => {
       if (data.motoristaId) setDriverFound(true);
       if (isFinalState(data.status)) setTripFinished(true);
 
-      // 🔥 CORREÇÃO DA MÁQUINA DE ESTADO: Nomes padronizados
-      if (data.status === AppTripState.DISPONIVEL || data.status === AppTripState.OFERTANDO || data.status === AppTripState.BUSCANDO_MOTORISTA) {
+      // 🔥 CTO FIX P1: Ajuste na máquina de estados para cobrir o REDISPATCHING
+      if (data.status === AppTripState.DISPONIVEL) {
         setRuntimeState('SEARCHING_DRIVER');
+      } else if (data.status === AppTripState.OFERTANDO || data.status === AppTripState.BUSCANDO_MOTORISTA) {
+         setRuntimeState('REDISPATCHING'); // Implementado o redispatch corretamente
       } else if (data.status === AppTripState.ACEITO) {
         setRuntimeState('DRIVER_ACCEPTED');
       } else if (data.status === AppTripState.COLETANDO || data.status === AppTripState.EM_TRANSPORTE || data.status === AppTripState.INDO_COLETA) {
