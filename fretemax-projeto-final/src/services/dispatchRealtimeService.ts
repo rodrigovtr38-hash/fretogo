@@ -12,7 +12,8 @@ class DispatchRealtimeService {
         state: DriverState.ONLINE,
         atualizadoEm: Date.now(),
       });
-      locationRealtimeService.start(driverId);
+      // 🔥 CTO FIX P0 #3: Removido o locationRealtimeService.start() daqui. 
+      // O GPS de alta precisão não deve drenar bateria de motorista ocioso.
     } catch (error) {
       console.error('ERRO DRIVER ONLINE:', error);
     }
@@ -48,17 +49,28 @@ class DispatchRealtimeService {
     }
   }
 
+  // 🔥 CTO FIX P0 #2: Transação Atômica de Aceite
   async aceitarCorrida(driverId: string, freteId: string) {
     try {
+      // 1. Atualiza o status do Motorista
       await firebaseRealtimeService.updateDriverRealtime(driverId, {
         state: DriverState.ACEITOU,
         freteAtualId: freteId,
         disponivel: false,
         atualizadoEm: Date.now(),
       });
+
+      // 2. Atualiza o status do Frete IMEDIATAMENTE na mesma função (Garante Sincronia de Tela com Cliente)
+      await firebaseRealtimeService.updateTripRealtime(freteId, {
+        status: 'ACEITO',
+        motoristaId: driverId,
+        atualizadoEm: Date.now(),
+      });
+
+      // 3. Liga o GPS Compartilhado apenas após ter carga garantida
       locationRealtimeService.start(driverId, freteId);
     } catch (error) {
-      console.error('ERRO ACEITE:', error);
+      console.error('ERRO ACEITE ATÔMICO:', error);
     }
   }
 
@@ -103,7 +115,7 @@ class DispatchRealtimeService {
         freteAtualId: null,
         atualizadoEm: Date.now(),
       });
-      locationRealtimeService.start(driverId); 
+      // O GPS compartilhado será desligado no ciclo de vida da viagem
     } catch (error) {
       console.error('ERRO FINALIZAÇÃO:', error);
     }
