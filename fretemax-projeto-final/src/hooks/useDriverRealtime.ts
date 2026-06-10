@@ -1,11 +1,6 @@
-import {
-  useEffect,
-  useRef,
-} from 'react';
-
-import {
-  locationRealtimeService,
-} from '../services/locationRealtimeService';
+// src/hooks/useDriverRealtime.ts
+import { useEffect, useRef } from 'react';
+import { locationRealtimeService } from '../services/locationRealtimeService';
 
 /* =========================================================
    HOOK
@@ -13,16 +8,10 @@ import {
 
 export const useDriverRealtime = (
   driverId?: string,
-
   isOnline?: boolean,
 ) => {
-  const initializedRef =
-    useRef(false);
-
-  const activeDriverRef =
-    useRef<
-      string | undefined
-    >();
+  const initializedRef = useRef(false);
+  const activeDriverRef = useRef<string | undefined>();
 
   useEffect(() => {
     if (!driverId) {
@@ -32,27 +21,18 @@ export const useDriverRealtime = (
     /*
      * StrictMode protection.
      */
-
-    if (
-      initializedRef.current &&
-      activeDriverRef.current ===
-        driverId &&
-      isOnline
-    ) {
+    if (initializedRef.current && activeDriverRef.current === driverId && isOnline) {
       return;
     }
 
-    activeDriverRef.current =
-      driverId;
+    activeDriverRef.current = driverId;
+    initializedRef.current = true;
 
-    initializedRef.current =
-      true;
-
-    if (isOnline) {
-      locationRealtimeService.start(
-        driverId,
-      );
-    } else {
+    // 🔥 CTO FIX P0 #3: REMOVIDA LIGAÇÃO PREMATURA DO GPS AQUI. 
+    // O locationRealtimeService.start() agora é chamado EXCLUSIVAMENTE 
+    // no dispatchRealtimeService.aceitarCorrida(), garantindo que só ligamos
+    // o rastreamento pesado (e custoso no Firebase) quando há frete ativo.
+    if (!isOnline) {
       locationRealtimeService.stop();
     }
 
@@ -60,15 +40,9 @@ export const useDriverRealtime = (
       /*
        * Cleanup seguro.
        */
-
-      if (
-        activeDriverRef.current ===
-        driverId
-      ) {
+      if (activeDriverRef.current === driverId) {
         locationRealtimeService.stop();
-
-        initializedRef.current =
-          false;
+        initializedRef.current = false;
       }
     };
   }, [driverId, isOnline]);
