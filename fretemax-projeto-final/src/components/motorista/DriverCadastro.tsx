@@ -11,11 +11,13 @@ import {
   User,
   ListFilter,
   FileImage,
-  CheckCircle2
+  CheckCircle2,
+  CameraIcon // Adicionado para o ícone da Selfie
 } from 'lucide-react';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { auth, db } from '../../firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+// CTO FIX: O storage já está importado corretamente
+import { auth, db, storage } from '../../firebase';
 
 interface DriverCadastroProps {
   onFinish: () => void;
@@ -27,9 +29,10 @@ export default function DriverCadastro({
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Estados para as fotos reais
+  // Estados para as 3 fotos antifraude
   const [cnhFile, setCnhFile] = useState<File | null>(null);
   const [docVeiculoFile, setDocVeiculoFile] = useState<File | null>(null);
+  const [selfieFile, setSelfieFile] = useState<File | null>(null); // NOVO: Estado da Selfie
 
   const [formData, setFormData] = useState({
     nome: '',
@@ -37,7 +40,7 @@ export default function DriverCadastro({
     cpf: '',
     placa: '',
     veiculo: '',
-    categoria: '', // Chave primária do algoritmo
+    categoria: '', 
   });
 
   const handleChange = (
@@ -49,24 +52,26 @@ export default function DriverCadastro({
     });
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'cnh' | 'doc') => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'cnh' | 'doc' | 'selfie') => {
     if (e.target.files && e.target.files[0]) {
       if (type === 'cnh') setCnhFile(e.target.files[0]);
       if (type === 'doc') setDocVeiculoFile(e.target.files[0]);
+      if (type === 'selfie') setSelfieFile(e.target.files[0]); // NOVO: Trata a Selfie
     }
   };
 
   const handleSubmit = async () => {
     setErrorMsg('');
     
-    // Validação estrita: Sem dados ou sem fotos, não avança.
+    // Validação estrita de texto
     if (!formData.nome || !formData.telefone || !formData.cpf || !formData.placa || !formData.categoria || !formData.veiculo) {
       setErrorMsg('Preencha todos os campos obrigatórios em texto.');
       return;
     }
 
-    if (!cnhFile || !docVeiculoFile) {
-      setErrorMsg('É obrigatório enviar a foto da CNH e do Documento do Veículo.');
+    // Validação estrita das TRÊS fotos
+    if (!cnhFile || !docVeiculoFile || !selfieFile) {
+      setErrorMsg('É obrigatório enviar a foto da CNH, do Documento do Veículo e a Selfie segurando a CNH.');
       return;
     }
 
@@ -75,42 +80,57 @@ export default function DriverCadastro({
     try {
       const user = auth.currentUser;
       if (!user) {
-        throw new Error("Sessão expirada. Faça login novamente.");
+        throw new Error("Sessão expirada. Faça login novamente para concluir.");
       }
 
-      const storage = getStorage();
-      
-      // 1. Upload da foto da CNH
-      const cnhRef = ref(storage, `motoristas_docs/${user.uid}/cnh_${Date.now()}`);
-      await uploadBytes(cnhRef, cnhFile);
-      const cnhUrl = await getDownloadURL(cnhRef);
+      let cnhUrl = "";
+      let docUrl = "";
+      let selfieUrl = ""; // NOVO: URL da selfie
 
-      // 2. Upload da foto do Documento do Veículo
-      const docRef = ref(storage, `motoristas_docs/${user.uid}/doc_${Date.now()}`);
-      await uploadBytes(docRef, docVeiculoFile);
-      const docUrl = await getDownloadURL(docRef);
+      // Engenharia de Upload Blindada
+      try {
+        // 1. Upload da foto da CNH
+        const cnhRef = ref(storage, `motoristas_docs/${user.uid}/cnh_${Date.now()}`);
+        await uploadBytes(cnhRef, cnhFile);
+        cnhUrl = await getDownloadURL(cnhRef);
 
-      // 3. Salva tudo no Firestore (Textos + Links das Fotos)
+        // 2. Upload da foto do Documento
+        const docRef = ref(storage, `motoristas_docs/${user.uid}/doc_${Date.now()}`);
+        await uploadBytes(docRef, docVeiculoFile);
+        docUrl = await getDownloadURL(docRef);
+
+        // 3. Upload da Selfie com Documento
+        const selfieRef = ref(storage, `motoristas_docs/${user.uid}/selfie_${Date.now()}`);
+        await uploadBytes(selfieRef, selfieFile);
+        selfieUrl = await getDownloadURL(selfieRef);
+
+      } catch (uploadError: any) {
+        console.error("Falha no envio das imagens (Storage):", uploadError);
+        throw new Error("Não foi possível salvar as fotos. Verifique sua internet ou contate o suporte.");
+      }
+
+      // 4. Salva tudo no Firestore (Textos + Links das 3 Fotos)
       await setDoc(doc(db, 'motoristas_cadastros', user.uid), {
         nome: formData.nome,
         whatsapp: formData.telefone,
         cpf: formData.cpf,
         placa: formData.placa.toUpperCase(),
-        modeloVeiculo: formData.veiculo, // Ex: Carreta Baú, Grade Baixa, etc.
-        categoria: formData.categoria, // Ex: carreta (Para o motor de busca)
-        fotoCnh: cnhUrl, // Link seguro gerado pelo Firebase
-        fotoDocumento: docUrl, // Link seguro gerado pelo Firebase
-        status: 'pendente', // Gatilho de segurança para o Admin aprovar
+        modeloVeiculo: formData.veiculo,
+        categoria: formData.categoria,
+        fotoCnh: cnhUrl, 
+        fotoDocumento: docUrl, 
+        fotoSelfie: selfieUrl, // NOVO: Salva no banco de dados para o Admin ler
+        status: 'pendente', // Mantém na fila de aprovação
         criadoEm: serverTimestamp(),
         uid: user.uid,
       });
 
-      // Avança a tela apenas se salvou com sucesso total
+      // Sucesso Total. Avança para o radar.
       onFinish();
 
     } catch (error: any) {
-      console.error('ERRO AO CADASTRAR MOTORISTA:', error);
-      setErrorMsg('Ocorreu um erro no upload. Verifique sua conexão e tente novamente.');
+      console.error('ERRO CRÍTICO NO CADASTRO:', error);
+      setErrorMsg(error.message || 'Ocorreu um erro técnico ao processar seu cadastro. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -209,9 +229,9 @@ export default function DriverCadastro({
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-cyan-500/10">
               <Camera className="text-cyan-400" />
             </div>
-            <h3 className="text-lg font-black text-white">Fotos Obrigatórias</h3>
+            <h3 className="text-lg font-black text-white">Auditoria Anti-Fraude</h3>
             <p className="mt-2 max-w-md text-sm text-slate-400">
-              Precisamos validar sua identidade e seu veículo para garantir a segurança da plataforma.
+              Para a sua segurança e dos embarcadores, é obrigatório enviar a foto da CNH e uma selfie segurando o documento.
             </p>
           </div>
 
@@ -223,7 +243,7 @@ export default function DriverCadastro({
                 <div className="flex items-center gap-3 overflow-hidden">
                   <FileImage className={cnhFile ? 'text-emerald-400' : 'text-cyan-400'} size={20} />
                   <span className="truncate text-sm font-medium text-slate-200">
-                    {cnhFile ? cnhFile.name : 'Tirar foto da CNH'}
+                    {cnhFile ? cnhFile.name : 'Foto da CNH'}
                   </span>
                 </div>
                 {cnhFile && <CheckCircle2 className="text-emerald-400" size={18} />}
@@ -243,6 +263,20 @@ export default function DriverCadastro({
                 {docVeiculoFile && <CheckCircle2 className="text-emerald-400" size={18} />}
               </label>
             </div>
+
+            {/* NOVO: INPUT SELFIE (Ocupa as duas colunas em telas pequenas, ou flutua abaixo) */}
+            <div className="relative md:col-span-2">
+              <input type="file" id="selfieUpload" accept="image/*" onChange={(e) => handleFileChange(e, 'selfie')} className="hidden" />
+              <label htmlFor="selfieUpload" className={`flex w-full cursor-pointer items-center justify-between rounded-xl border px-4 py-3 transition-all hover:bg-white/5 ${selfieFile ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-cyan-500/30 bg-cyan-500/10'}`}>
+                <div className="flex items-center gap-3 overflow-hidden">
+                  <CameraIcon className={selfieFile ? 'text-emerald-400' : 'text-cyan-400'} size={20} />
+                  <span className="truncate text-sm font-medium text-slate-200">
+                    {selfieFile ? selfieFile.name : 'Selfie (Rosto + CNH em mãos)'}
+                  </span>
+                </div>
+                {selfieFile && <CheckCircle2 className="text-emerald-400" size={18} />}
+              </label>
+            </div>
           </div>
         </div>
 
@@ -251,7 +285,7 @@ export default function DriverCadastro({
           <ShieldCheck className="text-emerald-400" />
           <div>
             <h3 className="font-bold text-white">Dados protegidos</h3>
-            <p className="text-sm text-slate-400">Todas as fotos e documentos são criptografados.</p>
+            <p className="text-sm text-slate-400">Todas as fotos e documentos são criptografados com segurança de nível bancário.</p>
           </div>
         </div>
 
