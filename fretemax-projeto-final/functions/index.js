@@ -1,3 +1,4 @@
+// functions/index.js
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const axios = require('axios');
@@ -46,28 +47,22 @@ exports.getDistance = functions.runWith(runtimeOpts).https.onCall(async (data, c
   }
 });
 
-// ========================================================
-// 3. O DESPERTADOR (CRON JOB) - AJUSTE CTO
-// ========================================================
-// Roda a cada 5 minutos para rastrear cargas agendadas
-exports.despertadorAgendamentos = functions.pubsub.schedule('every 5 minutes').onRun(async (context) => {
+// 3. O DESPERTADOR (CRON JOB)
+exports.despertadorAgendamentos = functions.runWith(runtimeOpts).pubsub.schedule('every 5 minutes').onRun(async (context) => {
   const agora = new Date();
-  const limiteD1 = new Date(agora.getTime() + 24 * 60 * 60 * 1000); // Daqui 24 horas
-  const limite1h = new Date(agora.getTime() + 1 * 60 * 60 * 1000); // Daqui 1 hora
+  const limiteD1 = new Date(agora.getTime() + 24 * 60 * 60 * 1000); 
+  const limite1h = new Date(agora.getTime() + 1 * 60 * 60 * 1000); 
 
-  // Busca fretes agendados que ainda não foram notificados em D-1
   const fretesD1 = await db.collection('fretes')
     .where('agendadoPara', '<=', limiteD1)
     .where('notificadoD1', '==', false)
     .where('status', 'in', ['disponivel', 'buscando_motorista'])
-    .limit(500) // Bloqueio antifalência: processa em lotes de 500 para não estourar memória
+    .limit(500) 
     .get();
 
   const batch = db.batch();
 
   fretesD1.forEach(doc => {
-    // Apenas marca que a notificação tem que ser enviada. 
-    // Uma Trigger ou o Webhook assíncrono vai ler isso e disparar o WhatsApp sem travar o banco.
     batch.update(doc.ref, { 
       notificadoD1: true, 
       pendenteEnvioWhatsAppD1: true,
@@ -75,7 +70,6 @@ exports.despertadorAgendamentos = functions.pubsub.schedule('every 5 minutes').o
     });
   });
 
-  // Busca fretes agendados para 1 HORA antes (D-Hora)
   const fretes1h = await db.collection('fretes')
     .where('agendadoPara', '<=', limite1h)
     .where('notificado1h', '==', false)
@@ -84,7 +78,6 @@ exports.despertadorAgendamentos = functions.pubsub.schedule('every 5 minutes').o
     .get();
 
   fretes1h.forEach(doc => {
-    // Alerta máximo de operação!
     batch.update(doc.ref, { 
       notificado1h: true, 
       pendenteEnvioWhatsApp1h: true,
@@ -94,7 +87,101 @@ exports.despertadorAgendamentos = functions.pubsub.schedule('every 5 minutes').o
 
   if (fretesD1.size > 0 || fretes1h.size > 0) {
     await batch.commit();
-    console.log(`[DESPERTADOR] Processou ${fretesD1.size} D-1 e ${fretes1h.size} D-Hora.`);
   }
   return null;
+});
+
+// ========================================================
+// 4. RESET DIÁRIO DE RETORNO (CRON MEIA-NOITE) - AJUSTE CTO
+// ========================================================
+// Configurado com maior margem de memória para aguentar escala volumosa de motoristas ativos
+exports.resetContadorRetorno = functions.runWith({ timeoutSeconds: 60, memory: '512MB' })
+  .pubsub.schedule('0 0 * * *')
+  .timeZone('America/Sao_Paulo')
+  .onRun(async (context) => {
+    
+    const collectionsToReset = ['motoristas', 'motoristas_online'];
+    
+    for (const col of collectionsToReset) {
+      let emProcessamento = true;
+      
+      while (emProcessamento) {
+        // Busca motoristas que gastaram cotas ou estão com o modo ativo
+        const snapshot = await db.collection(col)
+          .where('retornosUsadosHoje', '>', 0)
+          .limit(400)
+          .get();
+          
+        if (snapshot.empty) {
+          emProcessamento = false;
+          break;
+        }
+        
+        const batch = db.batch();
+        snapshot.forEach(doc => {
+          batch.update(doc.ref, {
+            retornosUsadosHoje: 0,
+            modoRetorno: false,
+            destinoRetorno: admin.firestore.FieldValue.delete(),
+            atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+          });
+        });
+        
+        await batch.commit();
+        console.log(`[RESET_RETORNO] Zeredo lote de 400 registros na coleção: ${col}`);
+      }
+    }
+    return null;
+  });
+
+// ========================================================
+// 5. ATIVAÇÃO ATÔMICA DO MODO RETORNO - AJUSTE CTO
+// ========================================================
+exports.ativarModoRetorno = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
+  const uid = context.auth?.uid || data.uid;
+  if (!uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Acesso negado. Faça login novamente.');
+  }
+
+  const { destinoRetorno, lat, lng } = data;
+  if (!destinoRetorno) {
+    throw new functions.https.HttpsError('invalid-argument', 'O destino de retorno precisa ser informado.');
+  }
+
+  const motoristaRef = db.collection('motoristas').doc(uid);
+  const motoristaOnlineRef = db.collection('motoristas_online').doc(uid);
+
+  try {
+    // Transação garante consistência estrita mesmo com cliques simultâneos
+    await db.runTransaction(async (transaction) => {
+      const docSnap = await transaction.get(motoristaRef);
+      let usados = 0;
+      
+      if (docSnap.exists) {
+        usados = docSnap.data().retornosUsadosHoje || 0;
+      }
+
+      if (usados >= 2) {
+        throw new Error('LIMITE_RETORNO_DIARIO_ATINGIDO');
+      }
+
+      const novosUsados = usados + 1;
+      const payloadUpdate = {
+        modoRetorno: true,
+        destinoRetorno: destinoRetorno.trim(),
+        retornosUsadosHoje: novosUsados,
+        latitudeRetorno: lat || null,
+        longitudeRetorno: lng || null,
+        atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+      };
+
+      transaction.set(motoristaRef, payloadUpdate, { merge: true });
+      transaction.set(motoristaOnlineRef, payloadUpdate, { merge: true });
+    });
+
+    return { success: true, message: 'Modo retorno ativado com sucesso.' };
+  } catch (error) {
+    console.error('[ERRO_MODO_RETORNO]', error.message);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
 });
