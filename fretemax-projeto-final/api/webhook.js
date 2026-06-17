@@ -3,9 +3,6 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import crypto from 'crypto';
 
-// 🔥 CTO FIX: Removidas as importações do React/Client-side para evitar Crash 500 na Vercel.
-// O Webhook deve usar apenas firebase-admin e strings brutas de status.
-
 if (!getApps().length) {
   if (process.env.FIREBASE_ADMIN_CREDENTIAL) {
     initializeApp({
@@ -18,11 +15,37 @@ if (!getApps().length) {
 
 const db = getFirestore();
 
+// // AJUSTE CTO: Função de Envio de Mensagem (Fire-and-Forget com sistema de Retry básico).
+// Essa função não espera a resposta (await) para não travar o Webhook do Mercado Pago.
+async function dispararWhatsAppAsync(telefone, mensagem, tentativa = 1) {
+  try {
+    // Aqui entra o POST para a API Oficial do WhatsApp ou Z-API / Evolution
+    const apiUrl = process.env.WHATSAPP_API_URL; 
+    if (!apiUrl) return;
+
+    await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}`
+      },
+      body: JSON.stringify({ phone: telefone, message: mensagem })
+    });
+  } catch (e) {
+    if (tentativa < 3) {
+      console.warn(`[WHATSAPP RETRY] Tentativa ${tentativa} falhou para ${telefone}. Tentando de novo...`);
+      // Fila simples em memória para tentar de novo sem travar
+      setTimeout(() => dispararWhatsAppAsync(telefone, mensagem, tentativa + 1), 5000 * tentativa);
+    } else {
+      console.error(`[WHATSAPP FALHOU DEFINITIVO] Não foi possível avisar ${telefone}.`);
+    }
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).send('Método não permitido');
 
   try {
-    // 🛡️ Validação de Assinatura do Mercado Pago
     const xSignature = req.headers['x-signature'];
     const xRequestId = req.headers['x-request-id'];
     const dataId = req.query?.['data.id'] || req.body?.data?.id;
@@ -63,14 +86,13 @@ export default async function handler(req, res) {
       if (freteSnap.exists) {
         const freteData = freteSnap.data();
 
-        // 🔥 PAGAMENTO APROVADO - Sincronização Server-Side
         if (paymentData.status === 'approved' && paymentData.status_detail === 'accredited') {
           
-          // Verifica Idempotência (Garante que não processe o mesmo PIX duas vezes)
           if (freteData.pagamentoStatus !== 'aprovado') {
             
+            // 1. Atualiza o banco (Síncrono e Rápido)
             await freteRef.update({
-              status: 'buscando_motorista', // Status real do Enum injetado como string
+              status: 'buscando_motorista', 
               pagamentoStatus: 'aprovado',
               dispatchStatus: 'em_andamento',
               pagoEm: FieldValue.serverTimestamp(),
@@ -78,12 +100,23 @@ export default async function handler(req, res) {
               atualizadoEm: FieldValue.serverTimestamp()
             });
             
-            console.log(`[WEBHOOK] Pagamento do Frete ${pedidoId} Aprovado. Disparando para o Radar.`);
-            // A esteira de Dispatch do cliente/radar capturará essa mudança de status automaticamente
+            console.log(`[WEBHOOK] Pagamento do Frete ${pedidoId} Aprovado.`);
+
+            // // AJUSTE CTO: Desacoplamento.
+            // O webhook dispara a notificação no fundo e JÁ DEVOLVE a resposta 200 ao Mercado Pago.
+            // Se o Zap demorar, não quebra a transação do cliente.
+            if (freteData.telefoneCliente) {
+               dispararWhatsAppAsync(
+                 freteData.telefoneCliente, 
+                 `✅ FretoGo: Seu pagamento do frete foi confirmado! Estamos localizando o melhor motorista na região.`
+               );
+            }
           }
         }
       }
     }
+    
+    // Devolve o 200 pro MP em menos de 1 segundo
     res.status(200).send('OK');
   } catch (err) {
     console.error(`[WEBHOOK ERRO CRÍTICO]:`, err);
