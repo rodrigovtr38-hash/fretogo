@@ -3,18 +3,15 @@ import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'fir
 import { db } from '../firebase';
 import { paymentService } from './paymentService';
 import { AppTripState } from '../state/tripStateMachine';
-
-// // AJUSTE CTO: Sistema de fila centralizado substituindo o antigo orquestrador assíncrono
 import { DispatchQueueService } from './dispatchQueueService';
 
-// Registro de requisições concorrentes em voo para evitar cliques duplos (Inflight Registry)
 const inflightRegistry = new Set<string>();
 
 export interface FreightPayload {
   clienteId: string;
   categoria: string;
-  origem: { lat: number; lng: number; endereco?: string };
-  destino: { lat: number; lng: number; endereco?: string };
+  origem: { lat: number; lng: number; endereco?: string; cidade?: string };
+  destino: { lat: number; lng: number; endereco?: string; cidade?: string };
   valor?: number;
   valorBruto?: number;
   distanciaTotalKm?: number;
@@ -50,22 +47,34 @@ class ClientFreightService {
     };
   }
 
-  // // AJUSTE CTO: Motor interno de divisão de spread invisível por categoria operacional
+  // Divisão de spread invisível por categoria operacional
   private calcularComissao(valorBruto: number, categoria: string) {
     const cat = categoria ? categoria.toLowerCase().trim() : '';
     
-    // Categorias Leves: Moto, Carro (Fiorino/Furgão), Utilitário (HR/Bongo) -> Retenção de 20%
+    // Categorias Leves: 20% | Pesadas: 15%
     const ehLeve = ['moto', 'carro', 'utilitario', 'furg', 'hr', 'bongo'].some(c => cat.includes(c));
-    const taxa = ehLeve ? 0.20 : 0.15; // Categorias Pesadas (Toco, Truck, Carreta, Bitrem) -> Retenção de 15%
+    const taxa = ehLeve ? 0.20 : 0.15; 
     
     const valorComissao = this.round(valorBruto * taxa);
     const valorLiquidoMotorista = this.round(valorBruto - valorComissao);
     
     return {
-      taxaFreto: taxa * 100, // Armazena a porcentagem cheia (15 ou 20)
+      taxaFreto: taxa * 100, 
       valorComissao,
       valorLiquidoMotorista
     };
+  }
+
+  // // AJUSTE CTO: Função auxiliar para extrair a cidade do endereço bruto, se necessário
+  private extrairCidadeDoEndereco(endereco: string | undefined): string {
+    if (!endereco) return '';
+    // Lógica simples: Pega a parte antes do "- Estado" ou tentar separar por vírgulas.
+    // Em um sistema real, o ideal é o frontend já mandar payload.destino.cidade separadamente.
+    const partes = endereco.split(',');
+    if (partes.length > 2) {
+       return partes[partes.length - 2].trim(); // Geralmente o bairro/cidade fica no penúltimo bloco antes do estado/país
+    }
+    return endereco.trim();
   }
 
   async criarFrete(payload: FreightPayload): Promise<any> {
@@ -79,7 +88,6 @@ class ClientFreightService {
         return { success: false, error: 'COORDENADAS_INVALIDAS' };
       }
 
-      // // AJUSTE CTO: Extração e validação do motor de precificação antes da chamada de pagamento
       const valorBruto = pricingMetadata.valorBruto;
       if (valorBruto <= 0) return { success: false, error: 'VALOR_BRUTO_INVALIDO' };
 
@@ -90,9 +98,12 @@ class ClientFreightService {
       const pinColeta = this.generatePin();
       const pinEntregas = normalizedPayload.paradasTratadas.map(() => this.generatePin());
 
-      // // AJUSTE CTO: Persistência de dados financeiros de auditoria e PINs gerados
+      // Extrai a cidade para alimentar o Radar de Retorno
+      const cidadeDestinoFormatada = payload.destino.cidade || this.extrairCidadeDoEndereco(payload.destino.endereco);
+
       const freteRef = await addDoc(collection(db, 'fretes'), {
         ...normalizedPayload,
+        cidadeDestinoFormatada, // Novo campo para busca otimizada
         status: AppTripState.DISPONIVEL, 
         pagamentoStatus: 'pendente',
         dispatchStatus: 'aguardando_dispatch',
@@ -103,11 +114,11 @@ class ClientFreightService {
         valorBruto,
         taxaFreto,
         valorComissao,
-        valorLiquidoMotorista, // O motorista e o radar só enxergam este valor
+        valorLiquidoMotorista, 
       });
 
       const pagamento = await paymentService.processarPagamento({
-        valor: valorBruto, // O cliente fatura o valor cheio (Bruto)
+        valor: valorBruto, 
         descricao: `Frete ${normalizedPayload.categoria} - ID ${freteRef.id}`,
         clienteId: normalizedPayload.clienteId,
         freteId: freteRef.id,
@@ -128,7 +139,7 @@ class ClientFreightService {
         atualizadoEm: serverTimestamp(),
       });
 
-      // // AJUSTE CTO: Disparo do fluxo de distribuição enviando estritamente o VALOR LÍQUIDO ao motorista
+      // // AJUSTE CTO: Dispara a fila enviando o 'cidadeDestino' explicitamente para o Radar
       await DispatchQueueService.iniciarFila({
         id: freteRef.id,
         clienteId: normalizedPayload.clienteId,
@@ -143,8 +154,9 @@ class ClientFreightService {
           lng: normalizedPayload.destino.lng,
           endereco: normalizedPayload.destino.endereco || ''
         },
+        cidadeDestino: cidadeDestinoFormatada, // Passa a cidade limpa para o Match!
         distanciaKm: normalizedPayload.distanciaTotalKm || 0,
-        valor: valorLiquidoMotorista, // Defesa de spread ativa
+        valor: valorLiquidoMotorista, 
         peso: normalizedPayload.pesoKg || 0,
         descricao: normalizedPayload.tipoCarga || ''
       });
