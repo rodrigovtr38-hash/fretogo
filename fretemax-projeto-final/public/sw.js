@@ -1,23 +1,37 @@
 /* =========================================================
-   FRETOGO PWA SERVICE WORKER
+   FRETOGO PWA SERVICE WORKER — BLINDAGEM DE ESCALA
 ========================================================= */
 
 const VERSION = 'fretogo-v3';
 
+// // AJUSTE CTO: Matriz de Precache de rotas críticas e assets essenciais de renderização síncrona
+const PRECACHE_ASSETS = [
+  '/',
+  '/motorista',
+  '/cliente',
+  '/index.html'
+];
+
 /* =========================================================
    INSTALL
 ========================================================= */
-
 self.addEventListener('install', (event) => {
   console.log('✅ FRETOGO SW instalado');
-
-  self.skipWaiting();
+  
+  // // AJUSTE CTO: Força o cache síncrono dos entry-points vitais antes de liberar o worker para a thread ativa
+  event.waitUntil(
+    caches.open(VERSION)
+      .then((cache) => {
+        console.log('📦 FRETOGO: Armazenando infraestrutura crítica em cache offline...');
+        return cache.addAll(PRECACHE_ASSETS);
+      })
+      .then(() => self.skipWaiting())
+  );
 });
 
 /* =========================================================
    ACTIVATE
 ========================================================= */
-
 self.addEventListener('activate', (event) => {
   console.log('✅ FRETOGO SW ativado');
 
@@ -28,9 +42,9 @@ self.addEventListener('activate', (event) => {
       await Promise.all(
         keys.map((key) => {
           if (key !== VERSION) {
+            console.log('🗑️ FRETOGO: Removendo cache obsoleto antigo:', key);
             return caches.delete(key);
           }
-
           return null;
         }),
       );
@@ -43,22 +57,19 @@ self.addEventListener('activate', (event) => {
 /* =========================================================
    FETCH
 ========================================================= */
-
 self.addEventListener('fetch', (event) => {
   const req = event.request;
 
   /* =====================================================
-     IGNORA NÃO GET
+     IGNORA NÃO GET (Operações de Mutação e Escrita)
   ===================================================== */
-
   if (req.method !== 'GET') {
     return;
   }
 
   /* =====================================================
-     IGNORA FIREBASE / APIs
+     IGNORA FIREBASE / APIs OFICIAIS (Transações Realtime)
   ===================================================== */
-
   const url = new URL(req.url);
 
   if (
@@ -70,28 +81,24 @@ self.addEventListener('fetch', (event) => {
   }
 
   /* =====================================================
-     HTML = NETWORK FIRST
+     HTML = NETWORK FIRST (Garante a última versão se houver rede)
   ===================================================== */
-
   if (
     req.headers
       .get('accept')
       ?.includes('text/html')
   ) {
     event.respondWith(networkFirst(req));
-
     return;
   }
 
   /* =====================================================
-     ASSETS VITE
+     ASSETS VITE / COMPILADOS COMPRESSOS
   ===================================================== */
-
   if (
     req.url.includes('/assets/')
   ) {
     event.respondWith(staleWhileRevalidate(req));
-
     return;
   }
 });
@@ -99,61 +106,32 @@ self.addEventListener('fetch', (event) => {
 /* =========================================================
    NETWORK FIRST
 ========================================================= */
-
 async function networkFirst(request) {
   const cache = await caches.open(VERSION);
 
   try {
     const fresh = await fetch(request);
-
-    cache.put(
-      request,
-      fresh.clone(),
-    );
-
+    cache.put(request, fresh.clone());
     return fresh;
   } catch {
-    const cached =
-      await cache.match(request);
-
-    return (
-      cached ||
-      caches.match('/')
-    );
+    const cached = await cache.match(request);
+    return cached || caches.match('/');
   }
 }
 
 /* =========================================================
    STALE WHILE REVALIDATE
 ========================================================= */
+async function staleWhileRevalidate(request) {
+  const cache = await caches.open(VERSION);
+  const cached = await cache.match(request);
 
-async function staleWhileRevalidate(
-  request,
-) {
-  const cache =
-    await caches.open(VERSION);
+  const fetchPromise = fetch(request)
+    .then((networkResponse) => {
+      cache.put(request, networkResponse.clone());
+      return networkResponse;
+    })
+    .catch(() => cached);
 
-  const cached =
-    await cache.match(request);
-
-  const fetchPromise =
-    fetch(request)
-      .then(
-        (
-          networkResponse,
-        ) => {
-          cache.put(
-            request,
-            networkResponse.clone(),
-          );
-
-          return networkResponse;
-        },
-      )
-      .catch(() => cached);
-
-  return (
-    cached ||
-    fetchPromise
-  );
+  return cached || fetchPromise;
 }
