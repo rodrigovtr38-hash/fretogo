@@ -1,7 +1,7 @@
 // src/pages/Cliente.tsx
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db } from '../firebase';
-import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore'; // AJUSTE CTO: Adicionado Timestamp para gravação do Fuso Horário correto
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Sparkles, User, Package, CalendarDays, Plus, Trash2, Flame } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
@@ -137,7 +137,13 @@ export default function Cliente() {
 
   const valorAncora = (calculoFinanceiro.precoFinalCliente + calculoFinanceiro.tollCost) * 1.42;
 
-  const isFormValid = nome.trim() !== '' && whatsapp.length >= 10 && documento.replace(/\D/g, '').length >= 11 && coleta.rua.trim() !== '' && entregas.every(e => e.rua.trim() !== '') && peso.trim() !== '' && qtdVolumes.trim() !== '' && (tipoFrete === 'imediato' || (tipoFrete === 'agendado' && dataAgendada.trim() !== ''));
+  // AJUSTE CTO: Bloqueio estrito de peso. Se for maior, o botão não funciona.
+  const pesoValido = useMemo(() => {
+    const pesoNum = parseInt(peso.replace(/\D/g, ''), 10);
+    return Number.isNaN(pesoNum) || pesoNum <= LIMITES_PESO[vehicle];
+  }, [peso, vehicle]);
+
+  const isFormValid = nome.trim() !== '' && whatsapp.length >= 10 && documento.replace(/\D/g, '').length >= 11 && coleta.rua.trim() !== '' && entregas.every(e => e.rua.trim() !== '' && e.cep.replace(/\D/g, '').length === 8) && peso.trim() !== '' && pesoValido && qtdVolumes.trim() !== '' && (tipoFrete === 'imediato' || (tipoFrete === 'agendado' && dataAgendada.trim() !== ''));
 
   const showToast = (msg: string, type: 'error' | 'success' | 'warning' = 'error') => {
     setToast({ msg, type });
@@ -227,10 +233,12 @@ export default function Cliente() {
 
   const calcularDistanciaReal = async () => {
     if (loadingRoute || loadingPayment || !isFormValid) return;
-    const pesoNum = parseInt(peso.replace(/\D/g, ''), 10);
-    if (!Number.isNaN(pesoNum) && pesoNum > LIMITES_PESO[vehicle]) {
-      showToast(`Peso excede o limite da categoria.`, 'error'); return;
+    
+    // AJUSTE CTO: Bloqueio agressivo caso o usuário manipule o HTML.
+    if (!pesoValido) {
+      showToast(`O peso excede o limite da categoria.`, 'error'); return;
     }
+
     setLoadingRoute(true);
     if (entregas.length > 1) showToast('Mapeando múltiplas rotas. Isso pode levar alguns segundos...', 'warning');
     
@@ -320,12 +328,20 @@ export default function Cliente() {
         "Notificação de proximidade operacional disparada 2h antes."
       ];
 
+      // AJUSTE CTO: Transforma a string em Firebase Timestamp. Mantém o fuso horário seguro.
+      const parsedDate = tipoFrete === 'agendado' && dataAgendada ? new Date(dataAgendada) : null;
+      const firebaseTimestamp = parsedDate ? Timestamp.fromDate(parsedDate) : null;
+
       const docRef = await addDoc(collection(db, 'fretes'), {
         distancia: validDistancia, 
         veiculo: vehicle, 
         valorTotal: Number((calculoFinanceiro.precoFinalCliente + calculoFinanceiro.tollCost).toFixed(2)),
         valorFreteBruto: Number(calculoFinanceiro.precoFinalCliente.toFixed(2)),
+        
+        // AJUSTE CTO: O valorLíquido é gravado no Payload Original. Radar lê daqui.
+        valorLiquidoMotorista: Number(calculoFinanceiro.valorLiquidoMotorista.toFixed(2)),
         valorMotorista: Number(calculoFinanceiro.valorLiquidoMotorista.toFixed(2)), 
+        
         lucroPlataforma: Number(calculoFinanceiro.comissaoFretogoRetida.toFixed(2)),
         valorPedagio: Number(calculoFinanceiro.tollCost.toFixed(2)),
         cidadeOrigem: coleta.bairro, 
@@ -349,7 +365,9 @@ export default function Cliente() {
         destinoLat: destinoFinal.lat, 
         destinoLng: destinoFinal.lng, 
         tipoFrete,
-        dataAgendada: tipoFrete === 'agendado' ? new Date(dataAgendada) : null,
+        
+        // Aplicação da variável de Timestamp seguro
+        dataAgendada: firebaseTimestamp,
         cronogramaGatilhos: tipoFrete === 'agendado' ? gatilhosNotificacaoAgenda : null,
         status: tipoFrete === 'agendado' ? 'agendado' : TripState.AGUARDANDO_PAGAMENTO,
         createdAt: serverTimestamp(),
@@ -666,55 +684,95 @@ export default function Cliente() {
           </div>
         )}
 
-        {step === 'busca' && (
-          <div className="w-full grid grid-cols-1 gap-8 animate-in slide-in-from-bottom-6 duration-500 lg:grid-cols-[1fr_420px]">
-            <div className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-6 md:p-10 shadow-2xl">
+        {step === 'busca' && orderData && (
+          <div className="mx-auto w-full max-w-4xl animate-in fade-in slide-in-from-bottom-8 duration-700">
+            <div className="overflow-hidden rounded-[3rem] border border-slate-200 bg-white shadow-2xl relative">
+              <ClientStatusCard orderData={orderData} />
               
-              {/* O CARD DE STATUS OPERACIONAL DO CLIENTE COM O PIN */}
-              <ClientStatusCard 
-                status={orderData?.status}
-                loadingMessage={loadingMessage}
-                motoristaNome={orderData?.motoristaNome}
-                veiculo={orderData?.veiculo}
-                distancia={orderData?.distancia}
-                valorTotal={orderData?.valorTotal}
-                pinColeta={orderData?.pinColeta}
-                pinEntregas={orderData?.pinEntregas}
-                paradaAtualIndex={orderData?.paradaAtualIndex}
-                multiplasEntregas={orderData?.multiplasEntregas}
-              />
-
-              <div className="relative mt-8 h-[350px] md:h-[500px] overflow-hidden rounded-[2rem] border border-slate-200 shadow-inner">
-                 {orderData?.status === TripState.DISPONIVEL && <div className="pointer-events-none absolute inset-0 z-10 animate-pulse bg-blue-500/5 mix-blend-overlay"></div>}
-                 
-                 {/* O MAPA DO GOOGLE REAL */}
-                 {mapsReady && origemGPS && destinoGPS ? (
-                   <MapaCliente motoristaId={orderData?.motoristaId} origem={origemGPS} destino={destinoGPS} paradasExtras={paradasGPS} />
-                 ) : (
-                   <div className="absolute inset-0 flex flex-col items-center justify-center text-blue-500 bg-slate-50">
-                     <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-3"></div>
-                     <p className="text-[10px] font-black uppercase tracking-widest">Iniciando Satélites...</p>
-                   </div>
-                 )}
+              <div className="h-[400px] md:h-[500px] w-full border-t border-slate-100 bg-slate-50 relative">
+                {!mapsReady ? (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+                  </div>
+                ) : (
+                  <MapaCliente 
+                    origemGPS={origemGPS} 
+                    destinoGPS={destinoGPS} 
+                    motoristaId={orderData.motoristaId} 
+                    isTracking={['aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 'em_transporte', 'finalizando'].includes(orderData.status)}
+                    paradasIntermediarias={paradasGPS}
+                  />
+                )}
+                
+                {orderData.status === TripState.DISPONIVEL && (
+                  <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-white/60 backdrop-blur-md">
+                    <div className="relative mb-8">
+                      <div className="absolute -inset-4 animate-pulse rounded-full bg-blue-500/20 blur-xl"></div>
+                      <div className="absolute -inset-8 animate-pulse rounded-full bg-cyan-400/20 blur-2xl delay-150"></div>
+                      <div className="relative z-10 flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-cyan-500 shadow-2xl">
+                        <Search className="h-10 w-10 animate-bounce text-white" />
+                      </div>
+                    </div>
+                    <h3 className="text-2xl font-black text-slate-900 tracking-tighter text-center">{loadingMessage}</h3>
+                    <p className="mt-3 text-sm font-bold text-slate-500 uppercase tracking-widest text-center max-w-xs">Nosso radar criptografado está localizando o melhor parceiro para sua carga.</p>
+                  </div>
+                )}
               </div>
 
-              {currentOrderId && orderData?.motoristaNome && (
-                <div className="mt-4 border-t border-slate-100 pt-8">
-                  <ChatFrete freteId={currentOrderId} tipoUsuario="cliente" nome={nome || "Cliente"} />
+              {orderData.motoristaNome && (
+                <div className="border-t border-slate-100 bg-slate-50/50 p-6 md:p-8">
+                   <div className="flex flex-col md:flex-row justify-between items-center gap-6">
+                      <div className="flex items-center gap-4 w-full md:w-auto">
+                        <div className="w-16 h-16 rounded-2xl bg-blue-100 border border-blue-200 flex items-center justify-center">
+                           <User className="w-8 h-8 text-blue-600" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Parceiro Designado</p>
+                          <p className="text-xl font-black text-slate-900 leading-none">{orderData.motoristaNome}</p>
+                          <p className="text-xs font-bold text-slate-500 mt-2 uppercase">{orderData.veiculo?.replace('_', ' ') || 'Veículo Padrão'}</p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex w-full md:w-auto gap-3">
+                        {orderData.motoristaZap && (
+                          <button onClick={handleWhatsAppClick} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white px-6 py-4 rounded-xl font-black uppercase text-xs tracking-widest transition-all shadow-lg shadow-green-500/30">
+                             <MessageCircle size={18} /> Contatar
+                          </button>
+                        )}
+                        <button onClick={() => setShowCancelModal(true)} disabled={['em_transporte', 'finalizando', 'entregue', 'finalizado'].includes(orderData.status)} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-white border border-red-200 text-red-500 hover:bg-red-50 hover:border-red-300 px-6 py-4 rounded-xl font-black uppercase text-xs tracking-widest transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                           <XCircle size={18} /> Abortar
+                        </button>
+                      </div>
+                   </div>
+                </div>
+              )}
+
+              {['aceito', 'indo_coleta', 'chegou_coleta', 'coletando'].includes(orderData.status) && (
+                <div className="border-t border-slate-100 bg-white p-6 md:p-8 text-center">
+                   <p className="text-xs font-black uppercase tracking-widest text-slate-400 mb-3 flex items-center justify-center gap-2"><Lock size={14}/> Segurança na Coleta</p>
+                   <p className="text-4xl md:text-5xl font-mono font-black text-slate-900 tracking-[0.2em]">{orderData.pinColeta}</p>
+                   <p className="text-[10px] font-bold text-slate-500 uppercase mt-3">Informe este PIN ao motorista apenas no momento do embarque da carga.</p>
+                </div>
+              )}
+
+              {['em_transporte', 'finalizando'].includes(orderData.status) && (
+                <div className="border-t border-slate-100 bg-white p-6 md:p-8 text-center relative overflow-hidden">
+                   <div className="absolute inset-0 bg-blue-50/50"></div>
+                   <div className="relative z-10">
+                     <p className="text-xs font-black uppercase tracking-widest text-blue-500 mb-3 flex items-center justify-center gap-2"><Lock size={14}/> PIN de Segurança - Entrega {orderData.multiplasEntregas ? `${(orderData.paradaAtualIndex || 0) + 1} de ${(orderData.paradas?.length || 1)}` : 'Final'}</p>
+                     <p className="text-4xl md:text-5xl font-mono font-black text-blue-900 tracking-[0.2em]">
+                       {orderData.multiplasEntregas && orderData.pinEntregas ? orderData.pinEntregas[orderData.paradaAtualIndex || 0] : (orderData.pinEntregas ? orderData.pinEntregas[0] : '---')}
+                     </p>
+                     <p className="text-[10px] font-bold text-slate-500 uppercase mt-3">Informe ao motorista apenas após conferir a mercadoria descarregada.</p>
+                   </div>
                 </div>
               )}
             </div>
 
-            <div className="space-y-8">
-              <div className="space-y-4">
-                {orderData?.motoristaZap && <button onClick={handleWhatsAppClick} className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[1.5rem] bg-emerald-500 px-6 text-sm font-black uppercase tracking-[0.2em] text-white shadow-lg shadow-emerald-500/30 transition-all duration-300 hover:scale-[1.02] hover:bg-emerald-600 active:scale-95"><MessageCircle size={20} /> Chamar no WhatsApp</button>}
-                {(!orderData || ![TripState.ENTREGUE, TripState.CANCELADO].includes(orderData?.status as any)) && (
-                  <button onClick={() => setShowCancelModal(true)} disabled={isCancelling} className="flex min-h-[64px] w-full items-center justify-center gap-2 rounded-[1.5rem] border border-slate-200 bg-white px-6 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 transition-all hover:border-red-200 hover:bg-red-50 hover:text-red-600"><XCircle size={16} /> Cancelar Operação / Reembolso</button>
-                )}
-              </div>
-            </div>
+            {currentOrderId && <ChatFrete freteId={currentOrderId} isCliente={true} nome={nome || "Cliente"} />}
           </div>
         )}
+
       </main>
 
       {toast && (
