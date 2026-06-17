@@ -12,7 +12,6 @@ class DispatchRealtimeService {
         state: DriverState.ONLINE,
         atualizadoEm: Date.now(),
       });
-      // 🔥 CTO FIX P0 #3: Removido o locationRealtimeService.start() daqui. 
       // O GPS de alta precisão não deve drenar bateria de motorista ocioso.
     } catch (error) {
       console.error('ERRO DRIVER ONLINE:', error);
@@ -40,6 +39,8 @@ class DispatchRealtimeService {
           ...payload,
           status: 'pendente',
           criadaEm: Date.now(),
+          // // AJUSTE CTO: Adiciona tempo limite (Timeout) para a oferta expirar da tela.
+          expiraEm: Date.now() + 45000, 
         },
         state: DriverState.RECEBENDO_OFERTA,
         atualizadoEm: Date.now(),
@@ -49,7 +50,7 @@ class DispatchRealtimeService {
     }
   }
 
-  // 🔥 CTO FIX P0 #2: Transação Atômica de Aceite
+  // Transação Atômica de Aceite
   async aceitarCorrida(driverId: string, freteId: string) {
     try {
       // 1. Atualiza o status do Motorista
