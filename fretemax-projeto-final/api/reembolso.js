@@ -1,6 +1,7 @@
 // api/reembolso.js
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore'; // // AJUSTE CTO: Adicionado FieldValue para auditoria temporal precisa do servidor.
+import crypto from 'crypto'; // // AJUSTE CTO: Adicionado crypto para gerar a assinatura hash de idempotência.
 
 // 🔐 Inicialização segura do Firebase Admin
 if (!getApps().length) {
@@ -35,8 +36,7 @@ export default async function handler(req, res) {
     const freteRef = db.collection('fretes').doc(idPedido);
     let mpData = null;
 
-    // // AJUSTE CTO: Transação de Segurança "Double-Spend" (Duplo Estorno).
-    // Garante que dois cliques não executem dois estornos. O banco tranca a porta.
+    // // AJUSTE CTO: Transação de Segurança Avançada contra Double-Spend e Corrida de Status Operacional.
     await db.runTransaction(async (t) => {
       const freteSnap = await t.get(freteRef);
 
@@ -51,33 +51,53 @@ export default async function handler(req, res) {
          throw new Error('Nenhum pagamento confirmado atrelado a este frete.');
       }
 
+      // // AJUSTE CTO: Trava 1 (Idempotência Interna) -> Bloqueia cliques duplos simultâneos
       if (freteData.reembolsado || freteData.statusReembolso === 'processing') {
          throw new Error('Este pedido já foi reembolsado ou está em processamento.');
       }
 
-      // Trava Otimista: Marca como "processing" no banco antes de fazer a chamada no Mercado Pago
+      // // AJUSTE CTO: Trava 2 (Segurança de Operação) -> Se o motorista já aceitou ou saiu, o estorno automático é proibido.
+      // O frete só pode ser estornado se o status for 'disponivel', 'aguardando_pagamento' ou 'buscando_motorista'.
+      const statusBloqueados = ['aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 'em_transporte', 'finalizando', 'entregue', 'finalizado'];
+      if (statusBloqueados.includes(freteData.status)) {
+         throw new Error(`ESTORNO_BLOQUEADO: O frete está com status ${freteData.status}. O motorista já está em andamento.`);
+      }
+
+      // Trava Otimista: Marca como "processing" no banco antes de fazer a chamada de rede externa
       t.update(freteRef, { statusReembolso: 'processing' });
+
+      // // AJUSTE CTO: Geração de chave de Idempotência Criptográfica Única para blindar a API do Mercado Pago
+      const idempotencyKey = crypto.createHash('sha256').update(idPedido + pagamentoId).digest('hex');
+
+      // // AJUSTE CTO: AbortController para forçar o Timeout em 10s e impedir que a Vercel mate a thread no meio do processo
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
 
       // 💸 CHAMADA PARA A API OFICIAL DE ESTORNO DO MERCADO PAGO
       const mpResponse = await fetch(`https://api.mercadopago.com/v1/payments/${pagamentoId}/refunds`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${process.env.MERCADO_PAGO_ACCESS_TOKEN}`,
-          'Content-Type': 'application/json'
-        }
+          'Content-Type': 'application/json',
+          'X-Idempotency-Key': idempotencyKey // Garante que o Mercado Pago ignore duplicações por instabilidade de sinal
+        },
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       mpData = await mpResponse.json();
 
       if (!mpResponse.ok) {
         throw new Error(mpData.message || 'Falha ao processar devolução no Mercado Pago');
       }
 
-      // ✅ SUCESSO DO MP: Atualiza a transação com a confirmação final
+      // ✅ SUCESSO DO MP: Atualiza a transação com os parâmetros corretos do servidor
       t.update(freteRef, {
         reembolsado: true,
-        dataReembolso: new Date(),
-        statusReembolso: mpData.status || 'approved'
+        dataReembolso: FieldValue.serverTimestamp(), // Usa hora central do Google Firestore, livre de fraudes locais
+        statusReembolso: mpData.status || 'approved',
+        status: 'cancelado', // Força a baixa imediata da rota para limpar o radar do app
+        atualizadoEm: FieldValue.serverTimestamp()
       });
     });
 
@@ -90,15 +110,20 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error("[ERRO REEMBOLSO]:", error.message);
     
-    // Fallback: Se der erro no MP, limpa o status de processing para permitir nova tentativa futura
+    // Fallback: Se der erro no Mercado Pago, limpa o status de lock para viabilizar re-tentativa pelo suporte
     try {
-      await db.collection('fretes').doc(idPedido).update({ statusReembolso: 'failed' });
+      if (!error.message.includes('ESTORNO_BLOQUEADO')) {
+        await db.collection('fretes').doc(idPedido).update({ statusReembolso: 'failed' });
+      }
     } catch (e) {
-       // Ignora erro do fallback
+       // Ignora erro de rede no fallback
     }
 
-    return res.status(500).json({ 
-      error: 'Erro interno ao processar o estorno financeiro',
+    // // AJUSTE CTO: Define o Status Code condicional. 409 para conflitos de regra de negócio, 500 para falhas internas severas.
+    const statusCode = error.message.includes('ESTORNO_BLOQUEADO') ? 409 : 500;
+
+    return res.status(statusCode).json({ 
+      error: 'Erro ao processar o estorno financeiro',
       detalhe: error.message 
     });
   }
