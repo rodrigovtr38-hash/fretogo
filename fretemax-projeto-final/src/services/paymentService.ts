@@ -3,6 +3,8 @@ import {
   doc,
   updateDoc,
   serverTimestamp,
+  runTransaction,
+  getDoc,
 } from 'firebase/firestore';
 
 import { db } from '../firebase';
@@ -34,233 +36,145 @@ type PaymentResponse = {
 };
 
 class PaymentService {
-  private readonly TIMEOUT =
-    15000;
+  private readonly TIMEOUT = 15000;
 
-  private async fetchWithTimeout(
-    url: string,
-    options: RequestInit
-  ) {
-    const controller =
-      new AbortController();
-
-    const timeout = setTimeout(
-      () => {
-        controller.abort();
-      },
-      this.TIMEOUT
-    );
+  private async fetchWithTimeout(url: string, options: RequestInit) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => { controller.abort(); }, this.TIMEOUT);
 
     try {
-      const response = await fetch(
-        url,
-        {
-          ...options,
-          signal:
-            controller.signal,
-        }
-      );
-
+      const response = await fetch(url, { ...options, signal: controller.signal });
       clearTimeout(timeout);
-
       return response;
     } catch (error) {
       clearTimeout(timeout);
-
       throw error;
     }
   }
 
-  async processarPagamento(
-    payload: PaymentPayload
-  ): Promise<PaymentResponse> {
+  async processarPagamento(payload: PaymentPayload): Promise<PaymentResponse> {
     try {
-      const response =
-        await this.fetchWithTimeout(
-          '/api/pagamento',
-          {
-            method: 'POST',
-
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
-
-            body: JSON.stringify(
-              payload
-            ),
-          }
-        );
-
-      if (!response.ok) {
-        eventBusService.emit(
-          AppEvents.PAYMENT_FAILED,
-          payload
-        );
-
-        return {
-          success: false,
-          error:
-            'ERRO_PAGAMENTO',
-        };
+      // // AJUSTE CTO: Defesa AntiFraude. Busca o valor inviolável direto do banco de dados antes de processar.
+      const freteRef = doc(db, 'fretes', payload.freteId);
+      const freteSnap = await getDoc(freteRef);
+      
+      if (!freteSnap.exists()) {
+        return { success: false, error: 'FRETE_NAO_ENCONTRADO' };
+      }
+      
+      const freteData = freteSnap.data();
+      const valorEsperado = Number(freteData.valorTotal || freteData.valorFreteBruto || 0);
+      
+      // Validação rigorosa com margem de segurança de 2% para diferenças de arredondamento JavaScript
+      if (Math.abs(payload.valor - valorEsperado) > valorEsperado * 0.02) {
+        console.error('[FRAUDE_BLOQUEADA] Tentativa de manipulação de valor. Enviado:', payload.valor, 'Banco:', valorEsperado);
+        eventBusService.emit(AppEvents.PAYMENT_FAILED, payload);
+        return { success: false, error: 'VALOR_INVALIDO_FRAUDE' };
       }
 
-      const data =
-        await response.json();
+      const response = await this.fetchWithTimeout('/api/pagamento', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-      await this.sincronizarPagamento(
-        payload.freteId,
-        data.transactionId
-      );
+      if (!response.ok) {
+        eventBusService.emit(AppEvents.PAYMENT_FAILED, payload);
+        return { success: false, error: 'ERRO_PAGAMENTO' };
+      }
 
-      eventBusService.emit(
-        AppEvents.PAYMENT_APPROVED,
-        {
-          freteId:
-            payload.freteId,
+      const data = await response.json();
 
-          transactionId:
-            data.transactionId,
-        }
-      );
+      await this.sincronizarPagamento(payload.freteId, data.transactionId || data.id);
 
-      return {
-        success: true,
+      eventBusService.emit(AppEvents.PAYMENT_APPROVED, {
+        freteId: payload.freteId,
+        transactionId: data.transactionId || data.id,
+      });
 
-        transactionId:
-          data.transactionId,
-      };
+      return { success: true, transactionId: data.transactionId || data.id };
     } catch (error) {
-      console.error(
-        'PAYMENT ERROR:',
-        error
-      );
-
-      eventBusService.emit(
-        AppEvents.PAYMENT_FAILED,
-        payload
-      );
-
-      return {
-        success: false,
-        error:
-          'FALHA_PROCESSAMENTO',
-      };
+      console.error('PAYMENT ERROR:', error);
+      eventBusService.emit(AppEvents.PAYMENT_FAILED, payload);
+      return { success: false, error: 'FALHA_PROCESSAMENTO' };
     }
   }
 
-  private async sincronizarPagamento(
-    freteId: string,
-    transactionId: string
-  ) {
+  private async sincronizarPagamento(freteId: string, transactionId: string) {
     try {
-      const freteRef = doc(
-        db,
-        'fretes',
-        freteId
-      );
+      const freteRef = doc(db, 'fretes', freteId);
 
-      // 🔥 AJUSTE: Sincroniza o celular para a fase de aguardar retorno do Webhook
-      await updateDoc(
-        freteRef,
-        {
-          pagamentoStatus:
-            'aguardando_confirmacao',
+      // // AJUSTE CTO: Converteu Update em Transação para não sobrescrever ID se houver cliques simultâneos
+      await runTransaction(db, async (transaction) => {
+        const freteSnap = await transaction.get(freteRef);
+        if (!freteSnap.exists()) throw new Error('Frete não encontrado');
 
-          transactionId,
-
-          status:
-            AppTripState.AGUARDANDO_PAGAMENTO,
-
-          updatedAt:
-            serverTimestamp(),
+        const dados = freteSnap.data();
+        
+        // Proteção contra sobrescrita
+        if (dados.pagamentoId || dados.transactionId) {
+          console.warn('[ALERTA] Este frete já possui um ID de transação registrado.');
+          return;
         }
-      );
 
-      await firebaseRealtimeService.updateTripRealtime(
-        freteId,
-        {
-          pagamentoStatus:
-            'aguardando_confirmacao',
+        transaction.update(freteRef, {
+          pagamentoStatus: 'aguardando_confirmacao',
+          pagamentoId: transactionId, // // Campo vital para o Reembolso Reverso
+          transactionId: transactionId, 
+          status: AppTripState.AGUARDANDO_PAGAMENTO,
+          updatedAt: serverTimestamp(),
+        });
+      });
 
-          transactionId,
-
-          status:
-            AppTripState.AGUARDANDO_PAGAMENTO,
-        }
-      );
+      // Dispara também para o cache Realtime (mantendo a funcionalidade original da interface)
+      await firebaseRealtimeService.updateTripRealtime(freteId, {
+        pagamentoStatus: 'aguardando_confirmacao',
+        pagamentoId: transactionId,
+        transactionId,
+        status: AppTripState.AGUARDANDO_PAGAMENTO,
+      });
+      
     } catch (error) {
-      console.error(
-        'SYNC PAYMENT ERROR:',
-        error
-      );
+      console.error('SYNC PAYMENT ERROR:', error);
+      throw error; 
     }
   }
 
-  async processarReembolso(
-    transactionId: string,
-    freteId?: string
-  ): Promise<boolean> {
+  async processarReembolso(transactionId: string, freteId?: string): Promise<boolean> {
     try {
-      const response =
-        await this.fetchWithTimeout(
-          '/api/reembolso',
-          {
-            method: 'POST',
-
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
-
-            body: JSON.stringify({
-              transactionId,
-            }),
-          }
+      // // AJUSTE CTO: Identificação de frete por engenharia reversa caso apenas a transação chegue
+      let idPedido = freteId;
+      if (!idPedido) {
+        const q = await import('firebase/firestore').then(({ collection, query, where, getDocs, limit }) =>
+          getDocs(query(collection(db, 'fretes'), where('pagamentoId', '==', transactionId), limit(1)))
         );
-
-      if (!response.ok) {
-        return false;
+        if (!q.empty) idPedido = q.docs[0].id;
       }
 
-      if (freteId) {
-        const freteRef = doc(
-          db,
-          'fretes',
-          freteId
-        );
+      const response = await this.fetchWithTimeout('/api/reembolso', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idPedido, transactionId }), 
+      });
 
-        await updateDoc(
-          freteRef,
-          {
-            pagamentoStatus:
-              'reembolsado',
+      if (!response.ok) return false;
 
-            updatedAt:
-              serverTimestamp(),
-          }
-        );
+      if (idPedido) {
+        const freteRef = doc(db, 'fretes', idPedido);
+        await updateDoc(freteRef, {
+          pagamentoStatus: 'reembolsado',
+          reembolsado: true, // // Trava crucial para o api/reembolso.js
+          updatedAt: serverTimestamp(),
+        });
       }
 
-      eventBusService.emit(
-        AppEvents.PAYMENT_REFUNDED,
-        {
-          transactionId,
-          freteId,
-        }
-      );
-
+      eventBusService.emit(AppEvents.PAYMENT_REFUNDED, { transactionId, freteId: idPedido });
       return true;
     } catch (error) {
-      console.error(
-        'REFUND ERROR:',
-        error
-      );
-
+      console.error('REFUND ERROR:', error);
       return false;
     }
   }
 }
 
-export const paymentService =
-  new PaymentService();
+export const paymentService = new PaymentService();
