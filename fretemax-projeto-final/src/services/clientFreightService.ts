@@ -1,68 +1,134 @@
 // src/services/clientFreightService.ts
-import { addDoc, collection, doc, getDoc, runTransaction, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { paymentService } from './paymentService';
-import { AppEvents, eventBusService } from './eventBusService';
 import { AppTripState } from '../state/tripStateMachine';
 
-// 🔥 CTO FIX: Trocamos o orquestrador antigo pelo novo sistema de fila que auditamos
+// // AJUSTE CTO: Sistema de fila centralizado substituindo o antigo orquestrador assíncrono
 import { DispatchQueueService } from './dispatchQueueService';
 
-// ... (Mantenha todos os seus types e interfaces originais aqui para não quebrar a tipagem)
+// Registro de requisições concorrentes em voo para evitar cliques duplos (Inflight Registry)
+const inflightRegistry = new Set<string>();
+
+export interface FreightPayload {
+  clienteId: string;
+  categoria: string;
+  origem: { lat: number; lng: number; endereco?: string };
+  destino: { lat: number; lng: number; endereco?: string };
+  valor?: number;
+  valorBruto?: number;
+  distanciaTotalKm?: number;
+  pesoKg?: number;
+  tipoCarga?: string;
+  paradas?: any[];
+}
 
 class ClientFreightService {
-  /* ... (Mantenha seus helpers: generatePin, normalizeNumber, etc) ... */
-  private generatePin(): string { return Math.floor(1000 + Math.random() * 9000).toString(); }
-  private round(value: number) { return Number(value.toFixed(2)); }
-  // ... (Mantenha o resto dos seus helpers exatamente como estão)
+  
+  private generatePin(): string { 
+    return Math.floor(1000 + Math.random() * 9000).toString(); 
+  }
 
-  async criarFrete(payload: any): Promise<any> {
-    // Nota: Mantive as tipagens como 'any' ou dinâmicas no construtor com base no seu snippet 
-    // para garantir que não vai quebrar se você usar as tipagens reais no topo do arquivo.
+  private round(value: number): number { 
+    return Number(value.toFixed(2)); 
+  }
+
+  private buildInflightKey(payload: any): string {
+    return `${payload.clienteId}_${payload.origem?.lat}_${payload.destino?.lat}`;
+  }
+
+  private normalizePayload(payload: any) {
+    const paradasTratadas = payload.paradas || [];
+    return {
+      normalizedPayload: {
+        ...payload,
+        paradasTratadas
+      },
+      pricingMetadata: {
+        valorBruto: payload.valorBruto || payload.valor || 0
+      }
+    };
+  }
+
+  // // AJUSTE CTO: Motor interno de divisão de spread invisível por categoria operacional
+  private calcularComissao(valorBruto: number, categoria: string) {
+    const cat = categoria ? categoria.toLowerCase().trim() : '';
+    
+    // Categorias Leves: Moto, Carro (Fiorino/Furgão), Utilitário (HR/Bongo) -> Retenção de 20%
+    const ehLeve = ['moto', 'carro', 'utilitario', 'furg', 'hr', 'bongo'].some(c => cat.includes(c));
+    const taxa = ehLeve ? 0.20 : 0.15; // Categorias Pesadas (Toco, Truck, Carreta, Bitrem) -> Retenção de 15%
+    
+    const valorComissao = this.round(valorBruto * taxa);
+    const valorLiquidoMotorista = this.round(valorBruto - valorComissao);
+    
+    return {
+      taxaFreto: taxa * 100, // Armazena a porcentagem cheia (15 ou 20)
+      valorComissao,
+      valorLiquidoMotorista
+    };
+  }
+
+  async criarFrete(payload: FreightPayload): Promise<any> {
     const inflightKey = this.buildInflightKey(payload);
     if (inflightRegistry.has(inflightKey)) return { success: false, error: 'OPERACAO_EM_PROCESSAMENTO' };
     inflightRegistry.add(inflightKey);
 
     try {
       const { normalizedPayload, pricingMetadata } = this.normalizePayload(payload);
-      if (!normalizedPayload.origem?.lat || !normalizedPayload.destino?.lat) return { success: false, error: 'COORDENADAS_INVALIDAS' };
+      if (!normalizedPayload.origem?.lat || !normalizedPayload.destino?.lat) {
+        return { success: false, error: 'COORDENADAS_INVALIDAS' };
+      }
+
+      // // AJUSTE CTO: Extração e validação do motor de precificação antes da chamada de pagamento
+      const valorBruto = pricingMetadata.valorBruto;
+      if (valorBruto <= 0) return { success: false, error: 'VALOR_BRUTO_INVALIDO' };
+
+      const { taxaFreto, valorComissao, valorLiquidoMotorista } = this.calcularComissao(valorBruto, normalizedPayload.categoria);
+      
+      if (valorLiquidoMotorista <= 0) return { success: false, error: 'VALOR_LIQUIDO_INVALIDO' };
 
       const pinColeta = this.generatePin();
       const pinEntregas = normalizedPayload.paradasTratadas.map(() => this.generatePin());
 
-      // 🔥 CORREÇÃO: Usando estados oficiais da sua tripStateMachine
+      // // AJUSTE CTO: Persistência de dados financeiros de auditoria e PINs gerados
       const freteRef = await addDoc(collection(db, 'fretes'), {
         ...normalizedPayload,
-        status: AppTripState.DISPONIVEL, // Estado inicial oficial
+        status: AppTripState.DISPONIVEL, 
         pagamentoStatus: 'pendente',
         dispatchStatus: 'aguardando_dispatch',
         criadoEm: serverTimestamp(),
         atualizadoEm: serverTimestamp(),
         pinColeta,
         pinEntregas,
-        pricingMetadata,
+        valorBruto,
+        taxaFreto,
+        valorComissao,
+        valorLiquidoMotorista, // O motorista e o radar só enxergam este valor
       });
 
       const pagamento = await paymentService.processarPagamento({
-        valor: pricingMetadata.valorBruto,
-        descricao: `Frete ${normalizedPayload.categoria}`,
+        valor: valorBruto, // O cliente fatura o valor cheio (Bruto)
+        descricao: `Frete ${normalizedPayload.categoria} - ID ${freteRef.id}`,
         clienteId: normalizedPayload.clienteId,
         freteId: freteRef.id,
       });
 
       if (!pagamento.success) {
-        await updateDoc(doc(db, 'fretes', freteRef.id), { status: AppTripState.CANCELADO, pagamentoStatus: 'falhou' });
+        await updateDoc(doc(db, 'fretes', freteRef.id), { 
+          status: AppTripState.CANCELADO, 
+          pagamentoStatus: 'falhou',
+          atualizadoEm: serverTimestamp()
+        });
         return { success: false, error: 'PAGAMENTO_NEGADO' };
       }
 
-      // 🔥 CORREÇÃO: Após pagamento, transitamos para BUSCANDO_MOTORISTA
       await updateDoc(doc(db, 'fretes', freteRef.id), {
         pagamentoStatus: 'aprovado',
         status: AppTripState.BUSCANDO_MOTORISTA, 
         atualizadoEm: serverTimestamp(),
       });
 
-      // 🔥 CTO FIX: Aciona a esteira de distribuição real (DispatchQueueService) com os dados exatos do frete
+      // // AJUSTE CTO: Disparo do fluxo de distribuição enviando estritamente o VALOR LÍQUIDO ao motorista
       await DispatchQueueService.iniciarFila({
         id: freteRef.id,
         clienteId: normalizedPayload.clienteId,
@@ -78,20 +144,41 @@ class ClientFreightService {
           endereco: normalizedPayload.destino.endereco || ''
         },
         distanciaKm: normalizedPayload.distanciaTotalKm || 0,
-        valor: pricingMetadata.valorMotorista || 0,
+        valor: valorLiquidoMotorista, // Defesa de spread ativa
         peso: normalizedPayload.pesoKg || 0,
         descricao: normalizedPayload.tipoCarga || ''
       });
 
       return { success: true, freteId: freteRef.id };
     } catch (error) {
-      console.error('ERRO CRIAR FRETE:', error);
+      console.error('ERRO CRÍTICO CRIAR FRETE:', error);
       return { success: false, error: 'ERRO_CRIAR_FRETE' };
     } finally {
       inflightRegistry.delete(inflightKey);
     }
   }
 
-  // ... (Mantenha cancelarFrete, atualizarFrete, buscarFrete e finalizarFrete originais)
+  async cancelarFrete(freteId: string): Promise<any> {
+    try {
+      await updateDoc(doc(db, 'fretes', freteId), {
+        status: AppTripState.CANCELADO,
+        atualizadoEm: serverTimestamp()
+      });
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: 'ERRO_CANCELAR_FRETE' };
+    }
+  }
+
+  async buscarFrete(freteId: string): Promise<any> {
+    try {
+      const snap = await getDoc(doc(db, 'fretes', freteId));
+      if (snap.exists()) return { success: true, data: { id: snap.id, ...snap.data() } };
+      return { success: false, error: 'FRETE_NAO_ENCONTRADO' };
+    } catch (error) {
+      return { success: false, error: 'ERRO_BUSCAR_FRETE' };
+    }
+  }
 }
+
 export const clientFreightService = new ClientFreightService();
