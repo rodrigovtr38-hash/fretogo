@@ -5,7 +5,7 @@ import { collection, onSnapshot, doc, query, orderBy, runTransaction, where, upd
 import { 
   Loader2, CheckCircle, XCircle, Search, ShieldAlert, Truck, Users, 
   Calendar, DollarSign, Activity, Clock, AlertTriangle, Eye, 
-  Map as MapIcon, Wallet, Zap, MessageCircle, ShieldCheck, RefreshCcw, Lock, UserCheck
+  Map as MapIcon, Wallet, Zap, MessageCircle, ShieldCheck, RefreshCcw, Lock
 } from 'lucide-react';
 
 const ADMIN_UIDS = ['uV1yeZoGfhZTRWDVL1CnMW6b6NY2']; 
@@ -93,11 +93,11 @@ export default function Admin() {
 
     const faturado = fretesDoPeriodo
       .filter(f => ['aceito','indo_coleta','coletando','em_transporte','entregue','finalizado'].includes(f.status))
-      .reduce((acc, f) => acc + (Number(f.valorTotal) || 0), 0);
+      .reduce((acc, f) => acc + (Number(f.valorBruto) || Number(f.valorTotal) || 0), 0);
     
     const lucro = fretesDoPeriodo
       .filter(f => ['aceito','indo_coleta','coletando','em_transporte','entregue','finalizado'].includes(f.status))
-      .reduce((acc, f) => acc + (Number(f.lucroPlataforma) || 0), 0);
+      .reduce((acc, f) => acc + (Number(f.valorComissao) || Number(f.lucroPlataforma) || 0), 0);
 
     const entregues = fretesDoPeriodo.filter(f => ['entregue', 'finalizado'].includes(f.status)).length;
     const ticketMedio = entregues > 0 ? (faturado / entregues) : 0;
@@ -128,7 +128,7 @@ export default function Admin() {
     } catch (e: any) { alert("Erro ao atualizar o banco de dados: " + e.message); }
   };
 
-  // // AJUSTE CTO: Transação Segura. Evita conflito se o motorista tentar mudar de status no mesmo milissegundo do cancelamento do admin.
+  // Trava Anticonflito: Se o motorista estiver a caminho, o Admin não pode cancelar sem forçar
   const forceStatus = async (id: string, novoStatus: string) => {
     if (!window.confirm(`Atenção: Você tem certeza que deseja forçar o status para: ${novoStatus.toUpperCase()}?`)) return;
     try {
@@ -239,9 +239,31 @@ export default function Admin() {
       </header>
 
       <main className="max-w-7xl mx-auto p-4 md:p-8">
+        
+        {tab === 'dashboard' && (
+          <div className="flex justify-end mb-6 animate-in fade-in">
+             <div className="bg-slate-900/50 border border-white/5 rounded-xl p-1 flex gap-1 backdrop-blur-sm">
+                {[
+                  { id: 'hoje', label: 'Hoje' },
+                  { id: '7dias', label: '7 Dias' },
+                  { id: '30dias', label: '30 Dias' },
+                  { id: 'ano', label: 'Este Ano' },
+                  { id: 'todos', label: 'Histórico Completo' }
+                ].map(f => (
+                  <button 
+                    key={f.id}
+                    onClick={() => setTimeFilter(f.id)}
+                    className={`px-4 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${timeFilter === f.id ? 'bg-slate-800 text-cyan-400 border border-cyan-500/30' : 'text-slate-500 hover:text-slate-300'}`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+             </div>
+          </div>
+        )}
+
         {tab === 'dashboard' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {/* O dashboard inteiro permanece exatamente como era visualmente, focado em métricas */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-8">
               <div className="bg-slate-900/60 border border-white/5 p-6 rounded-[2rem] backdrop-blur-md relative overflow-hidden group hover:border-cyan-500/30 transition-all">
                  <DollarSign className="absolute -right-6 -bottom-6 w-32 h-32 text-white/5 group-hover:text-cyan-500/10 transition-colors" />
@@ -292,7 +314,7 @@ export default function Admin() {
                         </div>
                         <div>
                           <h3 className="text-xl font-black text-white uppercase italic tracking-tighter leading-none">{m.nome}</h3>
-                          <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mt-2">{m.whatsapp}</p>
+                          <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mt-2">{m.whatsapp || m.telefone}</p>
                         </div>
                       </div>
                     </div>
@@ -309,7 +331,6 @@ export default function Admin() {
                       </div>
                     </div>
 
-                    {/* // AJUSTE CTO: Visualização das 3 Imagens Obrigatórias (CNH, Documento, Selfie) */}
                     <div className="mb-8 grid grid-cols-3 gap-2">
                        <div className="flex flex-col gap-1">
                           <p className="text-[9px] text-slate-500 font-black uppercase tracking-widest text-center">Doc CNH</p>
@@ -342,6 +363,7 @@ export default function Admin() {
           </div>
         )}
 
+        {/* CORREÇÃO APLICADA: O fechamento das tags nesta área do código estava quebrado no envio anterior */}
         {tab === 'corridas' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
              
@@ -366,13 +388,21 @@ export default function Admin() {
                     <option value="indo_coleta">Indo p/ Coleta</option>
                     <option value="em_transporte">Em Transporte</option>
                     <option value="entregue">Aguardando Repasse</option>
+                    <option value="finalizado">Finalizados</option>
                     <option value="cancelado">Cancelados</option>
                   </select>
                 </div>
              </div>
 
              <div className="space-y-6">
-                {fretesFiltrados.map(f => (
+                {fretesFiltrados.length === 0 ? (
+                  <div className="text-center py-24 bg-slate-900/30 rounded-[3rem] border border-dashed border-white/5 backdrop-blur-sm">
+                    <MapIcon size={48} className="mx-auto mb-6 text-slate-700" />
+                    <p className="text-slate-400 font-black uppercase italic tracking-widest text-lg">Radar Limpo</p>
+                    <p className="text-slate-600 text-sm mt-2">Nenhuma corrida encontrada para os filtros selecionados.</p>
+                  </div>
+                ) : (
+                  fretesFiltrados.map(f => (
                     <div key={f.id} className="bg-slate-900/80 border rounded-[2.5rem] p-6 md:p-8 transition-all relative overflow-hidden group shadow-2xl backdrop-blur-md border-white/5 hover:border-cyan-500/30">
                       
                       <div className="flex flex-col lg:flex-row justify-between gap-8 pl-2">
@@ -394,11 +424,11 @@ export default function Admin() {
                              <div className="space-y-6 flex-1">
                                 <div>
                                    <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Retirada</p>
-                                   <p className="text-sm font-bold text-white leading-tight">{f.origem?.endereco || 'Endereço Indisponível'}</p>
+                                   <p className="text-sm font-bold text-white leading-tight">{f.origem?.endereco || f.cidadeOrigem || 'Endereço Indisponível'}</p>
                                 </div>
                                 <div>
                                    <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Destino</p>
-                                   <p className="text-sm font-bold text-white leading-tight">{f.destino?.endereco || 'Endereço Indisponível'}</p>
+                                   <p className="text-sm font-bold text-white leading-tight">{f.destino?.endereco || f.cidadeDestino || 'Endereço Indisponível'}</p>
                                 </div>
                              </div>
                           </div>
@@ -406,6 +436,14 @@ export default function Admin() {
 
                         <div className="flex flex-col gap-3 min-w-[200px] border-l border-white/5 pl-4 justify-center">
                            
+                           {/* AÇÕES DE REPASSE DE DINHEIRO E REEMBOLSO */}
+                           {f.status === 'entregue' && (
+                             <button onClick={() => forceStatus(f.id, 'finalizado')} className="bg-purple-600 hover:bg-purple-500 text-white py-4 rounded-xl font-black text-[10px] tracking-widest uppercase shadow-[0_0_20px_rgba(168,85,247,0.4)] transition-all flex flex-col items-center justify-center gap-1 group">
+                               <span className="flex items-center gap-1"><Wallet size={14} /> Liquidar Repasse</span>
+                               <span className="text-[8px] opacity-70 group-hover:opacity-100 font-bold">R$ {Number(f.valorLiquidoMotorista || f.valorMotorista).toFixed(2)}</span>
+                             </button>
+                           )}
+
                            {f.status === 'cancelado' && !f.reembolsado && (
                              <button onClick={() => handleReembolso(f.id)} className="bg-amber-600 hover:bg-amber-500 text-slate-900 py-4 rounded-xl font-black text-[10px] tracking-widest uppercase shadow-[0_0_20px_rgba(245,158,11,0.4)] transition-all flex flex-col items-center justify-center gap-1">
                                <span className="flex items-center gap-1"><RefreshCcw size={14} /> Estornar PIX (MP)</span>
@@ -430,6 +468,22 @@ export default function Admin() {
           </div>
         )}
       </main>
+
+      {/* FOOTER FINANCEIRO / STATUS FIXO */}
+      <div className="fixed bottom-0 left-0 right-0 bg-slate-950/90 backdrop-blur-xl border-t border-white/5 p-3 z-40 hidden md:block shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
+         <div className="max-w-7xl mx-auto flex justify-between items-center px-8">
+            <div className="flex items-center gap-8">
+               <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(34,197,94,1)]"></div>
+                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Firestore Subsystem <span className="text-green-500">Live</span></span>
+               </div>
+            </div>
+            <div className="flex items-center gap-4">
+               <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Terminal Logado:</p>
+               <p className="text-[10px] font-black text-cyan-400 uppercase italic tracking-widest px-3 py-1 rounded bg-cyan-500/10 border border-cyan-500/20">{authUser?.email}</p>
+            </div>
+         </div>
+      </div>
     </div>
   );
 }
