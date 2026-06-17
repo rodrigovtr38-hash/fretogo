@@ -1,6 +1,7 @@
+// src/pages/Motorista.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { auth, db } from '../firebase';
-import { collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, runTransaction, updateDoc, where } from 'firebase/firestore'; // AJUSTE CTO: Adicionado runTransaction
 import DriverApp from '../components/DriverApp';
 import ChatFrete from '../components/ChatFrete';
 import DriverHeader from '../components/motorista/DriverHeader';
@@ -12,7 +13,16 @@ import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
 import type { OperationalFreight } from '../components/driver/dashboard/DriverDashboardLayout';
 import { Download } from 'lucide-react'; 
 
-interface DriverData { id?: string; nome?: string; whatsapp?: string; categoria?: string; status?: 'pendente' | 'aprovado' | 'rejeitado'; }
+// // AJUSTE CTO: Injeção dos campos de controle de retorno na tipagem
+interface DriverData { 
+  id?: string; 
+  nome?: string; 
+  whatsapp?: string; 
+  categoria?: string; 
+  status?: 'pendente' | 'aprovado' | 'rejeitado';
+  modoRetorno?: boolean;
+  retornosUsadosHoje?: number; 
+}
 
 const CATEGORY_FEES: Record<string, number> = { moto: 0.2, carro: 0.2, utilitario: 0.2, toco: 0.15, truck: 0.15, carreta: 0.15, bitrem: 0.15 };
 const ACTIVE_STATUSES = ['aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 'em_transporte', 'em_entrega', 'returning'];
@@ -100,21 +110,32 @@ export default function Motorista() {
     return () => { mountedRef.current = false; cancelAnimationFrame(frame); };
   }, []);
 
-  // Heartbeat do Motorista
+  // // AJUSTE CTO: Cleanup Rigoroso do Heartbeat (Proteção de Custos no Firestore)
   useEffect(() => {
     if (!user?.uid || !isOnline) return;
-    if (heartbeatRef.current) clearInterval(heartbeatRef.current);
-    heartbeatRef.current = window.setInterval(async () => {
+    
+    const sendHeartbeat = async () => {
       try { 
         if (activeFreight?.id) {
           await dispatchRealtimeService.atualizarTripRealtime(activeFreight.id, { heartbeat: Date.now() }); 
         } else {
           await updateDoc(doc(db, 'motoristas_online', user.uid), { heartbeat: Date.now() }); 
         }
-      } 
-      catch (error) { console.error('HEARTBEAT ERROR:', error); }
-    }, 30000);
-    return () => { if (heartbeatRef.current) clearInterval(heartbeatRef.current); };
+      } catch (error) { 
+        console.error('HEARTBEAT ERROR:', error); 
+      }
+    };
+
+    // Dispara imediatamente ao ficar online e depois a cada 30s
+    sendHeartbeat();
+    heartbeatRef.current = window.setInterval(sendHeartbeat, 30000);
+    
+    return () => { 
+      if (heartbeatRef.current) {
+        clearInterval(heartbeatRef.current);
+        heartbeatRef.current = null;
+      }
+    };
   }, [user, isOnline, activeFreight?.id]);
 
   useEffect(() => {
@@ -153,7 +174,6 @@ export default function Motorista() {
     }
     setRadarLoading(true);
     
-    // CTO FIX: Agora o radar escuta os status corretos que a esteira do cliente envia
     const freightsQuery = query(
       collection(db, 'fretes'), 
       where('categoria', '==', operationalCategory), 
@@ -204,20 +224,49 @@ export default function Motorista() {
   const handleSelectFreight = useCallback((freight: OperationalFreight) => { setSelectedFreight(freight); }, []);
   const handleCloseFreight = useCallback(() => { setSelectedFreight(null); }, []);
 
+  // // AJUSTE CTO: Transação Atômica Anti-Concorrência (Lock)
   const handleAcceptFreight = useCallback(async (freight: OperationalFreight) => {
     if (!user?.uid || !driverData) return;
+    
     try {
-      await updateDoc(doc(db, 'fretes', freight.id), {
-        status: 'aceito', 
-        motoristaId: user.uid, 
-        motoristaNome: driverData.nome || 'Motorista',
-        motoristaZap: driverData.whatsapp || '', 
-        acceptedAt: serverTimestamp(), 
-        atualizadoEm: serverTimestamp(),
+      const freteRef = doc(db, 'fretes', freight.id);
+
+      await runTransaction(db, async (transaction) => {
+        const freteSnap = await transaction.get(freteRef);
+        
+        if (!freteSnap.exists()) {
+          throw new Error('FRETE_NAO_ENCONTRADO');
+        }
+
+        const data = freteSnap.data();
+        
+        // Bloqueio rigoroso: Se o status não for mais de busca, ou já tiver motorista, aborta.
+        if (data.motoristaId || !['DISPONIVEL', 'disponivel', 'BUSCANDO_MOTORISTA', 'AGUARDANDO_ACEITE'].includes(data.status)) {
+          throw new Error('FRETE_JA_ATRIBUIDO');
+        }
+
+        // Catraca: Grava os dados do motorista no frete instantaneamente
+        transaction.update(freteRef, {
+          status: 'aceito', 
+          motoristaId: user.uid, 
+          motoristaNome: driverData.nome || 'Motorista',
+          motoristaZap: driverData.whatsapp || '', 
+          acceptedAt: serverTimestamp(), 
+          atualizadoEm: serverTimestamp(),
+        });
       });
+
+      // Se a transação passou, avisa a central local para atualizar UI
       await dispatchRealtimeService.aceitarCorrida(user.uid, freight.id);
       setSelectedFreight(null);
-    } catch (error) { console.error('ACCEPT FREIGHT ERROR:', error); }
+      
+    } catch (error: any) { 
+      console.error('ACCEPT FREIGHT ERROR:', error.message); 
+      alert(error.message === 'FRETE_JA_ATRIBUIDO' 
+        ? "Infelizmente este frete foi aceito por outro parceiro há poucos segundos." 
+        : "Erro ao aceitar frete. Tente novamente.");
+      setSelectedFreight(null); // Fecha o modal do frete que ele perdeu
+    }
   }, [user, driverData]);
 
   const handleRejectFreight = useCallback(async (freight: OperationalFreight) => {
@@ -244,7 +293,7 @@ export default function Motorista() {
       <div className="flex min-h-screen items-center justify-center bg-[#020617] px-4">
         <div className="w-full max-w-lg rounded-[2rem] border border-cyan-500/20 bg-slate-900/80 p-10 text-center backdrop-blur-xl">
           <h1 className="text-4xl font-black text-white">Cadastro em Análise</h1>
-          <p className="mt-4 text-slate-400">Nossa central de tráfego está validando seu veículo.</p>
+          <p className="mt-4 text-slate-400">Nossa central de tráfego está validando seu veículo e documentos.</p>
         </div>
       </div>
     );
@@ -280,6 +329,7 @@ export default function Motorista() {
         </div>
       ) : (
         <>
+          {/* O componente DriverRadar agora pode acessar a prop `driver` e checar as cotas */}
           <DriverRadar isOnline={isOnline} setIsOnline={handleToggleOnline} user={user} driver={driverData} />
           <DriverApp freights={availableFreights} selectedFreight={selectedFreight} activeFreight={activeFreight} isOnline={isOnline} loading={radarLoading} driverCategory={operationalCategory} driverName={driverData.nome} onToggleOnline={handleToggleOnline} onSelectFreight={handleSelectFreight} onCloseFreight={handleCloseFreight} onAcceptFreight={handleAcceptFreight} onRejectFreight={handleRejectFreight} />
         </>
