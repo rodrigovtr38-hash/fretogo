@@ -1,12 +1,5 @@
 // src/services/driverMatchingService.ts
-
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-} from 'firebase/firestore';
-
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
 
 export type CategoriaVeiculo =
@@ -22,11 +15,8 @@ export type CategoriaVeiculo =
 
 export interface DriverMatchingPayload {
   categoria: CategoriaVeiculo;
-  origem: {
-    lat: number;
-    lng: number;
-  };
-  cidadeDestino?: string; // 🔥 FASE 4: Passamos a cidade de destino do frete para cruzar com o Radar de Retorno
+  origem: { lat: number; lng: number; };
+  cidadeDestino?: string; 
 }
 
 export interface MatchedDriver {
@@ -44,10 +34,7 @@ export interface MatchedDriver {
   distanciaKm: number;
 }
 
-const CATEGORY_RADIUS: Record<
-  CategoriaVeiculo,
-  number[]
-> = {
+const CATEGORY_RADIUS: Record<CategoriaVeiculo, number[]> = {
   moto: [5, 15, 30],
   carro_pequeno: [5, 15, 30],
   utilitario: [10, 25, 50],
@@ -59,102 +46,99 @@ const CATEGORY_RADIUS: Record<
   bi_trem_cegonha: [100, 250],
 };
 
-function calcularDistanciaKm(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number,
-) {
+function calcularDistanciaKm(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371;
-
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
-
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos((lat1 * Math.PI) / 180) *
     Math.cos((lat2 * Math.PI) / 180) *
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
-
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
 
-export class DriverMatchingService {
-  static async buscarMotoristas(
-    payload: DriverMatchingPayload,
-  ): Promise<MatchedDriver[]> {
-    try {
-      const motoristasRef = collection(db, 'motoristas_online'); // 🔥 CTO FIX: A busca B2B real deve ser feita nos motoristas online, não no cadastro morto
+// // AJUSTE CTO: Cálculo das Bordas do Quadrado para não ler 10k motoristas (Geo-Bounding Box)
+function getBoundingBox(lat: number, lng: number, distanceKm: number) {
+  const earthRadius = 6371;
+  const latDelta = (distanceKm / earthRadius) * (180 / Math.PI);
+  const lngDelta = (distanceKm / earthRadius) * (180 / Math.PI) / Math.cos(lat * (Math.PI / 180));
+  return {
+    latMin: lat - latDelta,
+    latMax: lat + latDelta,
+    lngMin: lng - lngDelta,
+    lngMax: lng + lngDelta
+  };
+}
 
+export class DriverMatchingService {
+  static async buscarMotoristas(payload: DriverMatchingPayload): Promise<MatchedDriver[]> {
+    try {
+      const raios = CATEGORY_RADIUS[payload.categoria];
+      const maxRaio = raios[raios.length - 1]; // Maior raio possível para a categoria
+
+      // // AJUSTE CTO: Define a caixa geográfica baseada no raio máximo da categoria
+      const box = getBoundingBox(payload.origem.lat, payload.origem.lng, maxRaio);
+
+      const motoristasRef = collection(db, 'motoristas_online'); 
+      
+      // // AJUSTE CTO: Query Mestra Blindada. Consulta apenas dentro do quadrado + array-contains para Categoria exata
       const q = query(
         motoristasRef,
         where('online', '==', true),
         where('disponivel', '==', true),
+        where('categoria', 'array-contains', payload.categoria),
+        where('latitude', '>=', box.latMin),
+        where('latitude', '<=', box.latMax)
       );
 
       const snapshot = await getDocs(q);
       const motoristas: MatchedDriver[] = [];
-
-      // Padroniza a string de destino do frete para comparar (Tira acentos e deixa minúsculo)
       const destinoFreteFormatado = payload.cidadeDestino?.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
 
-      snapshot.forEach(
-        (docSnap) => {
-          const data = docSnap.data();
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        
+        // Segunda checagem de longitude (pois o Firestore só aceita >= em um campo por vez)
+        if (data.longitude < box.lngMin || data.longitude > box.lngMax) return;
 
-          const rawCategoria = data.categoria;
-          const categorias = Array.isArray(rawCategoria) 
-            ? rawCategoria 
-            : [rawCategoria].filter(Boolean);
+        // Filtro de Retorno Anti-Fraude
+        if (data.modoRetorno && data.destinoRetorno) {
+           const destinoMotoristaFormatado = data.destinoRetorno.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+           if (destinoMotoristaFormatado && destinoFreteFormatado && !destinoFreteFormatado.includes(destinoMotoristaFormatado)) {
+              return; 
+           }
+        }
 
-          const categoriaCompativel = categorias.includes(payload.categoria);
-          if (!categoriaCompativel) return;
+        const distanciaKm = calcularDistanciaKm(
+          payload.origem.lat, payload.origem.lng,
+          data.latitude, data.longitude
+        );
 
-          // 🔥 CTO FIX: Filtro Mestre de Radar de Retorno (Bloqueia Duplicidade)
-          // Se o motorista está com o "Modo Retorno" ativado
-          if (data.modoRetorno && data.destinoRetorno) {
-             const destinoMotoristaFormatado = data.destinoRetorno.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-             
-             // Se o destino do frete NÃO for a cidade que ele quer voltar, a gente esconde esse frete dele.
-             // Isso garante que ele só vai receber o frete de volta pra casa.
-             if (destinoMotoristaFormatado && destinoFreteFormatado && !destinoFreteFormatado.includes(destinoMotoristaFormatado)) {
-                return; // Pula este motorista
-             }
-          }
+        // Se está fora até do raio máximo (mesmo estando no quadrado), ignora
+        if (distanciaKm > maxRaio) return;
 
-          const distanciaKm = calcularDistanciaKm(
-            payload.origem.lat,
-            payload.origem.lng,
-            data.lat || data.latitude, // Suporte para formatos antigos e novos do Firestore
-            data.lng || data.longitude,
-          );
-
-          motoristas.push({
-            id: docSnap.id,
-            nome: data.nome || 'Motorista',
-            categoria: categorias,
-            latitude: data.lat || data.latitude,
-            longitude: data.lng || data.longitude,
-            online: data.online,
-            disponivel: data.disponivel,
-            modoRetorno: data.modoRetorno,
-            destinoRetorno: data.destinoRetorno,
-            avaliacao: data.avaliacao || 5,
-            viagens: data.viagens || 0,
-            distanciaKm,
-          });
-        },
-      );
-
-      const raios = CATEGORY_RADIUS[payload.categoria];
+        motoristas.push({
+          id: docSnap.id,
+          nome: data.nome || 'Motorista',
+          categoria: data.categoria,
+          latitude: data.latitude,
+          longitude: data.longitude,
+          online: data.online,
+          disponivel: data.disponivel,
+          modoRetorno: data.modoRetorno,
+          destinoRetorno: data.destinoRetorno,
+          avaliacao: data.avaliacao || 5,
+          viagens: data.viagens || 0,
+          distanciaKm,
+        });
+      });
 
       for (const raio of raios) {
         const encontrados = motoristas
           .filter(motorista => motorista.distanciaKm <= raio)
           .sort((a, b) => {
-            // 🔥 CTO FIX: Bônus de Ranqueamento para Retorno
-            // Se o cara ativou o modo retorno e a carga é para lá, ele passa na frente dos outros na fila!
             const bonusRetornoA = a.modoRetorno ? -50 : 0; 
             const bonusRetornoB = b.modoRetorno ? -50 : 0;
             return (a.distanciaKm + bonusRetornoA) - (b.distanciaKm + bonusRetornoB);
@@ -165,7 +149,6 @@ export class DriverMatchingService {
           return encontrados;
         }
       }
-
       return [];
     } catch (error) {
       console.error('ERRO DRIVER MATCHING:', error);
