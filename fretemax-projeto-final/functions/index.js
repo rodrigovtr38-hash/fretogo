@@ -1,4 +1,3 @@
-// functions/index.js
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const axios = require('axios');
@@ -13,7 +12,9 @@ const runtimeOpts = {
   maxInstances: 50    
 };
 
+// ========================================================
 // 1. GEOCODE SEGURO 
+// ========================================================
 exports.getCoords = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
   const { address } = data;
   if (!address || typeof address !== 'string') {
@@ -30,7 +31,9 @@ exports.getCoords = functions.runWith(runtimeOpts).https.onCall(async (data, con
   return { lat, lng };
 });
 
+// ========================================================
 // 2. DISTÂNCIA SEGURA 
+// ========================================================
 exports.getDistance = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
   const { origin, destination } = data;
   const key = functions.config().google?.maps_key || process.env.GOOGLE_MAPS_KEY;
@@ -47,12 +50,15 @@ exports.getDistance = functions.runWith(runtimeOpts).https.onCall(async (data, c
   }
 });
 
+// ========================================================
 // 3. O DESPERTADOR (CRON JOB)
+// ========================================================
 exports.despertadorAgendamentos = functions.runWith(runtimeOpts).pubsub.schedule('every 5 minutes').onRun(async (context) => {
   const agora = new Date();
   const limiteD1 = new Date(agora.getTime() + 24 * 60 * 60 * 1000); 
   const limite1h = new Date(agora.getTime() + 1 * 60 * 60 * 1000); 
 
+  // D-1
   const fretesD1 = await db.collection('fretes')
     .where('agendadoPara', '<=', limiteD1)
     .where('notificadoD1', '==', false)
@@ -65,11 +71,13 @@ exports.despertadorAgendamentos = functions.runWith(runtimeOpts).pubsub.schedule
   fretesD1.forEach(doc => {
     batch.update(doc.ref, { 
       notificadoD1: true, 
-      pendenteEnvioWhatsAppD1: true,
+      pendenteEnvioWhatsApp: true, // // AJUSTE CTO: Gatilho unificado para o Worker consumir
+      tipoNotificacaoWorker: 'D-1',
       atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
     });
   });
 
+  // D-Hora (1 hora antes)
   const fretes1h = await db.collection('fretes')
     .where('agendadoPara', '<=', limite1h)
     .where('notificado1h', '==', false)
@@ -80,7 +88,8 @@ exports.despertadorAgendamentos = functions.runWith(runtimeOpts).pubsub.schedule
   fretes1h.forEach(doc => {
     batch.update(doc.ref, { 
       notificado1h: true, 
-      pendenteEnvioWhatsApp1h: true,
+      pendenteEnvioWhatsApp: true, // // AJUSTE CTO: Gatilho unificado
+      tipoNotificacaoWorker: 'D-HORA',
       atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
     });
   });
@@ -92,9 +101,52 @@ exports.despertadorAgendamentos = functions.runWith(runtimeOpts).pubsub.schedule
 });
 
 // ========================================================
+// 3.1 O OPERÁRIO (WORKER ASSÍNCRONO DE WHATSAPP) - AJUSTE CTO
+// ========================================================
+// Fica escutando o banco. Se o Cron Job ligar a flag "pendenteEnvioWhatsApp", ele dispara a API externa.
+exports.workerNotificacoes = functions.firestore.document('fretes/{freteId}').onUpdate(async (change, context) => {
+  const newValue = change.after.data();
+  const previousValue = change.before.data();
+
+  // Só executa se a flag mudou de false para true
+  if (newValue.pendenteEnvioWhatsApp === true && previousValue.pendenteEnvioWhatsApp !== true) {
+    try {
+      const telefone = newValue.telefoneCliente || newValue.clienteZap;
+      if (!telefone) throw new Error("Sem telefone para notificar");
+
+      const apiUrl = process.env.WHATSAPP_API_URL;
+      if (apiUrl) {
+         // Disparo isolado para API Oficial
+         await axios.post(apiUrl, {
+            phone: telefone,
+            message: `FretoGo Informa: Sua carga agendada está próxima! Status: ${newValue.tipoNotificacaoWorker}`
+         }, {
+            headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}` },
+            timeout: 5000
+         });
+      }
+
+      // Sucesso: Desliga a flag
+      await change.after.ref.update({
+        pendenteEnvioWhatsApp: false,
+        erroWhatsApp: null
+      });
+
+    } catch (error) {
+      console.error(`[WORKER_ZAP_ERRO] Frete ${context.params.freteId}:`, error.message);
+      // Falhou: Desliga a flag de envio, mas anota o erro para o Admin ver
+      await change.after.ref.update({
+        pendenteEnvioWhatsApp: false,
+        erroWhatsApp: 'Falha na comunicação com API externa'
+      });
+    }
+  }
+  return null;
+});
+
+// ========================================================
 // 4. RESET DIÁRIO DE RETORNO (CRON MEIA-NOITE) - AJUSTE CTO
 // ========================================================
-// Configurado com maior margem de memória para aguentar escala volumosa de motoristas ativos
 exports.resetContadorRetorno = functions.runWith({ timeoutSeconds: 60, memory: '512MB' })
   .pubsub.schedule('0 0 * * *')
   .timeZone('America/Sao_Paulo')
@@ -106,7 +158,7 @@ exports.resetContadorRetorno = functions.runWith({ timeoutSeconds: 60, memory: '
       let emProcessamento = true;
       
       while (emProcessamento) {
-        // Busca motoristas que gastaram cotas ou estão com o modo ativo
+        // // AJUSTE CTO: Filtra com segurança garantindo que vai zerar todos que usaram
         const snapshot = await db.collection(col)
           .where('retornosUsadosHoje', '>', 0)
           .limit(400)
@@ -128,7 +180,6 @@ exports.resetContadorRetorno = functions.runWith({ timeoutSeconds: 60, memory: '
         });
         
         await batch.commit();
-        console.log(`[RESET_RETORNO] Zeredo lote de 400 registros na coleção: ${col}`);
       }
     }
     return null;
@@ -152,8 +203,13 @@ exports.ativarModoRetorno = functions.runWith(runtimeOpts).https.onCall(async (d
   const motoristaOnlineRef = db.collection('motoristas_online').doc(uid);
 
   try {
-    // Transação garante consistência estrita mesmo com cliques simultâneos
     await db.runTransaction(async (transaction) => {
+      // // AJUSTE CTO (Furo 2 resolvido): Checa se ele está na tabela de motoristas online
+      const onlineSnap = await transaction.get(motoristaOnlineRef);
+      if (!onlineSnap.exists) {
+        throw new Error('MOTORISTA_OFFLINE'); // Proíbe ativar retorno se estiver desligado/em casa
+      }
+
       const docSnap = await transaction.get(motoristaRef);
       let usados = 0;
       
