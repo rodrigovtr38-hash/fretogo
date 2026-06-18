@@ -5,7 +5,7 @@ import { collection, onSnapshot, doc, query, orderBy, runTransaction, where, upd
 import { 
   Loader2, CheckCircle, XCircle, Search, ShieldAlert, Truck, Users, 
   Calendar, DollarSign, Activity, Clock, AlertTriangle, Eye, 
-  Map as MapIcon, Wallet, Zap, MessageCircle, ShieldCheck, RefreshCcw, Lock
+  Map as MapIcon, Wallet, Zap, MessageCircle, ShieldCheck, RefreshCcw, Lock, Target
 } from 'lucide-react';
 
 const ADMIN_UIDS = ['uV1yeZoGfhZTRWDVL1CnMW6b6NY2']; 
@@ -15,12 +15,21 @@ export default function Admin() {
   const [tab, setTab] = useState<'dashboard' | 'motoristas' | 'corridas'>('dashboard');
   const [fretes, setFretes] = useState<any[]>([]);
   const [motoristasPendentes, setMotoristasPendentes] = useState<any[]>([]);
+  const [motoristasAprovados, setMotoristasAprovados] = useState<any[]>([]); // AJUSTE CTO: Estado para rastrear a base já homologada
   const [motoristasOnline, setMotoristasOnline] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   
   const [statusFilter, setStatusFilter] = useState('todos');
   const [timeFilter, setTimeFilter] = useState('hoje'); 
   const [loading, setLoading] = useState(true);
+
+  // Metas do Lançamento Estratégico (Guarulhos/SP)
+  const METAS_LANCAMENTO = {
+    utilitario: { meta: 300, label: 'Utilitário (Fiorino/Van)' },
+    vuc: { meta: 150, label: 'VUC (HR/Delivery)' },
+    toco: { meta: 100, label: 'Caminhão Toco' },
+    truck: { meta: 50, label: 'Caminhão Truck' }
+  };
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(u => {
@@ -41,11 +50,19 @@ export default function Admin() {
 
   useEffect(() => {
     if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
-    const q = query(collection(db, 'motoristas_cadastros'), where('status', '==', 'pendente'));
-    const unsubscribe = onSnapshot(q, (snap) => {
+    // Puxa os pendentes
+    const qPendentes = query(collection(db, 'motoristas_cadastros'), where('status', '==', 'pendente'));
+    const unsubPendentes = onSnapshot(qPendentes, (snap) => {
       setMotoristasPendentes(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
-    return () => unsubscribe();
+    
+    // Puxa os aprovados para calcular as metas de lançamento
+    const qAprovados = query(collection(db, 'motoristas_cadastros'), where('status', '==', 'aprovado'));
+    const unsubAprovados = onSnapshot(qAprovados, (snap) => {
+      setMotoristasAprovados(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
+
+    return () => { unsubPendentes(); unsubAprovados(); };
   }, [authUser]);
 
   useEffect(() => {
@@ -120,6 +137,24 @@ export default function Admin() {
     };
   }, [fretes, motoristasOnline, timeFilter]);
 
+  // AJUSTE CTO: Cálculo das Metas de Lançamento por Categoria
+  const metasProgresso = useMemo(() => {
+    const contagem = { utilitario: 0, vuc: 0, toco: 0, truck: 0 };
+    
+    motoristasAprovados.forEach(m => {
+      const cat = m.categoria ? m.categoria.toLowerCase() : '';
+      if (cat.includes('utilitario') || cat.includes('fiorino') || cat.includes('van')) contagem.utilitario++;
+      else if (cat.includes('vuc') || cat.includes('hr') || cat.includes('delivery')) contagem.vuc++;
+      else if (cat.includes('toco')) contagem.toco++;
+      else if (cat.includes('truck')) contagem.truck++;
+    });
+
+    return contagem;
+  }, [motoristasAprovados]);
+
+  // Indicador de PIX aptos (Motoristas com CNH e Foto aprovados)
+  const aptosPix = useMemo(() => motoristasAprovados.filter(m => m.fotoCnh && m.fotoSelfie).length, [motoristasAprovados]);
+
   const handleAprovacaoMotorista = async (id: string, status: 'aprovado' | 'rejeitado') => {
     if (!window.confirm(`Deseja confirmar a ação: ${status.toUpperCase()}?`)) return;
     try {
@@ -128,7 +163,6 @@ export default function Admin() {
     } catch (e: any) { alert("Erro ao atualizar o banco de dados: " + e.message); }
   };
 
-  // Trava Anticonflito: Se o motorista estiver a caminho, o Admin não pode cancelar sem forçar
   const forceStatus = async (id: string, novoStatus: string) => {
     if (!window.confirm(`Atenção: Você tem certeza que deseja forçar o status para: ${novoStatus.toUpperCase()}?`)) return;
     try {
@@ -175,12 +209,6 @@ export default function Admin() {
     }
   };
 
-  const formatarData = (ts: any) => {
-    if (!ts) return '--:--';
-    const date = ts.toDate ? ts.toDate() : new Date(ts);
-    return date.toLocaleDateString('pt-BR') + ' às ' + date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  };
-
   if (loading) return (
     <div className="h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
       <Loader2 className="animate-spin text-cyan-500 w-12 h-12" />
@@ -221,7 +249,7 @@ export default function Admin() {
           <nav className="flex flex-wrap bg-slate-900/50 p-1.5 rounded-2xl border border-white/5 gap-1">
             {[
               { id: 'dashboard', label: 'Overview', icon: Activity },
-              { id: 'motoristas', label: 'Frota', icon: Users, badge: motoristasPendentes.length },
+              { id: 'motoristas', label: 'Frota & Metas', icon: Users, badge: motoristasPendentes.length },
               { id: 'corridas', label: 'Live Radar', icon: MapIcon }
             ].map(item => (
               <button
@@ -264,6 +292,43 @@ export default function Admin() {
 
         {tab === 'dashboard' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* NOVO BLOCO: METAS DE LANÇAMENTO E DENSIDADE */}
+            <div className="mb-8">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-black italic uppercase tracking-tighter text-white flex items-center gap-2">
+                  <Target className="text-cyan-500 w-5 h-5" /> Vagas da 1ª Turma <span className="text-cyan-500">(Densidade SP/GRU)</span>
+                </h2>
+                <div className="flex items-center gap-2 bg-slate-900/50 border border-white/10 px-4 py-2 rounded-xl">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Total Homologados:</span>
+                  <span className="text-sm font-black text-white">{motoristasAprovados.length}</span>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                {Object.entries(METAS_LANCAMENTO).map(([key, config]) => {
+                  const current = metasProgresso[key as keyof typeof metasProgresso] || 0;
+                  const percentage = Math.min(100, Math.round((current / config.meta) * 100));
+                  const isCompleted = current >= config.meta;
+                  
+                  return (
+                    <div key={key} className="bg-slate-900/60 border border-white/5 p-5 rounded-2xl relative overflow-hidden backdrop-blur-md">
+                      <div className="flex justify-between items-center mb-3">
+                        <span className="text-[11px] font-black uppercase tracking-widest text-slate-300">{config.label}</span>
+                        <span className={`text-sm font-black ${isCompleted ? 'text-green-400' : 'text-cyan-400'}`}>{current} / {config.meta}</span>
+                      </div>
+                      <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-white/5">
+                        <div 
+                          className={`h-full rounded-full transition-all duration-1000 ${isCompleted ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'bg-cyan-500 shadow-[0_0_10px_rgba(8,145,178,0.5)]'}`}
+                          style={{ width: `${percentage}%` }}
+                        ></div>
+                      </div>
+                      {isCompleted && <p className="text-[9px] font-bold text-green-500 uppercase mt-2 text-right">Meta Atingida ✓</p>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-8">
               <div className="bg-slate-900/60 border border-white/5 p-6 rounded-[2rem] backdrop-blur-md relative overflow-hidden group hover:border-cyan-500/30 transition-all">
                  <DollarSign className="absolute -right-6 -bottom-6 w-32 h-32 text-white/5 group-hover:text-cyan-500/10 transition-colors" />
@@ -291,9 +356,16 @@ export default function Admin() {
 
         {tab === 'motoristas' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="flex justify-between items-center mb-8">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
                <h2 className="text-2xl font-black italic uppercase text-white tracking-tighter">Onboarding & <span className="text-cyan-500">Validação</span></h2>
-               <span className="bg-slate-900 text-slate-400 px-4 py-2 rounded-xl text-[10px] font-black uppercase border border-white/10 tracking-widest shadow-inner">{motoristasPendentes.length} Perfis em Análise</span>
+               <div className="flex gap-2">
+                 <span className="bg-slate-900 text-slate-400 px-4 py-2 rounded-xl text-[10px] font-black uppercase border border-white/10 tracking-widest shadow-inner flex items-center gap-2">
+                   <Clock size={12} className="text-amber-500"/> {motoristasPendentes.length} Pendentes
+                 </span>
+                 <span className="bg-slate-900 text-slate-400 px-4 py-2 rounded-xl text-[10px] font-black uppercase border border-white/10 tracking-widest shadow-inner flex items-center gap-2">
+                   <ShieldCheck size={12} className="text-green-500"/> {aptosPix} Aptos PIX
+                 </span>
+               </div>
             </div>
 
             {motoristasPendentes.length === 0 ? (
@@ -363,7 +435,6 @@ export default function Admin() {
           </div>
         )}
 
-        {/* CORREÇÃO APLICADA: O fechamento das tags nesta área do código estava quebrado no envio anterior */}
         {tab === 'corridas' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
              
