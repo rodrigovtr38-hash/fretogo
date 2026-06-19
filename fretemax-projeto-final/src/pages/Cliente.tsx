@@ -1,15 +1,14 @@
 // src/pages/Cliente.tsx
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { db } from '../firebase';
-import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore'; // AJUSTE CTO: Adicionado Timestamp para gravação do Fuso Horário correto
+import { db, auth } from '../firebase';
+import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore'; 
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Sparkles, User, Package, CalendarDays, Plus, Trash2, Flame } from 'lucide-react';
+// CTO FIX: Adicionados 'Search' e 'Lock' que estavam faltando e causavam tela branca
+import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Sparkles, User, Package, CalendarDays, Plus, Trash2, Flame, Search, Lock } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import ChatFrete from '../components/ChatFrete';
 import ClientStatusCard from '../components/client/ClientStatusCard';
 import ClientCancelModal from '../components/client/ClientCancelModal';
-
-// IMPORTS DA NOVA ARQUITETURA
 import { TripState } from '../state/tripStateMachine';
 import { mapsLoader } from '../services/mapsLoader'; 
 
@@ -137,7 +136,6 @@ export default function Cliente() {
 
   const valorAncora = (calculoFinanceiro.precoFinalCliente + calculoFinanceiro.tollCost) * 1.42;
 
-  // AJUSTE CTO: Bloqueio estrito de peso. Se for maior, o botão não funciona.
   const pesoValido = useMemo(() => {
     const pesoNum = parseInt(peso.replace(/\D/g, ''), 10);
     return Number.isNaN(pesoNum) || pesoNum <= LIMITES_PESO[vehicle];
@@ -234,7 +232,6 @@ export default function Cliente() {
   const calcularDistanciaReal = async () => {
     if (loadingRoute || loadingPayment || !isFormValid) return;
     
-    // AJUSTE CTO: Bloqueio agressivo caso o usuário manipule o HTML.
     if (!pesoValido) {
       showToast(`O peso excede o limite da categoria.`, 'error'); return;
     }
@@ -328,20 +325,21 @@ export default function Cliente() {
         "Notificação de proximidade operacional disparada 2h antes."
       ];
 
-      // AJUSTE CTO: Transforma a string em Firebase Timestamp. Mantém o fuso horário seguro.
       const parsedDate = tipoFrete === 'agendado' && dataAgendada ? new Date(dataAgendada) : null;
       const firebaseTimestamp = parsedDate ? Timestamp.fromDate(parsedDate) : null;
 
+      // CTO FIX: Auditoria de segurança confirmada. UID é obrigatório para passar no firestore.rules
+      const currentUser = auth.currentUser;
+      if (!currentUser) throw new Error("Faça login para prosseguir com o pedido de frete.");
+
       const docRef = await addDoc(collection(db, 'fretes'), {
+        clienteId: currentUser.uid, 
         distancia: validDistancia, 
         veiculo: vehicle, 
         valorTotal: Number((calculoFinanceiro.precoFinalCliente + calculoFinanceiro.tollCost).toFixed(2)),
         valorFreteBruto: Number(calculoFinanceiro.precoFinalCliente.toFixed(2)),
-        
-        // AJUSTE CTO: O valorLíquido é gravado no Payload Original. Radar lê daqui.
         valorLiquidoMotorista: Number(calculoFinanceiro.valorLiquidoMotorista.toFixed(2)),
         valorMotorista: Number(calculoFinanceiro.valorLiquidoMotorista.toFixed(2)), 
-        
         lucroPlataforma: Number(calculoFinanceiro.comissaoFretogoRetida.toFixed(2)),
         valorPedagio: Number(calculoFinanceiro.tollCost.toFixed(2)),
         cidadeOrigem: coleta.bairro, 
@@ -365,8 +363,6 @@ export default function Cliente() {
         destinoLat: destinoFinal.lat, 
         destinoLng: destinoFinal.lng, 
         tipoFrete,
-        
-        // Aplicação da variável de Timestamp seguro
         dataAgendada: firebaseTimestamp,
         cronogramaGatilhos: tipoFrete === 'agendado' ? gatilhosNotificacaoAgenda : null,
         status: tipoFrete === 'agendado' ? 'agendado' : TripState.AGUARDANDO_PAGAMENTO,
