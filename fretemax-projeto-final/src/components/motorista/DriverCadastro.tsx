@@ -1,4 +1,5 @@
 // src/components/motorista/DriverCadastro.tsx
+
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
@@ -15,8 +16,8 @@ import {
   CameraIcon
 } from 'lucide-react';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-// CTO FIX: Removido 'uploadBytes' e 'storage'. Vamos usar Base64 Canvas para garantir o envio sem erros.
-import { auth, db } from '../../firebase'; 
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { auth, db, storage } from '../../firebase';
 
 interface DriverCadastroProps {
   onFinish: () => void;
@@ -28,7 +29,6 @@ export default function DriverCadastro({
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Estados para as 3 fotos antifraude
   const [cnhFile, setCnhFile] = useState<File | null>(null);
   const [docVeiculoFile, setDocVeiculoFile] = useState<File | null>(null);
   const [selfieFile, setSelfieFile] = useState<File | null>(null);
@@ -39,14 +39,14 @@ export default function DriverCadastro({
     cpf: '',
     placa: '',
     veiculo: '',
-    categoria: '', 
+    categoria: '',
   });
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     setFormData({
-      ...formData,
+     ...formData,
       [e.target.name]: e.target.value,
     });
   };
@@ -54,7 +54,7 @@ export default function DriverCadastro({
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'cnh' | 'doc' | 'selfie') => {
     if (e.target.files && e.target.files[0]) {
       if (e.target.files[0].size > 15 * 1024 * 1024) {
-          setErrorMsg(`A foto é muito grande. Tente afastar um pouco a câmera ou diminuir a resolução.`);
+          setErrorMsg(`A foto é muito grande. Tente afastar um pouco a câmera.`);
           return;
       }
       if (type === 'cnh') setCnhFile(e.target.files[0]);
@@ -64,9 +64,7 @@ export default function DriverCadastro({
     }
   };
 
-  // CTO FIX: Função de compressão Base64 via Canvas. 
-  // Resolve o erro crítico de carregamento das fotos (bypass nas regras do Firebase Storage).
-  const compressImageToBase64 = (file: File): Promise<string> => {
+  const compressImage = (file: File): Promise<Blob> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
@@ -75,8 +73,8 @@ export default function DriverCadastro({
         img.src = event.target?.result as string;
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 800; // Mantém a nitidez para o Admin validar
-          const MAX_HEIGHT = 800;
+          const MAX_WIDTH = 1280;
+          const MAX_HEIGHT = 1280;
           let width = img.width;
           let height = img.height;
 
@@ -95,28 +93,38 @@ export default function DriverCadastro({
           canvas.height = height;
           const ctx = canvas.getContext('2d');
           ctx?.drawImage(img, 0, 0, width, height);
-          
-          // Qualidade de 60% (0.6) deixa a imagem com cerca de 80KB a 120KB. Perfeito.
-          const base64String = canvas.toDataURL('image/jpeg', 0.6); 
-          resolve(base64String);
+
+          canvas.toBlob((blob) => {
+            if (blob) resolve(blob);
+            else reject(new Error('Falha na compressão'));
+          }, 'image/jpeg', 0.7);
         };
-        img.onerror = () => reject(new Error('Falha no processamento visual da foto.'));
+        img.onerror = () => reject(new Error('Falha ao carregar imagem'));
       };
-      reader.onerror = () => reject(new Error('Não foi possível ler o arquivo da foto selecionada.'));
+      reader.onerror = () => reject(new Error('Falha ao ler arquivo'));
     });
+  };
+
+  const uploadFoto = async (file: File, path: string): Promise<string> => {
+    const blob = await compressImage(file);
+    const storageRef = ref(storage, path);
+    const uploadTask = uploadBytesResumable(storageRef, blob, {
+      contentType: 'image/jpeg'
+    });
+
+    await uploadTask;
+    return await getDownloadURL(storageRef);
   };
 
   const handleSubmit = async () => {
     setErrorMsg('');
-    
-    // Validação estrita de texto
-    if (!formData.nome || !formData.telefone || !formData.cpf || !formData.placa || !formData.categoria || !formData.veiculo) {
+
+    if (!formData.nome ||!formData.telefone ||!formData.cpf ||!formData.placa ||!formData.categoria ||!formData.veiculo) {
       setErrorMsg('Preencha todos os campos obrigatórios em texto.');
       return;
     }
 
-    // Validação estrita das TRÊS fotos
-    if (!cnhFile || !docVeiculoFile || !selfieFile) {
+    if (!cnhFile ||!docVeiculoFile ||!selfieFile) {
       setErrorMsg('É obrigatório enviar a foto da CNH, do Documento do Veículo e a Selfie segurando a CNH.');
       return;
     }
@@ -129,21 +137,20 @@ export default function DriverCadastro({
         throw new Error("Sessão expirada. Faça login novamente para concluir.");
       }
 
-      let cnhBase64 = "";
-      let docBase64 = "";
-      let selfieBase64 = "";
+      let cnhUrl = "";
+      let docUrl = "";
+      let selfieUrl = "";
 
-      // 1. Processamento e Compressão Local das Fotos (Salva do erro de "Verifique sua internet")
       try {
-        if (cnhFile) cnhBase64 = await compressImageToBase64(cnhFile);
-        if (docVeiculoFile) docBase64 = await compressImageToBase64(docVeiculoFile);
-        if (selfieFile) selfieBase64 = await compressImageToBase64(selfieFile);
-      } catch (compressionError: any) {
-        console.error("Falha na conversão de imagem:", compressionError);
-        throw new Error("Não foi possível processar suas fotos. Tente enviar arquivos menores.");
+        const timestamp = Date.now();
+        cnhUrl = await uploadFoto(cnhFile, `motoristas_docs/${user.uid}/cnh_${timestamp}.jpg`);
+        docUrl = await uploadFoto(docVeiculoFile, `motoristas_docs/${user.uid}/doc_${timestamp}.jpg`);
+        selfieUrl = await uploadFoto(selfieFile, `motoristas_docs/${user.uid}/selfie_${timestamp}.jpg`);
+      } catch (uploadError: any) {
+        console.error("Falha no upload:", uploadError);
+        throw new Error("Não foi possível enviar as fotos. Verifique sua internet e tente novamente.");
       }
 
-      // 2. Gravação Direta no Firestore com os dados ultraleves
       await setDoc(doc(db, 'motoristas_cadastros', user.uid), {
         nome: formData.nome,
         whatsapp: formData.telefone,
@@ -151,20 +158,19 @@ export default function DriverCadastro({
         placa: formData.placa.toUpperCase(),
         modeloVeiculo: formData.veiculo,
         categoria: formData.categoria,
-        fotoCnh: cnhBase64, 
-        fotoDocumento: docBase64, 
-        fotoSelfie: selfieBase64, 
+        fotoCnh: cnhUrl,
+        fotoDocumento: docUrl,
+        fotoSelfie: selfieUrl,
         status: 'pendente',
         criadoEm: serverTimestamp(),
         uid: user.uid,
       });
 
-      // Sucesso Total. Avança para o radar.
       onFinish();
 
     } catch (error: any) {
       console.error('ERRO CRÍTICO NO CADASTRO:', error);
-      setErrorMsg(error.message || 'Falha de conexão com a base de dados. Tente novamente.');
+      setErrorMsg(error.message || 'Falha de conexão. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -172,7 +178,6 @@ export default function DriverCadastro({
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#020617] px-6 py-10">
-      {/* BG */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(6,182,212,0.18),transparent_35%)]" />
       <div className="absolute right-[-120px] top-[-120px] h-[320px] w-[320px] rounded-full bg-cyan-500/10 blur-[120px]" />
       <div className="absolute bottom-[-120px] left-[-120px] h-[320px] w-[320px] rounded-full bg-blue-500/10 blur-[120px]" />
@@ -182,7 +187,6 @@ export default function DriverCadastro({
         animate={{ opacity: 1, y: 0 }}
         className="relative z-10 mx-auto w-full max-w-2xl rounded-[2rem] border border-white/10 bg-white/5 p-8 backdrop-blur-2xl"
       >
-        {/* HEADER */}
         <div className="mb-10 text-center">
           <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-[2rem] bg-cyan-500/10">
             <Truck className="h-10 w-10 text-cyan-400" />
@@ -196,12 +200,11 @@ export default function DriverCadastro({
         </div>
 
         {errorMsg && (
-          <div className="mb-6 rounded-xl bg-red-500/10 p-4 text-center text-sm font-bold text-red-400 border border-red-500/20">
+          <div className="mb-6 rounded-xl bg-red-500/10 p-4 text-center text-sm font-bold text-red-400 border-red-500/20">
             {errorMsg}
           </div>
         )}
 
-        {/* FORM */}
         <div className="grid gap-5 md:grid-cols-2">
           <div>
             <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-300">
@@ -221,18 +224,17 @@ export default function DriverCadastro({
             <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-300">
               <CreditCard size={16} /> CPF
             </label>
-            <input type="text" name="cpf" value={formData.cpf} onChange={handleChange} placeholder="000.000.000-00" className="w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-white outline-none transition-all focus:border-cyan-400" />
+            <input type="text" name="cpf" value={formData.cpf} onChange={handleChange} placeholder="000.000.000-00" className="w-full rounded-2xl border-white/10 bg-white/5 px-5 py-4 text-white outline-none transition-all focus:border-cyan-400" />
           </div>
 
           <div>
             <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-300">
               <BadgeCheck size={16} /> Placa do veículo
             </label>
-            <input type="text" name="placa" value={formData.placa} onChange={handleChange} placeholder="ABC1D23" className="w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-white outline-none transition-all focus:border-cyan-400" />
+            <input type="text" name="placa" value={formData.placa} onChange={handleChange} placeholder="ABC1D23" className="w-full rounded-2xl border-white/10 bg-white/5 px-5 py-4 text-white outline-none transition-all focus:border-cyan-400" />
           </div>
         </div>
 
-        {/* CATEGORIA OFICIAL - CTO FIX: Values sincronizados exatamente com o Cliente.tsx */}
         <div className="mt-5">
           <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-300">
             <ListFilter size={16} /> Categoria Operacional (Para o Radar)
@@ -249,7 +251,6 @@ export default function DriverCadastro({
           </select>
         </div>
 
-        {/* VEÍCULO MODELO */}
         <div className="mt-5">
           <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-300">
             <Truck size={16} /> Modelo exato (Ex: Carreta Baú, HR, Fiorino)
@@ -257,9 +258,8 @@ export default function DriverCadastro({
           <input type="text" name="veiculo" value={formData.veiculo} onChange={handleChange} placeholder="Descreva o modelo e tipo de carroceria..." className="w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-white outline-none transition-all focus:border-cyan-400" />
         </div>
 
-        {/* UPLOAD DE DOCUMENTOS REAIS */}
         <div className="mt-8 rounded-[2rem] border border-dashed border-cyan-500/30 bg-cyan-500/5 p-6">
-          <div className="mb-6 flex flex-col items-center justify-center text-center">
+          <div className="mb-6 flex-col items-center justify-center text-center">
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-cyan-500/10">
               <Camera className="text-cyan-400" />
             </div>
@@ -270,42 +270,39 @@ export default function DriverCadastro({
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            {/* INPUT CNH */}
             <div className="relative">
               <input type="file" id="cnhUpload" accept="image/*" onChange={(e) => handleFileChange(e, 'cnh')} className="hidden" />
-              <label htmlFor="cnhUpload" className={`flex w-full cursor-pointer items-center justify-between rounded-xl border px-4 py-3 transition-all hover:bg-white/5 ${cnhFile ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-white/10 bg-white/5'}`}>
+              <label htmlFor="cnhUpload" className={`flex w-full cursor-pointer items-center justify-between rounded-xl border px-4 py-3 transition-all hover:bg-white/5 ${cnhFile? 'border-emerald-500/50 bg-emerald-500/5' : 'border-white/10 bg-white/5'}`}>
                 <div className="flex items-center gap-3 overflow-hidden">
-                  <FileImage className={cnhFile ? 'text-emerald-400' : 'text-cyan-400'} size={20} />
+                  <FileImage className={cnhFile? 'text-emerald-400' : 'text-cyan-400'} size={20} />
                   <span className="truncate text-sm font-medium text-slate-200">
-                    {cnhFile ? cnhFile.name : 'Foto da CNH'}
+                    {cnhFile? cnhFile.name : 'Foto da CNH'}
                   </span>
                 </div>
                 {cnhFile && <CheckCircle2 className="text-emerald-400" size={18} />}
               </label>
             </div>
 
-            {/* INPUT DOCUMENTO VEÍCULO */}
             <div className="relative">
               <input type="file" id="docUpload" accept="image/*" onChange={(e) => handleFileChange(e, 'doc')} className="hidden" />
-              <label htmlFor="docUpload" className={`flex w-full cursor-pointer items-center justify-between rounded-xl border px-4 py-3 transition-all hover:bg-white/5 ${docVeiculoFile ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-white/10 bg-white/5'}`}>
+              <label htmlFor="docUpload" className={`flex w-full cursor-pointer items-center justify-between rounded-xl border px-4 py-3 transition-all hover:bg-white/5 ${docVeiculoFile? 'border-emerald-500/50 bg-emerald-500/5' : 'border-white/10 bg-white/5'}`}>
                 <div className="flex items-center gap-3 overflow-hidden">
-                  <Truck className={docVeiculoFile ? 'text-emerald-400' : 'text-cyan-400'} size={20} />
+                  <Truck className={docVeiculoFile? 'text-emerald-400' : 'text-cyan-400'} size={20} />
                   <span className="truncate text-sm font-medium text-slate-200">
-                    {docVeiculoFile ? docVeiculoFile.name : 'Foto do Doc (CRLV)'}
+                    {docVeiculoFile? docVeiculoFile.name : 'Foto do Doc (CRLV)'}
                   </span>
                 </div>
                 {docVeiculoFile && <CheckCircle2 className="text-emerald-400" size={18} />}
               </label>
             </div>
 
-            {/* INPUT SELFIE */}
             <div className="relative md:col-span-2">
               <input type="file" id="selfieUpload" accept="image/*" onChange={(e) => handleFileChange(e, 'selfie')} className="hidden" />
-              <label htmlFor="selfieUpload" className={`flex w-full cursor-pointer items-center justify-between rounded-xl border px-4 py-3 transition-all hover:bg-white/5 ${selfieFile ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-cyan-500/30 bg-cyan-500/10'}`}>
+              <label htmlFor="selfieUpload" className={`flex w-full cursor-pointer items-center justify-between rounded-xl border px-4 py-3 transition-all hover:bg-white/5 ${selfieFile? 'border-emerald-500/50 bg-emerald-500/5' : 'border-cyan-500/30 bg-cyan-500/10'}`}>
                 <div className="flex items-center gap-3 overflow-hidden">
-                  <CameraIcon className={selfieFile ? 'text-emerald-400' : 'text-cyan-400'} size={20} />
+                  <CameraIcon className={selfieFile? 'text-emerald-400' : 'text-cyan-400'} size={20} />
                   <span className="truncate text-sm font-medium text-slate-200">
-                    {selfieFile ? selfieFile.name : 'Selfie (Rosto + CNH em mãos)'}
+                    {selfieFile? selfieFile.name : 'Selfie (Rosto + CNH em mãos)'}
                   </span>
                 </div>
                 {selfieFile && <CheckCircle2 className="text-emerald-400" size={18} />}
@@ -314,25 +311,23 @@ export default function DriverCadastro({
           </div>
         </div>
 
-        {/* SECURITY */}
-        <div className="mt-8 flex items-center gap-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
+        <div className="mt-8 flex items-center gap-4 rounded-2xl border-emerald-500/20 bg-emerald-500/5 p-5">
           <ShieldCheck className="text-emerald-400" />
           <div>
-            <h3 className="font-bold text-white">Dados protegidos (Criptografia Base64)</h3>
-            <p className="text-sm text-slate-400">Suas imagens são encriptadas e otimizadas diretamente no seu dispositivo, garantindo envio seguro e ultrarrápido mesmo em redes fracas.</p>
+            <h3 className="font-bold text-white">Dados protegidos</h3>
+            <p className="text-sm text-slate-400">Suas imagens são comprimidas e enviadas com segurança para nossos servidores.</p>
           </div>
         </div>
 
-        {/* BUTTON */}
         <button
           onClick={handleSubmit}
           disabled={loading}
           className="mt-8 w-full rounded-[1.5rem] bg-cyan-500 py-5 text-sm font-black uppercase tracking-[0.2em] text-black transition-all hover:scale-[1.02] hover:bg-cyan-400 disabled:opacity-60 flex items-center justify-center gap-2"
         >
-          {loading ? (
+          {loading? (
             <>
               <div className="h-5 w-5 animate-spin rounded-full border-2 border-black border-t-transparent"></div>
-              Processando Documentação...
+              Enviando Documentos...
             </>
           ) : 'Finalizar Cadastro'}
         </button>
