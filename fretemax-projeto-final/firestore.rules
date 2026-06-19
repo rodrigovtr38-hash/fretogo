@@ -27,7 +27,8 @@ service cloud.firestore {
     // =========================================================
 
     match /motoristas_cadastros/{userId} {
-      allow read: if isAuthenticated();
+      // CORREÇÃO CRÍTICA (LGPD): Motorista só lê o próprio cadastro. Admin lê tudo.
+      allow read: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId);
       allow update: if
         (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
@@ -43,7 +44,8 @@ service cloud.firestore {
 
     match /motoristas_online/{userId} {
       allow read: if isAuthenticated();
-      allow create, update: if isOwner(userId) && request.resource.data.keys().hasAll(['lat', 'lng', 'status']);
+      // CORREÇÃO CRÍTICA (RADAR): Removida exigência de lat/lng/status que quebrava o app
+      allow create, update: if isOwner(userId) || isAdmin();
       allow delete: if isOwner(userId) || isAdmin();
     }
 
@@ -52,26 +54,44 @@ service cloud.firestore {
     // =========================================================
 
     match /fretes/{freteId} {
-      // O radar precisa ler os fretes disponíveis, por isso mantemos a leitura autenticada aberta.
-      allow read: if isAuthenticated();
+      // CORREÇÃO CRÍTICA (LGPD): Cliente/Motorista só lê o que lhe pertence ou o que está disponível
+      allow read: if isAuthenticated() && (
+        resource.data.clienteId == request.auth.uid ||
+        resource.data.motoristaId == request.auth.uid ||
+        resource.data.status == 'disponivel' ||
+        resource.data.status == 'buscando_motorista' ||
+        isAdmin()
+      );
 
-      allow create: if request.resource.data.keys().hasAll([
+      // CORREÇÃO (ANTI-FALSIFICAÇÃO): Exige clienteId na criação
+      allow create: if isAuthenticated() && request.resource.data.keys().hasAll([
         'status', 'valorTotal', 'cidadeOrigem', 'cidadeDestino', 'createdAt'
-      ]);
+      ]) && request.resource.data.clienteId == request.auth.uid;
 
       allow update: if
-        // 1. Admin Mestre (Você tem controle total sobre os dados)
+        // 1. Admin Mestre
         isAdmin()
         ||
-        // 2. Cliente cancelando o pedido (Apenas altera o status e os dados de cancelamento)
-        (isAuthenticated() && request.resource.data.status == 'cancelado' && request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'canceladoEm', 'canceladoPor']))
+        // 2. Cliente cancelando o pedido (Apenas altera status e logs de cancelamento)
+        (isAuthenticated() && 
+         resource.data.clienteId == request.auth.uid &&
+         request.resource.data.status == 'cancelado' && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'canceladoEm', 'canceladoPor', 'updatedAt']))
         ||
-        // 3. Motorista aceitando frete do radar (Puxa a corrida para ele)
-        (isAuthenticated() && resource.data.status == 'disponivel' && request.resource.data.status == 'aceito' && request.resource.data.motoristaId == request.auth.uid)
+        // 3. Motorista aceitando frete do radar
+        (isAuthenticated() && 
+         resource.data.status == 'disponivel' && 
+         request.resource.data.status == 'aceito' && 
+         request.resource.data.motoristaId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'motoristaId', 'aceitoEm', 'updatedAt']))
         ||
-        // 4. Motorista rodando com a carga (ATUALIZA STATUS, MAS NUNCA O DINHEIRO)
-        (isAuthenticated() && resource.data.motoristaId == request.auth.uid && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'valorTotal', 'valorMotorista', 'valorFreteBruto', 'valorLiquidoMotorista', 'lucroPlataforma', 'valorPedagio', 'clienteNome', 'clienteZap'
+        // 4. Motorista rodando com a carga (NUNCA pode mexer no dinheiro ou no trajeto original)
+        (isAuthenticated() && 
+         resource.data.motoristaId == request.auth.uid && 
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'valorTotal', 'valorMotorista', 'valorFreteBruto', 'valorLiquidoMotorista', 
+          'lucroPlataforma', 'valorPedagio', 'clienteNome', 'clienteZap', 'clienteId',
+          'distancia', 'origemLat', 'origemLng', 'destinoLat', 'destinoLng'
         ]));
 
       allow delete: if false;
@@ -82,9 +102,9 @@ service cloud.firestore {
     // =========================================================
 
     match /ofertas/{ofertaId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && resource.data.motoristaId == request.auth.uid;
       allow update: if isAuthenticated() && resource.data.motoristaId == request.auth.uid;
-      allow create, delete: if false;
+      allow create, delete: if isAdmin();
     }
 
     match /analytics_demand/{docId} {
@@ -93,7 +113,7 @@ service cloud.firestore {
     }
 
     // =========================================================
-    // 🛡️ FALLBACK GLOBAL (SE TENTAR INVADIR OUTRA TABELA, BLOQUEIA)
+    // 🛡 FALLBACK GLOBAL (SE TENTAR INVADIR OUTRA TABELA, BLOQUEIA)
     // =========================================================
     match /{document=**} {
       allow read, write: if false;
