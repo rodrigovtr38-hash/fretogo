@@ -48,10 +48,11 @@ service cloud.firestore {
     }
 
     // =========================================================
-    // 📦 FRETES (BLINDAGEM CONTRA ROUBO DE DADOS)
+    // 📦 FRETES (BLINDAGEM CONTRA ROUBO DE DADOS E FRAUDE)
     // =========================================================
 
     match /fretes/{freteId} {
+      // O radar precisa ler os fretes disponíveis, por isso mantemos a leitura autenticada aberta.
       allow read: if isAuthenticated();
 
       allow create: if request.resource.data.keys().hasAll([
@@ -59,16 +60,19 @@ service cloud.firestore {
       ]);
 
       allow update: if
-        // 1. Motorista aceitando frete do radar
+        // 1. Admin Mestre (Você tem controle total sobre os dados)
+        isAdmin()
+        ||
+        // 2. Cliente cancelando o pedido (Apenas altera o status e os dados de cancelamento)
+        (isAuthenticated() && request.resource.data.status == 'cancelado' && request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'canceladoEm', 'canceladoPor']))
+        ||
+        // 3. Motorista aceitando frete do radar (Puxa a corrida para ele)
         (isAuthenticated() && resource.data.status == 'disponivel' && request.resource.data.status == 'aceito' && request.resource.data.motoristaId == request.auth.uid)
         ||
-        // 2. Motorista rodando com a carga (não pode alterar o valor do dinheiro)
+        // 4. Motorista rodando com a carga (ATUALIZA STATUS, MAS NUNCA O DINHEIRO)
         (isAuthenticated() && resource.data.motoristaId == request.auth.uid && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'valorTotal', 'valorMotorista', 'lucroPlataforma', 'clienteNome', 'clienteZap'
-        ]))
-        ||
-        // 3. Admin Mestre
-        isAdmin();
+          'valorTotal', 'valorMotorista', 'valorFreteBruto', 'valorLiquidoMotorista', 'lucroPlataforma', 'valorPedagio', 'clienteNome', 'clienteZap'
+        ]));
 
       allow delete: if false;
     }
