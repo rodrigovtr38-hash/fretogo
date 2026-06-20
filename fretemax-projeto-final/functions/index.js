@@ -321,6 +321,24 @@ exports.iniciarDespachoAutomatico = functions.runWith(runtimeOpts).firestore
 
       console.log(`[DISPATCH] Oferta enviada para ${motoristaMaisProximo.nome} (${menorDistancia.toFixed(1)}km)`);
 
+      // ENVIA NOTIFICAÇÃO PUSH COM VALOR REAL
+      try {
+        const valorMotorista = depois.valorMotorista || depois.valorTotal || 0;
+        await admin.firestore().collection('motoristas').doc(motoristaMaisProximo.id).get().then(async (motoristaDoc) => {
+          if (motoristaDoc.exists && motoristaDoc.data()?.fcmToken) {
+            await exports.enviarNotificacaoPush({
+              userId: motoristaMaisProximo.id,
+              tipo: 'motorista',
+              titulo: '🚚 Novo Frete Disponível!',
+              corpo: `R$ ${valorMotorista.toFixed(2)} - ${menorDistancia.toFixed(1)}km até a coleta`,
+              dados: { freteId: freteId, tipo: 'novo_frete' }
+            }, { auth: { uid: 'system' } });
+          }
+        });
+      } catch (pushError) {
+        console.error('[PUSH DISPATCH ERRO]', pushError);
+      }
+
     } catch (error) {
       console.error(`[DISPATCH ERRO]`, error);
     }
@@ -407,4 +425,65 @@ exports.watchdogOfertasExpiradas = functions.runWith(runtimeOpts).pubsub.schedul
     await batch.commit();
   }
   return null;
+});
+
+// ========================================================
+// 8. ENVIO DE NOTIFICAÇÃO PUSH - AJUSTE CTO
+// ========================================================
+// Envia notificação push para motorista ou cliente usando FCM
+exports.enviarNotificacaoPush = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
+  const { userId, tipo, titulo, corpo, dados } = data;
+  
+  if (!userId || !tipo) {
+    throw new functions.https.HttpsError('invalid-argument', 'userId e tipo são obrigatórios');
+  }
+
+  try {
+    const colecao = tipo === 'motorista' ? 'motoristas' : 'clientes';
+    const userDoc = await db.collection(colecao).doc(userId).get();
+    
+    if (!userDoc.exists) {
+      throw new Error('Usuário não encontrado');
+    }
+
+    const userData = userDoc.data();
+    const fcmToken = userData?.fcmToken;
+
+    if (!fcmToken) {
+      console.log(`[PUSH] Usuário ${userId} sem token FCM`);
+      return { success: false, message: 'Token não encontrado' };
+    }
+
+    const message = {
+      token: fcmToken,
+      notification: {
+        title: titulo || 'FretoGo',
+        body: corpo || 'Você tem uma nova notificação'
+      },
+      data: dados || {},
+      android: {
+        priority: 'high',
+        notification: {
+          sound: 'default',
+          channelId: 'fretes'
+        }
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1
+          }
+        }
+      }
+    };
+
+    const response = await admin.messaging().send(message);
+    console.log(`[PUSH] Enviado para ${userId}:`, response);
+    return { success: true, messageId: response };
+
+  } catch (error) {
+    console.error('[PUSH ERRO]', error);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
 });
