@@ -141,6 +141,23 @@ exports.workerNotificacoes = functions.firestore.document('fretes/{freteId}').on
       });
     }
   }
+
+  // NOTIFICA CLIENTE - COLETA REALIZADA
+  if (newValue.status === 'coletando' && previousValue.status !== 'coletando') {
+    try {
+      const clienteId = newValue.clienteId;
+      if (clienteId) {
+        await exports.enviarNotificacaoPush({
+          userId: clienteId,
+          tipo: 'cliente',
+          titulo: '✅ Carga Coletada',
+          corpo: `Motorista ${newValue.motoristaNome || 'parceiro'} coletou sua carga. Acompanhe em tempo real.`,
+          dados: { freteId: context.params.freteId, tipo: 'coleta' }
+        }, { auth: { uid: 'system' } });
+      }
+    } catch (e) { console.error('[PUSH COLETA]', e); }
+  }
+
   return null;
 });
 
@@ -486,4 +503,29 @@ exports.enviarNotificacaoPush = functions.runWith(runtimeOpts).https.onCall(asyn
     console.error('[PUSH ERRO]', error);
     throw new functions.https.HttpsError('internal', error.message);
   }
+});
+
+// ========================================================
+// 9. NOTIFICAÇÃO DE ENTREGA CONCLUÍDA
+// ========================================================
+exports.notificarEntregaConcluida = functions.firestore.document('fretes/{freteId}').onUpdate(async (change, context) => {
+  const antes = change.before.data();
+  const depois = change.after.data();
+  
+  if (antes.status !== 'em_transporte' && antes.status !== 'finalizando') return null;
+  if (depois.status !== 'entregue' && depois.status !== 'finalizado') return null;
+  
+  try {
+    const clienteId = depois.clienteId;
+    if (clienteId) {
+      await exports.enviarNotificacaoPush({
+        userId: clienteId,
+        tipo: 'cliente',
+        titulo: '📦 Entrega Realizada',
+        corpo: `Sua carga foi entregue com sucesso! PIN: ${depois.pinEntregas?.[0] || 'confirmado'}`,
+        dados: { freteId: context.params.freteId, tipo: 'entrega' }
+      }, { auth: { uid: 'system' } });
+    }
+  } catch (e) { console.error('[PUSH ENTREGA]', e); }
+  return null;
 });
