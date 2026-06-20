@@ -82,7 +82,7 @@ export default function Motorista() {
 
     return {
       id,
-      status: data.status || 'DISPONIVEL',
+      status: data.status || 'disponivel',
       prioridade: Boolean(data.prioridade),
       agendado: Boolean(data.agendado),
       categoria: data.categoria || 'carro',
@@ -177,7 +177,7 @@ export default function Motorista() {
     const freightsQuery = query(
       collection(db, 'fretes'), 
       where('categoria', '==', operationalCategory), 
-      where('status', 'in', ['DISPONIVEL', 'disponivel', 'BUSCANDO_MOTORISTA', 'AGUARDANDO_ACEITE']), 
+      where('status', 'in', ['disponivel', 'buscando_motorista', 'aguardando_aceite']), 
       orderBy('createdAt', 'desc'), 
       limit(10)
     );
@@ -241,7 +241,12 @@ export default function Motorista() {
         const data = freteSnap.data();
         
         // Bloqueio rigoroso: Se o status não for mais de busca, ou já tiver motorista, aborta.
-        if (data.motoristaId || !['DISPONIVEL', 'disponivel', 'BUSCANDO_MOTORISTA', 'AGUARDANDO_ACEITE'].includes(data.status)) {
+        if (data.motoristaId || !['disponivel', 'buscando_motorista', 'aguardando_aceite'].includes(data.status)) {
+          throw new Error('FRETE_JA_ATRIBUIDO');
+        }
+
+        // Trava extra: só quem recebeu a oferta pode aceitar
+        if (data.motoristaAtualDestaque && data.motoristaAtualDestaque !== user.uid) {
           throw new Error('FRETE_JA_ATRIBUIDO');
         }
 
