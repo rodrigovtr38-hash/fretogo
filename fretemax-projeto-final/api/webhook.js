@@ -92,7 +92,7 @@ export default async function handler(req, res) {
             
             // 1. Atualiza o banco (Síncrono e Rápido)
             await freteRef.update({
-              status: 'buscando_motorista', 
+              status: 'disponivel', // AJUSTE APLICADO: Alinhado com a Máquina de Estados do Frontend
               pagamentoStatus: 'aprovado',
               dispatchStatus: 'em_andamento',
               pagoEm: FieldValue.serverTimestamp(),
