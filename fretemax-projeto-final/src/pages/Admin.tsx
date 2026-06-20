@@ -23,7 +23,9 @@ export default function Admin() {
   const [timeFilter, setTimeFilter] = useState('hoje'); 
   const [loading, setLoading] = useState(true);
 
-  // PASSO 1: Estado para Reembolsos Pendentes
+  // PASSO 1: Estado para Histórico de Pagamentos e Reembolsos Pendentes
+  const [historicoPagamentos, setHistoricoPagamentos] = useState<any[]>([]);
+  const [showHistorico, setShowHistorico] = useState(false);
   const [reembolsosPendentes, setReembolsosPendentes] = useState<any[]>([]);
 
   // Metas do Lançamento Estratégico (Guarulhos/SP)
@@ -77,12 +79,22 @@ export default function Admin() {
     return () => unsubscribe();
   }, [authUser]);
 
-  // PASSO 2: Listener de Reembolsos Pendentes
+  // Listener de Reembolsos Pendentes
   useEffect(() => {
     if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
     const q = query(collection(db, 'fretes'), where('status', '==', 'cancelado'));
     const unsub = onSnapshot(q, (snap) => {
       setReembolsosPendentes(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(f => !f.reembolsado));
+    });
+    return () => unsub();
+  }, [authUser]);
+
+  // PASSO 2: Listener de Histórico de Pagamentos
+  useEffect(() => {
+    if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
+    const q = query(collection(db, 'fretes'), where('repasseEfetuado', '==', true), orderBy('repasseData', 'desc'), limit(100));
+    const unsub = onSnapshot(q, (snap) => {
+      setHistoricoPagamentos(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
     return () => unsub();
   }, [authUser]);
@@ -118,7 +130,7 @@ export default function Admin() {
     });
   }, [fretes, searchTerm, statusFilter, timeFilter]);
 
-  // PASSO 3: Stats Financeiros Expandidos
+  // PASSO 3 e 6: Stats Financeiros Expandidos com Alertas 24h
   const stats = useMemo(() => {
     const fretesDoPeriodo = fretes.filter(f => filterByTime(f, timeFilter));
     const hoje = new Date(); hoje.setHours(0,0,0,0);
@@ -132,7 +144,7 @@ export default function Admin() {
     const repasses = fretes.filter(f => f.status === 'entregue').length;
     const cancelados = fretesDoPeriodo.filter(f => f.status === 'cancelado').length;
 
-    // NOVOS CÁLCULOS FINANCEIROS
+    // CÁLCULOS FINANCEIROS
     const faturadoHoje = fretes.filter(f => {
       const data = f.createdAt?.toDate ? f.createdAt.toDate() : new Date(f.createdAt);
       return data >= hoje;
@@ -154,10 +166,18 @@ export default function Admin() {
     
     const insucessos = fretes.filter(f => f.alertaInsucesso === true).length;
 
+    // Alertas de atraso em repasse de 24h
+    const alertas24h = fretes.filter(f => {
+      if (f.status !== 'entregue' || f.repasseEfetuado) return false;
+      const entregaData = f.updatedAt?.toDate ? f.updatedAt.toDate() : new Date();
+      const horasDesdeEntrega = (Date.now() - entregaData.getTime()) / (1000 * 60 * 60);
+      return horasDesdeEntrega >= 20 && horasDesdeEntrega < 24;
+    }).length;
+
     return { 
       faturado, lucro, entregues, ticketMedio, ativos, aguardando, 
       repasses, cancelados, faturadoHoje, aPagarMotoristas, pagoHoje, 
-      motoristasRetorno, timeoutAguardando, semComprovante, motoristasOcupados, insucessos 
+      motoristasRetorno, timeoutAguardando, semComprovante, motoristasOcupados, insucessos, alertas24h 
     };
   }, [fretes, motoristasOnline, timeFilter]);
 
@@ -187,25 +207,39 @@ export default function Admin() {
     } catch (e: any) { alert("Erro ao atualizar o banco de dados: " + e.message); }
   };
 
+  // PASSO 3: Função forceStatus Expandida com gravação no histórico de pagamento
   const forceStatus = async (id: string, novoStatus: string) => {
-    if (!window.confirm(`Atenção: Você tem certeza que deseja forçar o status para: ${novoStatus.toUpperCase()}?`)) return;
+    if (!window.confirm(`Forçar status para: ${novoStatus.toUpperCase()}?`)) return;
     try {
       await runTransaction(db, async (t) => {
         const ref = doc(db, 'fretes', id);
         const d = await t.get(ref);
-        if (!d.exists()) throw new Error("Frete não encontrado no sistema.");
-        
+        if (!d.exists()) throw new Error("Frete não encontrado.");
+
         const currentData = d.data();
         if (novoStatus === 'cancelado' && currentData.status === 'em_transporte') {
-           throw new Error("O motorista já está em transporte com a carga. Cancelamento abortado.");
+           throw new Error("Motorista em transporte. Cancelamento abortado.");
         }
 
-        t.update(ref, { 
+        const updateData: any = {
           status: novoStatus,
           adminAction: true,
           updatedAt: serverTimestamp()
-        });
+        };
+
+        // SE FOR FINALIZAR (PAGAR MOTORISTA), SALVA HISTÓRICO
+        if (novoStatus === 'finalizado' && currentData.status === 'entregue') {
+          updateData.repasseEfetuado = true;
+          updateData.repasseData = serverTimestamp();
+          updateData.repassePor = authUser.uid;
+          updateData.repasseValor = Number(currentData.valorLiquidoMotorista || currentData.valorMotorista || 0);
+        }
+
+        t.update(ref, updateData);
       });
+      if (novoStatus === 'finalizado') {
+        alert('✅ Repasse registrado no histórico!');
+      }
     } catch (e: any) { alert(e.message); }
   };
 
@@ -215,27 +249,15 @@ export default function Admin() {
     } catch (e: any) { alert("Erro ao limpar alerta."); }
   };
 
-  // PASSO 5: Função Reembolso Atualizada
   const handleReembolso = async (idPedido: string) => {
     if (!window.confirm("CRÍTICO: Estornar PIX no Mercado Pago?")) return;
     try {
-      const res = await fetch('/api/reembolso', { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ idPedido }) 
-      });
+      const res = await fetch('/api/reembolso', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idPedido }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Falha API');
-      
-      await updateDoc(doc(db, 'fretes', idPedido), { 
-        reembolsado: true, 
-        reembolsoData: serverTimestamp(), 
-        reembolsoPor: authUser.uid 
-      });
+      await updateDoc(doc(db, 'fretes', idPedido), { reembolsado: true, reembolsoData: serverTimestamp(), reembolsoPor: authUser.uid });
       alert('SUCESSO! PIX estornado e registrado.');
-    } catch (error: any) { 
-      alert(`Erro: ${error.message}`); 
-    }
+    } catch (error: any) { alert(`Erro: ${error.message}`); }
   };
 
   if (loading) return (
@@ -321,6 +343,20 @@ export default function Admin() {
 
         {tab === 'dashboard' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            
+            {/* PASSO 7: Alerta Visual 24h */}
+            {stats.alertas24h > 0 && (
+              <div className="mb-6 bg-amber-950/60 border-amber-500/50 rounded-2xl p-4 flex items-center justify-between animate-pulse">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="text-amber-500" size={20} />
+                  <div>
+                    <p className="text-sm font-black text-amber-400 uppercase">Atenção: {stats.alertas24h} pagamento(s) vencendo em 24h</p>
+                    <p className="text-[10px] text-amber-300/70">Fretes entregues aguardando repasse ao motorista</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* NOVO BLOCO: METAS DE LANÇAMENTO E DENSIDADE */}
             <div className="mb-8">
               <div className="flex items-center justify-between mb-4">
@@ -358,7 +394,7 @@ export default function Admin() {
               </div>
             </div>
 
-            {/* PASSO 4: CONTROLE FINANCEIRO EM TEMPO REAL */}
+            {/* CONTROLE FINANCEIRO EM TEMPO REAL */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
               <div className="bg-amber-950/40 border border-amber-500/30 p-5 rounded-2xl backdrop-blur-sm">
                 <p className="text-[10px] font-black text-amber-400/70 uppercase tracking-widest mb-2 flex items-center gap-1"><Clock size={12}/> A Pagar (24h)</p>
@@ -395,7 +431,6 @@ export default function Admin() {
                  <Users className="absolute -right-6 -bottom-6 w-32 h-32 text-white/5 group-hover:text-blue-500/10 transition-colors" />
                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2"><MapIcon size={12}/> Radar de Frota</p>
                  <h3 className="text-2xl md:text-3xl font-black text-white tracking-tighter">{motoristasOnline.length} <span className="text-sm text-blue-400 italic font-bold uppercase tracking-normal">Online</span></h3>
-                 {/* PASSO 6: Adicionado contador de retorno */}
                  <div className="mt-2 flex items-center gap-3 text-[10px]">
                    <span className="flex items-center gap-1 text-cyan-400"><Target size={10}/> {stats.motoristasRetorno} em retorno</span>
                  </div>
@@ -406,6 +441,53 @@ export default function Admin() {
                  <h3 className={`text-2xl md:text-3xl font-black tracking-tighter ${stats.repasses > 0 ? 'text-amber-400' : 'text-white'}`}>{stats.repasses}</h3>
               </div>
             </div>
+
+            {/* PASSO 4 e 5: BOTÃO E TABELA DO HISTÓRICO */}
+            <div className="flex justify-end mb-6">
+              <button
+                onClick={() => setShowHistorico(!showHistorico)}
+                className="bg-slate-800 hover:bg-slate-700 border-cyan-500/30 text-cyan-400 px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2"
+              >
+                <Wallet size={14} /> {showHistorico ? 'Ocultar' : 'Ver'} Histórico de Pagamentos ({historicoPagamentos.length})
+              </button>
+            </div>
+
+            {showHistorico && (
+              <div className="mb-8 bg-slate-900/60 border-white/5 rounded-2xl p-6 backdrop-blur-md">
+                <h3 className="text-lg font-black text-white mb-4 flex items-center gap-2">
+                  <CheckCircle className="text-green-500" size={20} /> Últimos Pagamentos Realizados
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-white/10">
+                        <th className="text-left py-3 px-4 text-[10px] font-black uppercase text-slate-500">Data</th>
+                        <th className="text-left py-3 px-4 text-[10px] font-black uppercase text-slate-500">Frete ID</th>
+                        <th className="text-left py-3 px-4 text-[10px] font-black uppercase text-slate-500">Motorista</th>
+                        <th className="text-right py-3 px-4 text-[10px] font-black uppercase text-slate-500">Valor Pago</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {historicoPagamentos.length === 0 ? (
+                        <tr><td colSpan={4} className="text-center py-8 text-slate-600">Nenhum pagamento registrado ainda</td></tr>
+                      ) : historicoPagamentos.slice(0, 10).map(p => (
+                        <tr key={p.id} className="border-b border-white/5 hover:bg-white/5">
+                          <td className="py-3 px-4 text-slate-300">
+                            {p.repasseData?.toDate ? p.repasseData.toDate().toLocaleDateString('pt-BR') : '-'}
+                          </td>
+                          <td className="py-3 px-4 font-mono text-[10px] text-cyan-400">#{p.id.slice(0,8).toUpperCase()}</td>
+                          <td className="py-3 px-4 text-white font-bold">{p.motoristaNome || 'N/A'}</td>
+                          <td className="py-3 px-4 text-right text-green-400 font-black">
+                            R$ {Number(p.repasseValor || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
           </div>
         )}
 
