@@ -71,7 +71,7 @@ exports.despertadorAgendamentos = functions.runWith(runtimeOpts).pubsub.schedule
   fretesD1.forEach(doc => {
     batch.update(doc.ref, { 
       notificadoD1: true, 
-      pendenteEnvioWhatsApp: true, // // AJUSTE CTO: Gatilho unificado para o Worker consumir
+      pendenteEnvioWhatsApp: true, // // AJUSTE CTO: Gatilho unificado para o Worker consuming
       tipoNotificacaoWorker: 'D-1',
       atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
     });
@@ -241,3 +241,88 @@ exports.ativarModoRetorno = functions.runWith(runtimeOpts).https.onCall(async (d
     throw new functions.https.HttpsError('internal', error.message);
   }
 });
+
+// ========================================================
+// 6. GATILHO AUTOMÁTICO DE DESPACHO - AJUSTE CTO
+// ========================================================
+exports.iniciarDespachoAutomatico = functions.runWith(runtimeOpts).firestore
+  .document('fretes/{freteId}')
+  .onUpdate(async (change, context) => {
+    const antes = change.before.data();
+    const depois = change.after.data();
+    const freteId = context.params.freteId;
+
+    if (antes.status === 'disponivel' || depois.status !== 'disponivel') return null;
+    if (depois.dispatchStatus === 'em_andamento') return null;
+
+    try {
+      console.log(`[DISPATCH] Iniciando para frete ${freteId}`);
+
+      const origemLat = depois.origem?.lat || depois.origemLat;
+      const origemLng = depois.origem?.lng || depois.origemLng;
+      const categoria = depois.categoria;
+
+      if (!origemLat || !origemLng) return null;
+
+      // Busca motoristas online da categoria
+      const motoristasSnap = await db.collection('motoristas')
+        .where('online', '==', true)
+        .where('disponivel', '==', true)
+        .where('categoria', 'array-contains', categoria)
+        .get();
+
+      if (motoristasSnap.empty) {
+        await change.after.ref.update({
+          status: 'sem_motorista',
+          dispatchStatus: 'encerrado',
+          atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+        });
+        return null;
+      }
+
+      // Calcula distância e pega o mais próximo
+      let motoristaMaisProximo = null;
+      let menorDistancia = Infinity;
+
+      motoristasSnap.forEach(doc => {
+        const m = doc.data();
+        if (!m.latitude || !m.longitude) return;
+        const dist = Math.sqrt(
+          Math.pow(m.latitude - origemLat, 2) + 
+          Math.pow(m.longitude - origemLng, 2)
+        ) * 111; // conversão aproximada para km
+        
+        if (dist < menorDistancia && dist <= 50) {
+          menorDistancia = dist;
+          motoristaMaisProximo = { id: doc.id, ...m, distancia: dist };
+        }
+      });
+
+      if (!motoristaMaisProximo) {
+        await change.after.ref.update({
+          status: 'sem_motorista',
+          dispatchStatus: 'encerrado',
+          atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+        });
+        return null;
+      }
+
+      // ENVIA OFERTA PARA O MOTORISTA MAIS PRÓXIMO
+      await change.after.ref.update({
+        status: 'aguardando_aceite',
+        dispatchStatus: 'em_andamento',
+        motoristaAtualDestaque: motoristaMaisProximo.id,
+        motoristaAtualNome: motoristaMaisProximo.nome,
+        distanciaColetaKm: Math.round(menorDistancia * 10) / 10,
+        ofertaExpiraEm: admin.firestore.FieldValue.serverTimestamp(),
+        filaTotal: motoristasSnap.size,
+        atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      console.log(`[DISPATCH] Oferta enviada para ${motoristaMaisProximo.nome} (${menorDistancia.toFixed(1)}km)`);
+
+    } catch (error) {
+      console.error(`[DISPATCH ERRO]`, error);
+    }
+    return null;
+  });
