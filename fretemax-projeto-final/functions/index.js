@@ -314,7 +314,7 @@ exports.iniciarDespachoAutomatico = functions.runWith(runtimeOpts).firestore
         motoristaAtualDestaque: motoristaMaisProximo.id,
         motoristaAtualNome: motoristaMaisProximo.nome,
         distanciaColetaKm: Math.round(menorDistancia * 10) / 10,
-        ofertaExpiraEm: admin.firestore.FieldValue.serverTimestamp(),
+        ofertaExpiraEm: admin.firestore.Timestamp.fromMillis(Date.now() + 30000),
         filaTotal: motoristasSnap.size,
         atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
       });
@@ -326,3 +326,85 @@ exports.iniciarDespachoAutomatico = functions.runWith(runtimeOpts).firestore
     }
     return null;
   });
+
+// ========================================================
+// 7. WATCHDOG DE OFERTAS EXPIRADAS - AJUSTE CTO
+// ========================================================
+// Verifica a cada 1 minuto se alguma oferta expirou e passa para o próximo motorista
+exports.watchdogOfertasExpiradas = functions.runWith(runtimeOpts).pubsub.schedule('every 1 minutes').onRun(async (context) => {
+  const agora = admin.firestore.Timestamp.now();
+  
+  const fretesExpirados = await db.collection('fretes')
+    .where('status', '==', 'aguardando_aceite')
+    .where('ofertaExpiraEm', '<', agora)
+    .limit(100)
+    .get();
+
+  if (fretesExpirados.empty) return null;
+
+  const batch = db.batch();
+
+  for (const docFrete of fretesExpirados.docs) {
+    const frete = docFrete.data();
+    const freteId = docFrete.id;
+
+    try {
+      const origemLat = frete.origem?.lat || frete.origemLat;
+      const origemLng = frete.origem?.lng || frete.origemLng;
+      const categoria = frete.categoria;
+      const motoristaAnterior = frete.motoristaAtualDestaque;
+
+      if (!origemLat || !origemLng) continue;
+
+      const motoristasSnap = await db.collection('motoristas')
+        .where('online', '==', true)
+        .where('disponivel', '==', true)
+        .where('categoria', 'array-contains', categoria)
+        .get();
+
+      let proximoMotorista = null;
+      let menorDistancia = Infinity;
+
+      motoristasSnap.forEach(docMotorista => {
+        if (docMotorista.id === motoristaAnterior) return;
+        
+        const m = docMotorista.data();
+        if (!m.latitude || !m.longitude) return;
+        
+        const dist = Math.sqrt(
+          Math.pow(m.latitude - origemLat, 2) + 
+          Math.pow(m.longitude - origemLng, 2)
+        ) * 111;
+        
+        if (dist < menorDistancia && dist <= 50) {
+          menorDistancia = dist;
+          proximoMotorista = { id: docMotorista.id, ...m, distancia: dist };
+        }
+      });
+
+      if (proximoMotorista) {
+        batch.update(docFrete.ref, {
+          motoristaAtualDestaque: proximoMotorista.id,
+          motoristaAtualNome: proximoMotorista.nome,
+          distanciaColetaKm: Math.round(menorDistancia * 10) / 10,
+          ofertaExpiraEm: admin.firestore.Timestamp.fromMillis(Date.now() + 30000),
+          tentativasDespacho: admin.firestore.FieldValue.increment(1),
+          atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+        });
+      } else {
+        batch.update(docFrete.ref, {
+          status: 'sem_motorista',
+          dispatchStatus: 'encerrado',
+          atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+        });
+      }
+    } catch (error) {
+      console.error(`[WATCHDOG ERRO] Frete ${freteId}:`, error);
+    }
+  }
+
+  if (!fretesExpirados.empty) {
+    await batch.commit();
+  }
+  return null;
+});
