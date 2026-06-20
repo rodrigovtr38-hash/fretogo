@@ -23,6 +23,9 @@ export default function Admin() {
   const [timeFilter, setTimeFilter] = useState('hoje'); 
   const [loading, setLoading] = useState(true);
 
+  // PASSO 1: Estado para Reembolsos Pendentes
+  const [reembolsosPendentes, setReembolsosPendentes] = useState<any[]>([]);
+
   // Metas do Lançamento Estratégico (Guarulhos/SP)
   const METAS_LANCAMENTO = {
     utilitario: { meta: 300, label: 'Utilitário (Fiorino/Van)' },
@@ -74,6 +77,16 @@ export default function Admin() {
     return () => unsubscribe();
   }, [authUser]);
 
+  // PASSO 2: Listener de Reembolsos Pendentes
+  useEffect(() => {
+    if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
+    const q = query(collection(db, 'fretes'), where('status', '==', 'cancelado'));
+    const unsub = onSnapshot(q, (snap) => {
+      setReembolsosPendentes(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(f => !f.reembolsado));
+    });
+    return () => unsub();
+  }, [authUser]);
+
   const filterByTime = (frete: any, filterType: string) => {
     if (filterType === 'todos') return true;
     if (!frete.createdAt) return false;
@@ -105,24 +118,34 @@ export default function Admin() {
     });
   }, [fretes, searchTerm, statusFilter, timeFilter]);
 
+  // PASSO 3: Stats Financeiros Expandidos
   const stats = useMemo(() => {
     const fretesDoPeriodo = fretes.filter(f => filterByTime(f, timeFilter));
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
 
-    const faturado = fretesDoPeriodo
-      .filter(f => ['aceito','indo_coleta','coletando','em_transporte','entregue','finalizado'].includes(f.status))
-      .reduce((acc, f) => acc + (Number(f.valorBruto) || Number(f.valorTotal) || 0), 0);
-    
-    const lucro = fretesDoPeriodo
-      .filter(f => ['aceito','indo_coleta','coletando','em_transporte','entregue','finalizado'].includes(f.status))
-      .reduce((acc, f) => acc + (Number(f.valorComissao) || Number(f.lucroPlataforma) || 0), 0);
-
+    const faturado = fretesDoPeriodo.filter(f => ['aceito','indo_coleta','coletando','em_transporte','entregue','finalizado'].includes(f.status)).reduce((acc, f) => acc + (Number(f.valorBruto) || Number(f.valorTotal) || 0), 0);
+    const lucro = fretesDoPeriodo.filter(f => ['aceito','indo_coleta','coletando','em_transporte','entregue','finalizado'].includes(f.status)).reduce((acc, f) => acc + (Number(f.valorComissao) || Number(f.lucroPlataforma) || 0), 0);
     const entregues = fretesDoPeriodo.filter(f => ['entregue', 'finalizado'].includes(f.status)).length;
     const ticketMedio = entregues > 0 ? (faturado / entregues) : 0;
-    
     const ativos = fretes.filter(f => ['aceito', 'indo_coleta', 'coletando', 'em_transporte'].includes(f.status)).length;
     const aguardando = fretes.filter(f => f.status === 'disponivel').length;
     const repasses = fretes.filter(f => f.status === 'entregue').length;
     const cancelados = fretesDoPeriodo.filter(f => f.status === 'cancelado').length;
+
+    // NOVOS CÁLCULOS FINANCEIROS
+    const faturadoHoje = fretes.filter(f => {
+      const data = f.createdAt?.toDate ? f.createdAt.toDate() : new Date(f.createdAt);
+      return data >= hoje;
+    }).reduce((acc, f) => acc + (Number(f.valorTotal) || 0), 0);
+
+    const aPagarMotoristas = fretes.filter(f => f.status === 'entregue' && !f.repasseEfetuado).reduce((acc, f) => acc + (Number(f.valorLiquidoMotorista) || Number(f.valorMotorista) || 0), 0);
+
+    const pagoHoje = fretes.filter(f => {
+      const data = f.repasseData?.toDate ? f.repasseData.toDate() : null;
+      return data && data >= hoje && f.repasseEfetuado;
+    }).reduce((acc, f) => acc + (Number(f.valorLiquidoMotorista) || 0), 0);
+
+    const motoristasRetorno = motoristasOnline.filter(m => m.modoRetorno === true).length;
 
     const now = Date.now();
     const timeoutAguardando = fretes.filter(f => f.status === 'disponivel' && (now - (f.createdAt?.toMillis ? f.createdAt.toMillis() : now)) > 600000).length;
@@ -133,7 +156,8 @@ export default function Admin() {
 
     return { 
       faturado, lucro, entregues, ticketMedio, ativos, aguardando, 
-      repasses, cancelados, timeoutAguardando, semComprovante, motoristasOcupados, insucessos 
+      repasses, cancelados, faturadoHoje, aPagarMotoristas, pagoHoje, 
+      motoristasRetorno, timeoutAguardando, semComprovante, motoristasOcupados, insucessos 
     };
   }, [fretes, motoristasOnline, timeFilter]);
 
@@ -191,21 +215,26 @@ export default function Admin() {
     } catch (e: any) { alert("Erro ao limpar alerta."); }
   };
 
+  // PASSO 5: Função Reembolso Atualizada
   const handleReembolso = async (idPedido: string) => {
-    if (!window.confirm("CRÍTICO: Deseja realmente estornar o PIX deste cliente no Mercado Pago? O dinheiro será devolvido instantaneamente. Esta ação NÃO PODE ser desfeita.")) return;
+    if (!window.confirm("CRÍTICO: Estornar PIX no Mercado Pago?")) return;
     try {
-      const res = await fetch('/api/reembolso', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idPedido })
+      const res = await fetch('/api/reembolso', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ idPedido }) 
       });
-      
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Falha de comunicação com a API do Mercado Pago');
+      if (!res.ok) throw new Error(data.error || 'Falha API');
       
-      alert('SUCESSO! O PIX foi estornado e devolvido. O status no banco foi atualizado.');
-    } catch (error: any) {
-      alert(`Erro no Estorno: ${error.message}`);
+      await updateDoc(doc(db, 'fretes', idPedido), { 
+        reembolsado: true, 
+        reembolsoData: serverTimestamp(), 
+        reembolsoPor: authUser.uid 
+      });
+      alert('SUCESSO! PIX estornado e registrado.');
+    } catch (error: any) { 
+      alert(`Erro: ${error.message}`); 
     }
   };
 
@@ -329,21 +358,47 @@ export default function Admin() {
               </div>
             </div>
 
+            {/* PASSO 4: CONTROLE FINANCEIRO EM TEMPO REAL */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              <div className="bg-amber-950/40 border border-amber-500/30 p-5 rounded-2xl backdrop-blur-sm">
+                <p className="text-[10px] font-black text-amber-400/70 uppercase tracking-widest mb-2 flex items-center gap-1"><Clock size={12}/> A Pagar (24h)</p>
+                <h3 className="text-2xl font-black text-amber-400 tracking-tighter">R$ {stats.aPagarMotoristas.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</h3>
+                <p className="text-[10px] text-amber-500/50 mt-1 font-bold">{fretes.filter(f => f.status === 'entregue').length} fretes pendentes</p>
+              </div>
+              <div className="bg-slate-900/60 border border-white/5 p-5 rounded-2xl backdrop-blur-sm">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Faturado Hoje</p>
+                <h3 className="text-2xl font-black text-white tracking-tighter">R$ {stats.faturadoHoje.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</h3>
+              </div>
+              <div className="bg-green-950/40 border border-green-500/30 p-5 rounded-2xl backdrop-blur-sm">
+                <p className="text-[10px] font-black text-green-400/70 uppercase tracking-widest mb-2">Pago Hoje</p>
+                <h3 className="text-2xl font-black text-green-400 tracking-tighter">R$ {stats.pagoHoje.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</h3>
+              </div>
+              <div className="bg-red-950/40 border border-red-500/30 p-5 rounded-2xl backdrop-blur-sm">
+                <p className="text-[10px] font-black text-red-400/70 uppercase tracking-widest mb-2">Reembolsos</p>
+                <h3 className="text-2xl font-black text-red-400 tracking-tighter">{reembolsosPendentes.length}</h3>
+                <p className="text-[10px] text-red-500/50 mt-1 font-bold">Pendentes</p>
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-8">
               <div className="bg-slate-900/60 border border-white/5 p-6 rounded-[2rem] backdrop-blur-md relative overflow-hidden group hover:border-cyan-500/30 transition-all">
                  <DollarSign className="absolute -right-6 -bottom-6 w-32 h-32 text-white/5 group-hover:text-cyan-500/10 transition-colors" />
-                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2"><Activity size={12}/> Faturamento</p>
+                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2"><Activity size={12}/> Faturamento (Período)</p>
                  <h3 className="text-2xl md:text-3xl font-black text-white tracking-tighter">R$ {stats.faturado.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</h3>
               </div>
               <div className="bg-slate-900/60 border border-green-500/20 p-6 rounded-[2rem] backdrop-blur-md relative overflow-hidden group shadow-[0_0_30px_rgba(34,197,94,0.05)]">
                  <Wallet className="absolute -right-6 -bottom-6 w-32 h-32 text-green-500/5 group-hover:text-green-500/10 transition-colors" />
-                 <p className="text-[10px] font-black text-green-500/70 uppercase tracking-widest mb-2">Lucro Líquido</p>
+                 <p className="text-[10px] font-black text-green-500/70 uppercase tracking-widest mb-2">Lucro Líquido (Período)</p>
                  <h3 className="text-2xl md:text-3xl font-black text-green-400 tracking-tighter">R$ {stats.lucro.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</h3>
               </div>
               <div className="bg-slate-900/60 border border-white/5 p-6 rounded-[2rem] backdrop-blur-md relative overflow-hidden group hover:border-blue-500/30 transition-all">
                  <Users className="absolute -right-6 -bottom-6 w-32 h-32 text-white/5 group-hover:text-blue-500/10 transition-colors" />
                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2"><MapIcon size={12}/> Radar de Frota</p>
                  <h3 className="text-2xl md:text-3xl font-black text-white tracking-tighter">{motoristasOnline.length} <span className="text-sm text-blue-400 italic font-bold uppercase tracking-normal">Online</span></h3>
+                 {/* PASSO 6: Adicionado contador de retorno */}
+                 <div className="mt-2 flex items-center gap-3 text-[10px]">
+                   <span className="flex items-center gap-1 text-cyan-400"><Target size={10}/> {stats.motoristasRetorno} em retorno</span>
+                 </div>
               </div>
               <div className={`p-6 rounded-[2rem] backdrop-blur-md relative overflow-hidden group transition-all border ${stats.repasses > 0 ? 'bg-amber-900/20 border-amber-500/30' : 'bg-slate-900/60 border-white/5'}`}>
                  <Truck className={`absolute -right-6 -bottom-6 w-32 h-32 transition-colors ${stats.repasses > 0 ? 'text-amber-500/10' : 'text-white/5'}`} />
