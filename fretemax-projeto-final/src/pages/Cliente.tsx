@@ -3,12 +3,13 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore'; 
 import { getFunctions, httpsCallable } from 'firebase/functions';
-// CTO FIX: Adicionados 'Search' e 'Lock' que estavam faltando e causavam tela branca
 import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Sparkles, User, Package, CalendarDays, Plus, Trash2, Flame, Search, Lock } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import ChatFrete from '../components/ChatFrete';
 import ClientStatusCard from '../components/client/ClientStatusCard';
 import ClientCancelModal from '../components/client/ClientCancelModal';
+
+// IMPORTS DA NOVA ARQUITETURA
 import { TripState } from '../state/tripStateMachine';
 import { mapsLoader } from '../services/mapsLoader'; 
 
@@ -77,7 +78,10 @@ export default function Cliente() {
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [orderData, setOrderData] = useState<OrderData | null>(null);
   const [distanciaReal, setDistanciaReal] = useState(0);
-  const [loadingMessage, setLoadingMessage] = useState('Analisando parceiros disponíveis...');
+  
+  // AJUSTE: Adicionado estado de raioBusca
+  const [loadingMessage, setLoadingMessage] = useState('Analisando parceiros disponíveis...'); 
+  const [raioBusca, setRaioBusca] = useState(5);
 
   const [origemGPS, setOrigemGPS] = useState<Coords | null>(null);
   const [destinoGPS, setDestinoGPS] = useState<Coords | null>(null);
@@ -148,11 +152,19 @@ export default function Cliente() {
     setTimeout(() => setToast(null), 4500);
   };
 
+  // AJUSTE: Novo useEffect para atualizar o raioBusca
   useEffect(() => {
     if (step === 'busca' && orderData?.status === TripState.DISPONIVEL) {
-      const messages = ['Analisando parceiros na região...', 'Otimizando melhor rota...', 'Sincronizando motoristas próximos...', 'Buscando parceiro ideal...'];
-      let i = 0;
-      const interval = setInterval(() => { i = (i + 1) % messages.length; setLoadingMessage(messages[i]); }, 3500);
+      const interval = setInterval(() => {
+        setRaioBusca(prev => {
+          const novoRaio = prev >= 50 ? 5 : prev + 5;
+          if (novoRaio === 10) setLoadingMessage('Ampliando busca para 10km...');
+          if (novoRaio === 20) setLoadingMessage('Buscando em 20km para garantir seu frete...');
+          if (novoRaio === 30) setLoadingMessage('Rede nacional ativada - 30km...');
+          if (novoRaio === 50) setLoadingMessage('Busca máxima - encontrando o melhor parceiro...');
+          return novoRaio;
+        });
+      }, 8000);
       return () => clearInterval(interval);
     }
   }, [step, orderData?.status]);
@@ -328,7 +340,6 @@ export default function Cliente() {
       const parsedDate = tipoFrete === 'agendado' && dataAgendada ? new Date(dataAgendada) : null;
       const firebaseTimestamp = parsedDate ? Timestamp.fromDate(parsedDate) : null;
 
-      // CTO FIX: Auditoria de segurança confirmada. UID é obrigatório para passar no firestore.rules
       const currentUser = auth.currentUser;
       if (!currentUser) throw new Error("Faça login para prosseguir com o pedido de frete.");
 
@@ -685,6 +696,18 @@ export default function Cliente() {
             <div className="overflow-hidden rounded-[3rem] border border-slate-200 bg-white shadow-2xl relative">
               <ClientStatusCard orderData={orderData} />
               
+              {/* AJUSTE: Botão de reembolso adicionado conforme solicitado */}
+              {orderData.status === TripState.DISPONIVEL && (
+                <div className="absolute top-4 right-4 z-30">
+                  <button 
+                    onClick={() => setShowCancelModal(true)}
+                    className="bg-red-500/90 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest backdrop-blur-sm shadow-lg transition-all"
+                  >
+                    Solicitar Reembolso
+                  </button>
+                </div>
+              )}
+
               <div className="h-[400px] md:h-[500px] w-full border-t border-slate-100 bg-slate-50 relative">
                 {!mapsReady ? (
                   <div className="absolute inset-0 flex items-center justify-center">
