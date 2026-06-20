@@ -12,6 +12,7 @@ import ClientCancelModal from '../components/client/ClientCancelModal';
 // IMPORTS DA NOVA ARQUITETURA
 import { TripState } from '../state/tripStateMachine';
 import { mapsLoader } from '../services/mapsLoader'; 
+import { NotificationService } from '../services/notificationService'; 
 
 interface AddressData { cep: string; bairro: string; rua: string; num: string; lat?: number; lng?: number; }
 interface Coords { lat: number; lng: number; }
@@ -79,7 +80,6 @@ export default function Cliente() {
   const [orderData, setOrderData] = useState<OrderData | null>(null);
   const [distanciaReal, setDistanciaReal] = useState(0);
   
-  // AJUSTE: Adicionado estado de raioBusca
   const [loadingMessage, setLoadingMessage] = useState('Analisando parceiros disponíveis...'); 
   const [raioBusca, setRaioBusca] = useState(5);
 
@@ -90,11 +90,26 @@ export default function Cliente() {
 
   const [mapsReady, setMapsReady] = useState(false); 
 
+  // PWA STATES
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+
   const coordsCache = useRef<Record<string, Coords>>({});
   const isProcessingPayment = useRef(false);
 
   useEffect(() => {
     mapsLoader.load().then(() => setMapsReady(true)).catch(console.error);
+  }, []);
+
+  // PWA USE EFFECT
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsInstallable(true);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, []);
 
   const validDistancia = useMemo(() => Number.isNaN(distanciaReal) || distanciaReal <= 0 ? (5 * entregas.length) : distanciaReal, [distanciaReal, entregas.length]);
@@ -152,7 +167,6 @@ export default function Cliente() {
     setTimeout(() => setToast(null), 4500);
   };
 
-  // AJUSTE: Novo useEffect para atualizar o raioBusca
   useEffect(() => {
     if (step === 'busca' && orderData?.status === TripState.DISPONIVEL) {
       const interval = setInterval(() => {
@@ -231,6 +245,23 @@ export default function Cliente() {
     });
     return () => unsubscribe();
   }, [currentOrderId]);
+
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((currentUser) => {
+      if (!currentUser?.uid) return;
+
+      const solicitarNotificacao = async () => {
+        await NotificationService.solicitarPermissao(currentUser.uid, 'cliente');
+        NotificationService.escutarNotificacoes((payload) => {
+          console.log('Push cliente recebido:', payload);
+        });
+      };
+
+      solicitarNotificacao();
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const getValidCoords = async (addressStr: string, cepFallback: string): Promise<Coords> => {
     if (coordsCache.current[addressStr]) return coordsCache.current[addressStr];
@@ -440,6 +471,15 @@ export default function Cliente() {
     setEntregas(newEntregas);
   };
 
+  // PWA INSTALL CLICK
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') setIsInstallable(false);
+    setDeferredPrompt(null);
+  };
+
   return (
     <div className="relative min-h-screen w-full flex flex-col bg-slate-50 text-slate-800 font-sans selection:bg-blue-500/20">
       
@@ -469,6 +509,25 @@ export default function Cliente() {
 
       <main className="relative z-10 w-full max-w-6xl mx-auto flex flex-col justify-center px-4 py-8 pb-20 sm:px-6 lg:px-8">
         
+        {isInstallable && step === 'form' && (
+          <div className="mx-auto mb-6 w-full max-w-6xl rounded-2xl border-blue-200 bg-blue-50 p-4 shadow-sm animate-in slide-in-from-top-2">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600">
+                  <span className="text-lg">📱</span>
+                </div>
+                <div>
+                  <p className="text-sm font-black text-slate-900">Instale o App FretoGo</p>
+                  <p className="text-xs text-slate-600">Receba alertas de coleta e entrega em tempo real</p>
+                </div>
+              </div>
+              <button onClick={handleInstallClick} className="shrink-0 rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-black uppercase tracking-widest text-white hover:bg-blue-700 transition-colors">
+                Instalar
+              </button>
+            </div>
+          </div>
+        )}
+
         {step === 'form' && (
           <div className="w-full rounded-[2rem] border border-slate-200 bg-white p-6 shadow-2xl animate-in fade-in slide-in-from-bottom-4 md:p-12">
             <div className="mb-10 text-center md:text-left">
