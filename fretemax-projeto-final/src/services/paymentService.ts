@@ -118,20 +118,22 @@ class PaymentService {
         }
 
         transaction.update(freteRef, {
-          pagamentoStatus: 'aguardando_confirmacao',
+          pagamentoStatus: 'confirmado',
           pagamentoId: transactionId, // // Campo vital para o Reembolso Reverso
           transactionId: transactionId, 
-          status: AppTripState.AGUARDANDO_PAGAMENTO,
+          status: AppTripState.DISPONIVEL,
           updatedAt: serverTimestamp(),
         });
       });
 
+      console.log(`[PAYMENT] Pagamento confirmado para frete ${freteId}. Status atualizado para DISPONIVEL. Iniciando busca por motoristas...`);
+
       // Dispara também para o cache Realtime (mantendo a funcionalidade original da interface)
       await firebaseRealtimeService.updateTripRealtime(freteId, {
-        pagamentoStatus: 'aguardando_confirmacao',
+        pagamentoStatus: 'confirmado',
         pagamentoId: transactionId,
         transactionId,
-        status: AppTripState.AGUARDANDO_PAGAMENTO,
+        status: AppTripState.DISPONIVEL,
       });
       
     } catch (error) {
