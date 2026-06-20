@@ -12,6 +12,7 @@ import DriverActiveTrip from '../components/motorista/DriverActiveTrip';
 import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
 import type { OperationalFreight } from '../components/driver/dashboard/DriverDashboardLayout';
 import { Download } from 'lucide-react'; 
+import { NotificationService } from '../services/notificationService';
 
 // // AJUSTE CTO: Injeção dos campos de controle de retorno na tipagem
 interface DriverData { 
@@ -137,6 +138,20 @@ export default function Motorista() {
       }
     };
   }, [user, isOnline, activeFreight?.id]);
+
+  // Solicita permissão para notificações push
+  useEffect(() => {
+    if (!user?.uid || !driverData) return;
+    
+    const solicitarNotificacao = async () => {
+      await NotificationService.solicitarPermissao(user.uid, 'motorista');
+      NotificationService.escutarNotificacoes((payload) => {
+        console.log('Push recebido:', payload);
+      });
+    };
+    
+    solicitarNotificacao();
+  }, [user, driverData]);
 
   useEffect(() => {
     if (authReadyRef.current) return;
