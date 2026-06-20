@@ -75,61 +75,73 @@ export async function buscarMotoristasCompativeis(frete: FretePayload): Promise<
   try {
     const categoriaFrete = frete.categoria.toLowerCase().trim();
     const isPesado = ['toco', 'truck', 'carreta', 'carreta_ls', 'bi_trem_cegonha'].includes(categoriaFrete);
-    const RAIO_MAXIMO_KM = isPesado ? 50 : 15;
-
-    // // AJUSTE CTO: Filtro Triplo Estrito e GeoBox para zerar custo de leitura
-    const box = getBoundingBox(frete.origem.lat, frete.origem.lng, RAIO_MAXIMO_KM);
-    const motoristasRef = collection(db, 'motoristas');
-    const motoristasQuery = query(
-      motoristasRef, 
-      where('online', '==', true),
-      where('disponivel', '==', true), // // AJUSTE CTO: Só pega quem não está em corrida
-      where('categoria', 'array-contains', categoriaFrete),
-      where('latitude', '>=', box.latMin),
-      where('latitude', '<=', box.latMax)
-    );
     
-    const snapshot = await getDocs(motoristasQuery);
-    const tempoAtual = Date.now();
+    // ALTERAÇÃO 1: Matriz de raios de busca progressivos para leve vs pesado
+    const RAIOS_BUSCA = isPesado ? [10, 20, 30, 50] : [5, 10, 15, 20, 30];
 
-    const motoristas = snapshot.docs
-      .map(docSnap => {
-        const data = docSnap.data();
-        return {
-          id: docSnap.id,
-          nome: data.nome || 'Motorista',
-          telefone: data.telefone || '',
-          categoria: data.categoria || '',
-          latitude: data.latitude,
-          longitude: data.longitude,
-          online: data.online,
-          score: Number(data.score || 5),
-          ultimoHeartbeat: data.heartbeat || 0,
-          distanciaAteColeta: 9999,
-        } as MotoristaMatch;
-      })
-      .filter(motorista => {
-        if (motorista.longitude! < box.lngMin || motorista.longitude! > box.lngMax) return false;
+    const motoristasRef = collection(db, 'motoristas');
+    let motoristasEncontrados: MotoristaMatch[] = [];
+    let raioUtilizado = 0;
 
-        // Validação Motorista Fantasma (Heartbeat de 2 min)
-        if (motorista.ultimoHeartbeat && (tempoAtual - motorista.ultimoHeartbeat > 120000)) return false; 
+    // ALTERAÇÃO 2: Laço sequencial de busca iterativa expandindo a GeoBox
+    for (const raio of RAIOS_BUSCA) {
+      const box = getBoundingBox(frete.origem.lat, frete.origem.lng, raio);
+      const motoristasQuery = query(
+        motoristasRef, 
+        where('online', '==', true),
+        where('disponivel', '==', true),
+        where('categoria', 'array-contains', categoriaFrete),
+        where('latitude', '>=', box.latMin),
+        where('latitude', '<=', box.latMax)
+      );
+      
+      const snapshot = await getDocs(motoristasQuery);
+      const tempoAtual = Date.now();
 
-        if (motorista.latitude && motorista.longitude && frete.origem.lat && frete.origem.lng) {
-          const dist = calcularDistanciaGeografica(motorista.latitude, motorista.longitude, frete.origem.lat, frete.origem.lng);
-          motorista.distanciaAteColeta = dist;
-          if (dist > RAIO_MAXIMO_KM) return false;
-        } else {
-           return false;
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        const scoreA = (a.score || 5) - (a.distanciaAteColeta! * 0.1);
-        const scoreB = (b.score || 5) - (b.distanciaAteColeta! * 0.1);
-        return scoreB - scoreA;
-      });
+      motoristasEncontrados = snapshot.docs
+        .map(docSnap => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            nome: data.nome || 'Motorista',
+            telefone: data.telefone || '',
+            categoria: data.categoria || '',
+            latitude: data.latitude,
+            longitude: data.longitude,
+            online: data.online,
+            score: Number(data.score || 5),
+            ultimoHeartbeat: data.heartbeat || 0,
+            distanciaAteColeta: 9999,
+          } as MotoristaMatch;
+        })
+        .filter(motorista => {
+          if (motorista.longitude! < box.lngMin || motorista.longitude! > box.lngMax) return false;
 
-    return motoristas;
+          // Regra de Ouro: Mantida a validação estrita de batimento cardíaco (Heartbeat) de 2 min
+          if (motorista.ultimoHeartbeat && (tempoAtual - motorista.ultimoHeartbeat > 120000)) return false; 
+
+          if (motorista.latitude && motorista.longitude) {
+            const dist = calcularDistanciaGeografica(motorista.latitude, motorista.longitude, frete.origem.lat, frete.origem.lng);
+            motorista.distanciaAteColeta = dist;
+            return dist <= raio;
+          }
+          return false;
+        })
+        .sort((a, b) => {
+          const scoreA = (a.score || 5) - (a.distanciaAteColeta! * 0.1);
+          const scoreB = (b.score || 5) - (b.distanciaAteColeta! * 0.1);
+          return scoreB - scoreA;
+        });
+
+      // Se encontrar candidatos qualificados dentro da camada atual, para o loop e designa
+      if (motoristasEncontrados.length > 0) {
+        raioUtilizado = raio;
+        break;
+      }
+    }
+
+    console.log(`[MATCHING] Encontrados ${motoristasEncontrados.length} motoristas no raio de ${raioUtilizado}km`);
+    return motoristasEncontrados;
   } catch (error) {
     console.error('[MATCHING] ERRO BUSCAR MOTORISTAS:', error);
     return [];
@@ -140,13 +152,12 @@ export async function enviarOfertaMotorista(motoristaId: string, frete: FretePay
   try {
     const motoristaRef = doc(db, 'motoristas', motoristaId);
     
-    // // AJUSTE CTO: Eliminação de Duplicidade por Transação (Concorrência Pesada)
+    // Transação isolada anticoncorrência para evitar aceites duplicados do mesmo veículo
     await runTransaction(db, async (transaction) => {
       const motoristaDoc = await transaction.get(motoristaRef);
       if (!motoristaDoc.exists()) throw new Error("Motorista não existe.");
 
       const dados = motoristaDoc.data();
-      // O motorista só pode receber oferta se ele for a bola da vez. 
       if (!dados.disponivel || dados.ofertaAtual) {
          throw new Error("Motorista não está disponível ou já possui oferta em andamento.");
       }
@@ -159,6 +170,7 @@ export async function enviarOfertaMotorista(motoristaId: string, frete: FretePay
           origem: frete.origem,
           destino: frete.destino,
           enviadaEm: serverTimestamp(),
+          expiraEm: new Date(Date.now() + 30000), // ALTERAÇÃO 3: Janela estrita de timeout (30 segundos)
         },
         status: 'MATCHING',
         atualizadoEm: serverTimestamp(),
@@ -168,6 +180,6 @@ export async function enviarOfertaMotorista(motoristaId: string, frete: FretePay
     return true;
   } catch (error) {
     console.error('[MATCHING] ERRO ENVIAR OFERTA:', error);
-    return false; // Indica falha na atribuição
+    return false;
   }
 }
