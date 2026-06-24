@@ -481,13 +481,9 @@ export default function Cliente() {
   };
 
   return (
-    <div className="relative min-h-screen w-full flex flex-col bg-slate-50 text-slate-800 font-sans selection:bg-blue-500/20">
+    <div className="relative min-h-[100dvh] w-full flex flex-col bg-slate-50 text-slate-800 font-sans selection:bg-blue-500/20">
       
-      <div className="pointer-events-none fixed inset-0 z-0">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-white via-slate-50 to-slate-100"></div>
-        <div className="absolute left-[-10%] top-[-5%] h-[40rem] w-[40rem] rounded-full bg-blue-100/40 blur-[100px]" />
-        <div className="absolute right-[-10%] top-[10%] h-[35rem] w-[35rem] rounded-full bg-cyan-100/40 blur-[120px]" />
-      </div>
+      <div className="fixed inset-0 -z-10 bg-slate-50" style={{height: '100dvh'}}></div>
 
       <header className="relative z-50 w-full border-b border-slate-200 bg-white/80 backdrop-blur-xl shadow-sm">
         <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
