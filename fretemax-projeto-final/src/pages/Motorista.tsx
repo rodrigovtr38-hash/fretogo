@@ -1,7 +1,7 @@
 // src/pages/Motorista.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { auth, db } from '../firebase';
-import { collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, runTransaction, updateDoc, where } from 'firebase/firestore'; // AJUSTE CTO: Adicionado runTransaction
+import { collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, runTransaction, updateDoc, where } from 'firebase/firestore'; 
 import DriverApp from '../components/DriverApp';
 import ChatFrete from '../components/ChatFrete';
 import DriverHeader from '../components/motorista/DriverHeader';
@@ -14,7 +14,7 @@ import type { OperationalFreight } from '../components/driver/dashboard/DriverDa
 import { Download } from 'lucide-react'; 
 import { NotificationService } from '../services/notificationService';
 
-// // AJUSTE CTO: Injeção dos campos de controle de retorno na tipagem
+// Injeção dos campos de controle de retorno na tipagem
 interface DriverData { 
   id?: string; 
   nome?: string; 
@@ -111,7 +111,7 @@ export default function Motorista() {
     return () => { mountedRef.current = false; cancelAnimationFrame(frame); };
   }, []);
 
-  // // AJUSTE CTO: Cleanup Rigoroso do Heartbeat (Proteção de Custos no Firestore)
+  // Cleanup Rigoroso do Heartbeat (Proteção de Custos no Firestore)
   useEffect(() => {
     if (!user?.uid || !isOnline) return;
     
@@ -239,7 +239,7 @@ export default function Motorista() {
   const handleSelectFreight = useCallback((freight: OperationalFreight) => { setSelectedFreight(freight); }, []);
   const handleCloseFreight = useCallback(() => { setSelectedFreight(null); }, []);
 
-  // // AJUSTE CTO: Transação Atômica Anti-Concorrência (Lock)
+  // Transação Atômica Anti-Concorrência (Lock)
   const handleAcceptFreight = useCallback(async (freight: OperationalFreight) => {
     if (!user?.uid || !driverData) return;
     
@@ -296,7 +296,7 @@ export default function Motorista() {
 
   if (!runtimeReady || loading || checkingDriver) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#020617] text-white">
+      <div className="flex min-h-[100dvh] items-center justify-center bg-[#020617] text-white">
         <div className="text-center">
           <h1 className="text-4xl font-black">FRETOGO</h1>
           <p className="mt-4 text-slate-400 animate-pulse">Iniciando cockpit de voo...</p>
@@ -305,12 +305,12 @@ export default function Motorista() {
     );
   }
 
-  if (!user) return <div className="min-h-screen bg-[#020617]"><DriverAuth /></div>;
-  if (!driverData) return <div className="min-h-screen bg-[#020617]"><DriverCadastro onFinish={() => setCheckingDriver(true)} /></div>;
+  if (!user) return <div className="min-h-[100dvh] bg-[#020617]"><DriverAuth /></div>;
+  if (!driverData) return <div className="min-h-[100dvh] bg-[#020617]"><DriverCadastro onFinish={() => setCheckingDriver(true)} /></div>;
 
   if (driverData.status !== 'aprovado') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#020617] px-4">
+      <div className="flex min-h-[100dvh] items-center justify-center bg-[#020617] px-4">
         <div className="w-full max-w-lg rounded-[2rem] border border-cyan-500/20 bg-slate-900/80 p-10 text-center backdrop-blur-xl">
           <h1 className="text-4xl font-black text-white">Cadastro em Análise</h1>
           <p className="mt-4 text-slate-400">Nossa central de tráfego está validando seu veículo e documentos.</p>
@@ -320,8 +320,10 @@ export default function Motorista() {
   }
 
   return (
-    <div className="min-h-screen bg-[#020617] text-white pb-10">
+    <div className="min-h-[100dvh] bg-[#020617] text-white pb-10">
       
+      <div className="fixed inset-0 bg-[#020617] -z-10" style={{height: '100dvh'}} />
+
       {/* BANNER INSTALAÇÃO PWA */}
       {isInstallable && (
         <div className="sticky top-0 z-[100] w-full bg-cyan-600 px-4 py-3 flex items-center justify-between shadow-[0_4px_20px_rgba(8,145,178,0.3)]">
