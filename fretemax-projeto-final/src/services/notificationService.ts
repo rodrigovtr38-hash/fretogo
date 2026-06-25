@@ -65,4 +65,23 @@ export class NotificationService {
       console.error('Erro ao remover token:', error);
     }
   }
+
+  // Envia WhatsApp de aprovação/rejeição
+  static enviarWhatsAppAprovacao(telefone: string, nome: string, status: 'aprovado' | 'rejeitado') {
+    const telefoneLimpo = telefone.replace(/\D/g, '');
+    if (!telefoneLimpo) {
+      console.error('Telefone inválido');
+      return;
+    }
+
+    const mensagemAprovado = `🚚 *FRETOGO - Cadastro Aprovado!*\n\nParabéns ${nome}! Seu cadastro foi aprovado.\n\n✅ Acesse agora: https://app.fretogo.com.br/motorista\n\n📲 Baixe o app e entre no grupo VIP para receber as primeiras cargas da inauguração.\n\nDúvidas? Responda aqui.`;
+    
+    const mensagemRejeitado = `⚠️ *FRETOGO - Cadastro Pendente*\n\nOlá ${nome}, seu cadastro precisa de ajustes:\n\n📸 Envie novamente:\n• Foto da CNH (frente e verso legível)\n• Selfie segurando CNH\n• Documento do veículo\n\n🔗 Acesse: https://app.fretogo.com.br/motorista\n\nReenvie as fotos e aprovamos em minutos.`;
+
+    const mensagem = status === 'aprovado' ? mensagemAprovado : mensagemRejeitado;
+    const url = `https://wa.me/55${telefoneLimpo}?text=${encodeURIComponent(mensagem)}`;
+    
+    window.open(url, '_blank');
+    console.log(`WhatsApp ${status} enviado para ${nome}`);
+  }
 }
