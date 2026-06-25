@@ -51,22 +51,7 @@ if (window.__FRETOGO_ROOT__) {
 
 function setupRuntimeEnvironment() {
   try {
-    const viewport =
-      document.querySelector(
-        'meta[name="viewport"]',
-      );
-
-    if (!viewport) {
-      const meta =
-        document.createElement('meta');
-
-      meta.name = 'viewport';
-
-      meta.content =
-        'width=device-width, initial-scale=1, viewport-fit=cover';
-
-      document.head.appendChild(meta);
-    }
+    // Viewport já definido no index.html - não modificar
 
     document.documentElement.style.setProperty(
       '--vh',
