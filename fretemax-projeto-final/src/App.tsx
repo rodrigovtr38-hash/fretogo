@@ -124,7 +124,7 @@ export default function App() {
           flex
           items-center
           justify-center
-          bg-black
+          bg-[#0f172a]
           text-white
         "
       >
@@ -174,7 +174,7 @@ export default function App() {
           flex
           items-center
           justify-center
-          bg-black
+          bg-[#0f172a]
           text-red-500
           p-6
           text-center
