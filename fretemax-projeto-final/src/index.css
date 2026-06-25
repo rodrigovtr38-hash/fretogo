@@ -31,7 +31,7 @@ body {
 
   overflow-x: hidden;
 
-  background: #020617;
+  background: #0f172a;
 
   color: #f8fafc;
 
@@ -99,7 +99,7 @@ a {
 }
 
 ::-webkit-scrollbar-track {
-  background: #020617;
+  background: #0f172a;
 }
 
 ::-webkit-scrollbar-thumb {
