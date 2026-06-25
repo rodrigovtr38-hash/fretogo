@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { collection, onSnapshot, doc, query, orderBy, runTransaction, where, updateDoc, serverTimestamp, limit } from 'firebase/firestore';
+import { NotificationService } from '../services/notificationService';
 import { 
   Loader2, CheckCircle, XCircle, Search, ShieldAlert, Truck, Users, 
   Calendar, DollarSign, Activity, Clock, AlertTriangle, Eye, 
@@ -204,6 +205,16 @@ export default function Admin() {
     try {
       await updateDoc(doc(db, 'motoristas_cadastros', id), { status });
       alert(`Status atualizado para: ${status}`);
+
+      // Envia WhatsApp automático
+      const motorista = motoristasPendentes.find(m => m.id === id);
+      if (motorista) {
+        NotificationService.enviarWhatsAppAprovacao(
+          motorista.whatsapp || motorista.telefone || '',
+          motorista.nome,
+          status
+        );
+      }
     } catch (e: any) { alert("Erro ao atualizar o banco de dados: " + e.message); }
   };
 
