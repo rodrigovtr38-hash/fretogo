@@ -1,8 +1,11 @@
 // src/pages/Admin.tsx
+// CTO-Log: Alinhamento arquitetural. Troca das "Strings Mágicas" pelo enum oficial AppTripState para evitar divergência de dados entre o painel do dono e o app do motorista.
+
 import { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { collection, onSnapshot, doc, query, orderBy, runTransaction, where, updateDoc, serverTimestamp, limit } from 'firebase/firestore';
 import { NotificationService } from '../services/notificationService';
+import { AppTripState } from '../state/tripStateMachine'; // 🔥 CTO FIX: Cérebro importado
 import { 
   Loader2, CheckCircle, XCircle, Search, ShieldAlert, Truck, Users, 
   Calendar, DollarSign, Activity, Clock, AlertTriangle, Eye, 
@@ -16,7 +19,7 @@ export default function Admin() {
   const [tab, setTab] = useState<'dashboard' | 'motoristas' | 'corridas'>('dashboard');
   const [fretes, setFretes] = useState<any[]>([]);
   const [motoristasPendentes, setMotoristasPendentes] = useState<any[]>([]);
-  const [motoristasAprovados, setMotoristasAprovados] = useState<any[]>([]); // AJUSTE CTO: Estado para rastrear a base já homologada
+  const [motoristasAprovados, setMotoristasAprovados] = useState<any[]>([]);
   const [motoristasOnline, setMotoristasOnline] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -24,12 +27,10 @@ export default function Admin() {
   const [timeFilter, setTimeFilter] = useState('hoje'); 
   const [loading, setLoading] = useState(true);
 
-  // PASSO 1: Estado para Histórico de Pagamentos e Reembolsos Pendentes
   const [historicoPagamentos, setHistoricoPagamentos] = useState<any[]>([]);
   const [showHistorico, setShowHistorico] = useState(false);
   const [reembolsosPendentes, setReembolsosPendentes] = useState<any[]>([]);
 
-  // Metas do Lançamento Estratégico (Guarulhos/SP)
   const METAS_LANCAMENTO = {
     utilitario: { meta: 300, label: 'Utilitário (Fiorino/Van)' },
     vuc: { meta: 150, label: 'VUC (HR/Delivery)' },
@@ -56,13 +57,11 @@ export default function Admin() {
 
   useEffect(() => {
     if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
-    // Puxa os pendentes
     const qPendentes = query(collection(db, 'motoristas_cadastros'), where('status', '==', 'pendente'));
     const unsubPendentes = onSnapshot(qPendentes, (snap) => {
       setMotoristasPendentes(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
     
-    // Puxa os aprovados para calcular as metas de lançamento
     const qAprovados = query(collection(db, 'motoristas_cadastros'), where('status', '==', 'aprovado'));
     const unsubAprovados = onSnapshot(qAprovados, (snap) => {
       setMotoristasAprovados(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
@@ -80,17 +79,15 @@ export default function Admin() {
     return () => unsubscribe();
   }, [authUser]);
 
-  // Listener de Reembolsos Pendentes
   useEffect(() => {
     if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
-    const q = query(collection(db, 'fretes'), where('status', '==', 'cancelado'));
+    const q = query(collection(db, 'fretes'), where('status', '==', AppTripState.CANCELADO));
     const unsub = onSnapshot(q, (snap) => {
       setReembolsosPendentes(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(f => !f.reembolsado));
     });
     return () => unsub();
   }, [authUser]);
 
-  // PASSO 2: Listener de Histórico de Pagamentos
   useEffect(() => {
     if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
     const q = query(collection(db, 'fretes'), where('repasseEfetuado', '==', true), orderBy('repasseData', 'desc'), limit(100));
@@ -131,27 +128,25 @@ export default function Admin() {
     });
   }, [fretes, searchTerm, statusFilter, timeFilter]);
 
-  // PASSO 3 e 6: Stats Financeiros Expandidos com Alertas 24h
   const stats = useMemo(() => {
     const fretesDoPeriodo = fretes.filter(f => filterByTime(f, timeFilter));
     const hoje = new Date(); hoje.setHours(0,0,0,0);
 
-    const faturado = fretesDoPeriodo.filter(f => ['aceito','indo_coleta','coletando','em_transporte','entregue','finalizado'].includes(f.status)).reduce((acc, f) => acc + (Number(f.valorBruto) || Number(f.valorTotal) || 0), 0);
-    const lucro = fretesDoPeriodo.filter(f => ['aceito','indo_coleta','coletando','em_transporte','entregue','finalizado'].includes(f.status)).reduce((acc, f) => acc + (Number(f.valorComissao) || Number(f.lucroPlataforma) || 0), 0);
-    const entregues = fretesDoPeriodo.filter(f => ['entregue', 'finalizado'].includes(f.status)).length;
+    const faturado = fretesDoPeriodo.filter(f => [AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE, AppTripState.ENTREGUE, 'finalizado'].includes(f.status)).reduce((acc, f) => acc + (Number(f.valorBruto) || Number(f.valorTotal) || 0), 0);
+    const lucro = fretesDoPeriodo.filter(f => [AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE, AppTripState.ENTREGUE, 'finalizado'].includes(f.status)).reduce((acc, f) => acc + (Number(f.valorComissao) || Number(f.lucroPlataforma) || 0), 0);
+    const entregues = fretesDoPeriodo.filter(f => [AppTripState.ENTREGUE, 'finalizado'].includes(f.status)).length;
     const ticketMedio = entregues > 0 ? (faturado / entregues) : 0;
-    const ativos = fretes.filter(f => ['aceito', 'indo_coleta', 'coletando', 'em_transporte'].includes(f.status)).length;
-    const aguardando = fretes.filter(f => f.status === 'disponivel').length;
-    const repasses = fretes.filter(f => f.status === 'entregue').length;
-    const cancelados = fretesDoPeriodo.filter(f => f.status === 'cancelado').length;
+    const ativos = fretes.filter(f => [AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE].includes(f.status)).length;
+    const aguardando = fretes.filter(f => f.status === AppTripState.DISPONIVEL).length;
+    const repasses = fretes.filter(f => f.status === AppTripState.ENTREGUE).length;
+    const cancelados = fretesDoPeriodo.filter(f => f.status === AppTripState.CANCELADO).length;
 
-    // CÁLCULOS FINANCEIROS
     const faturadoHoje = fretes.filter(f => {
       const data = f.createdAt?.toDate ? f.createdAt.toDate() : new Date(f.createdAt);
       return data >= hoje;
     }).reduce((acc, f) => acc + (Number(f.valorTotal) || 0), 0);
 
-    const aPagarMotoristas = fretes.filter(f => f.status === 'entregue' && !f.repasseEfetuado).reduce((acc, f) => acc + (Number(f.valorLiquidoMotorista) || Number(f.valorMotorista) || 0), 0);
+    const aPagarMotoristas = fretes.filter(f => f.status === AppTripState.ENTREGUE && !f.repasseEfetuado).reduce((acc, f) => acc + (Number(f.valorLiquidoMotorista) || Number(f.valorMotorista) || 0), 0);
 
     const pagoHoje = fretes.filter(f => {
       const data = f.repasseData?.toDate ? f.repasseData.toDate() : null;
@@ -161,15 +156,14 @@ export default function Admin() {
     const motoristasRetorno = motoristasOnline.filter(m => m.modoRetorno === true).length;
 
     const now = Date.now();
-    const timeoutAguardando = fretes.filter(f => f.status === 'disponivel' && (now - (f.createdAt?.toMillis ? f.createdAt.toMillis() : now)) > 600000).length;
-    const semComprovante = fretes.filter(f => f.status === 'entregue' && !f.comprovanteUrl).length;
+    const timeoutAguardando = fretes.filter(f => f.status === AppTripState.DISPONIVEL && (now - (f.createdAt?.toMillis ? f.createdAt.toMillis() : now)) > 600000).length;
+    const semComprovante = fretes.filter(f => f.status === AppTripState.ENTREGUE && !f.comprovanteUrl).length;
     const motoristasOcupados = motoristasOnline.filter(m => m.status === 'ocupado').length;
     
     const insucessos = fretes.filter(f => f.alertaInsucesso === true).length;
 
-    // Alertas de atraso em repasse de 24h
     const alertas24h = fretes.filter(f => {
-      if (f.status !== 'entregue' || f.repasseEfetuado) return false;
+      if (f.status !== AppTripState.ENTREGUE || f.repasseEfetuado) return false;
       const entregaData = f.updatedAt?.toDate ? f.updatedAt.toDate() : new Date();
       const horasDesdeEntrega = (Date.now() - entregaData.getTime()) / (1000 * 60 * 60);
       return horasDesdeEntrega >= 20 && horasDesdeEntrega < 24;
@@ -182,7 +176,6 @@ export default function Admin() {
     };
   }, [fretes, motoristasOnline, timeFilter]);
 
-  // AJUSTE CTO: Cálculo das Metas de Lançamento por Categoria
   const metasProgresso = useMemo(() => {
     const contagem = { utilitario: 0, vuc: 0, toco: 0, truck: 0 };
     
@@ -197,7 +190,6 @@ export default function Admin() {
     return contagem;
   }, [motoristasAprovados]);
 
-  // Indicador de PIX aptos (Motoristas com CNH e Foto aprovados)
   const aptosPix = useMemo(() => motoristasAprovados.filter(m => m.fotoCnh && m.fotoSelfie).length, [motoristasAprovados]);
 
   const handleAprovacaoMotorista = async (id: string, status: 'aprovado' | 'rejeitado') => {
@@ -206,7 +198,6 @@ export default function Admin() {
       await updateDoc(doc(db, 'motoristas_cadastros', id), { status });
       alert(`Status atualizado para: ${status}`);
 
-      // Envia WhatsApp automático
       const motorista = motoristasPendentes.find(m => m.id === id);
       if (motorista) {
         NotificationService.enviarWhatsAppAprovacao(
@@ -218,7 +209,6 @@ export default function Admin() {
     } catch (e: any) { alert("Erro ao atualizar o banco de dados: " + e.message); }
   };
 
-  // PASSO 3: Função forceStatus Expandida com gravação no histórico de pagamento
   const forceStatus = async (id: string, novoStatus: string) => {
     if (!window.confirm(`Forçar status para: ${novoStatus.toUpperCase()}?`)) return;
     try {
@@ -228,7 +218,7 @@ export default function Admin() {
         if (!d.exists()) throw new Error("Frete não encontrado.");
 
         const currentData = d.data();
-        if (novoStatus === 'cancelado' && currentData.status === 'em_transporte') {
+        if (novoStatus === AppTripState.CANCELADO && currentData.status === AppTripState.EM_TRANSPORTE) {
            throw new Error("Motorista em transporte. Cancelamento abortado.");
         }
 
@@ -238,8 +228,7 @@ export default function Admin() {
           updatedAt: serverTimestamp()
         };
 
-        // SE FOR FINALIZAR (PAGAR MOTORISTA), SALVA HISTÓRICO
-        if (novoStatus === 'finalizado' && currentData.status === 'entregue') {
+        if (novoStatus === 'finalizado' && currentData.status === AppTripState.ENTREGUE) {
           updateData.repasseEfetuado = true;
           updateData.repasseData = serverTimestamp();
           updateData.repassePor = authUser.uid;
@@ -355,7 +344,6 @@ export default function Admin() {
         {tab === 'dashboard' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             
-            {/* PASSO 7: Alerta Visual 24h */}
             {stats.alertas24h > 0 && (
               <div className="mb-6 bg-amber-950/60 border-amber-500/50 rounded-2xl p-4 flex items-center justify-between animate-pulse">
                 <div className="flex items-center gap-3">
@@ -368,7 +356,6 @@ export default function Admin() {
               </div>
             )}
 
-            {/* NOVO BLOCO: METAS DE LANÇAMENTO E DENSIDADE */}
             <div className="mb-8">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-black italic uppercase tracking-tighter text-white flex items-center gap-2">
@@ -405,12 +392,11 @@ export default function Admin() {
               </div>
             </div>
 
-            {/* CONTROLE FINANCEIRO EM TEMPO REAL */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
               <div className="bg-amber-950/40 border border-amber-500/30 p-5 rounded-2xl backdrop-blur-sm">
                 <p className="text-[10px] font-black text-amber-400/70 uppercase tracking-widest mb-2 flex items-center gap-1"><Clock size={12}/> A Pagar (24h)</p>
                 <h3 className="text-2xl font-black text-amber-400 tracking-tighter">R$ {stats.aPagarMotoristas.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</h3>
-                <p className="text-[10px] text-amber-500/50 mt-1 font-bold">{fretes.filter(f => f.status === 'entregue').length} fretes pendentes</p>
+                <p className="text-[10px] text-amber-500/50 mt-1 font-bold">{fretes.filter(f => f.status === AppTripState.ENTREGUE).length} fretes pendentes</p>
               </div>
               <div className="bg-slate-900/60 border border-white/5 p-5 rounded-2xl backdrop-blur-sm">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Faturado Hoje</p>
@@ -453,7 +439,6 @@ export default function Admin() {
               </div>
             </div>
 
-            {/* PASSO 4 e 5: BOTÃO E TABELA DO HISTÓRICO */}
             <div className="flex justify-end mb-6">
               <button
                 onClick={() => setShowHistorico(!showHistorico)}
@@ -602,13 +587,13 @@ export default function Admin() {
                     className="bg-slate-950 border border-white/10 rounded-2xl px-6 py-4 text-slate-300 font-black uppercase text-[10px] tracking-widest outline-none cursor-pointer hover:border-cyan-500 transition-all"
                   >
                     <option value="todos">Status Global</option>
-                    <option value="disponivel">Radar Activo</option>
-                    <option value="aceito">Motorista a Caminho</option>
-                    <option value="indo_coleta">Indo p/ Coleta</option>
-                    <option value="em_transporte">Em Transporte</option>
-                    <option value="entregue">Aguardando Repasse</option>
+                    <option value={AppTripState.DISPONIVEL}>Radar Activo</option>
+                    <option value={AppTripState.ACEITO}>Motorista a Caminho</option>
+                    <option value={AppTripState.INDO_COLETA}>Indo p/ Coleta</option>
+                    <option value={AppTripState.EM_TRANSPORTE}>Em Transporte</option>
+                    <option value={AppTripState.ENTREGUE}>Aguardando Repasse</option>
                     <option value="finalizado">Finalizados</option>
-                    <option value="cancelado">Cancelados</option>
+                    <option value={AppTripState.CANCELADO}>Cancelados</option>
                   </select>
                 </div>
              </div>
@@ -656,14 +641,14 @@ export default function Admin() {
                         <div className="flex flex-col gap-3 min-w-[200px] border-l border-white/5 pl-4 justify-center">
                            
                            {/* AÇÕES DE REPASSE DE DINHEIRO E REEMBOLSO */}
-                           {f.status === 'entregue' && (
+                           {f.status === AppTripState.ENTREGUE && (
                              <button onClick={() => forceStatus(f.id, 'finalizado')} className="bg-purple-600 hover:bg-purple-500 text-white py-4 rounded-xl font-black text-[10px] tracking-widest uppercase shadow-[0_0_20px_rgba(168,85,247,0.4)] transition-all flex flex-col items-center justify-center gap-1 group">
                                <span className="flex items-center gap-1"><Wallet size={14} /> Liquidar Repasse</span>
                                <span className="text-[8px] opacity-70 group-hover:opacity-100 font-bold">R$ {Number(f.valorLiquidoMotorista || f.valorMotorista).toFixed(2)}</span>
                              </button>
                            )}
 
-                           {f.status === 'cancelado' && !f.reembolsado && (
+                           {f.status === AppTripState.CANCELADO && !f.reembolsado && (
                              <button onClick={() => handleReembolso(f.id)} className="bg-amber-600 hover:bg-amber-500 text-slate-900 py-4 rounded-xl font-black text-[10px] tracking-widest uppercase shadow-[0_0_20px_rgba(245,158,11,0.4)] transition-all flex flex-col items-center justify-center gap-1">
                                <span className="flex items-center gap-1"><RefreshCcw size={14} /> Estornar PIX (MP)</span>
                              </button>
@@ -675,8 +660,8 @@ export default function Admin() {
                              </div>
                            )}
                            
-                           {['aguardando_pagamento', 'disponivel', 'aceito', 'indo_coleta'].includes(f.status) && (
-                             <button onClick={() => forceStatus(f.id, 'cancelado')} className="bg-transparent hover:bg-red-500/10 text-red-500 py-3 rounded-xl font-black text-[9px] tracking-widest uppercase border border-transparent hover:border-red-500/30 transition-all mt-auto">Abortar Operação</button>
+                           {[AppTripState.AGUARDANDO_PAGAMENTO, AppTripState.DISPONIVEL, AppTripState.ACEITO, AppTripState.INDO_COLETA].includes(f.status) && (
+                             <button onClick={() => forceStatus(f.id, AppTripState.CANCELADO)} className="bg-transparent hover:bg-red-500/10 text-red-500 py-3 rounded-xl font-black text-[9px] tracking-widest uppercase border border-transparent hover:border-red-500/30 transition-all mt-auto">Abortar Operação</button>
                            )}
                         </div>
                       </div>
@@ -688,7 +673,6 @@ export default function Admin() {
         )}
       </main>
 
-      {/* FOOTER FINANCEIRO / STATUS FIXO */}
       <div className="fixed bottom-0 left-0 right-0 bg-slate-950/90 backdrop-blur-xl border-t border-white/5 p-3 z-40 hidden md:block shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
          <div className="max-w-7xl mx-auto flex justify-between items-center px-8">
             <div className="flex items-center gap-8">
