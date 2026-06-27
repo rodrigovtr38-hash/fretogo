@@ -1,7 +1,14 @@
 // src/services/dispatchRealtimeService.ts
+// CTO-Log: Refatoração Crítica de Concorrência. 
+// 1. Substituição de strings mágicas ('ACEITO') por AppTripState.
+// 2. Implementação de Batch (Lote) VERDADEIRO na função de aceite para garantir integridade atômica se a internet do motorista cair.
+
+import { writeBatch, doc } from 'firebase/firestore';
+import { db } from '../firebase';
 import { firebaseRealtimeService } from './firebaseRealtimeService';
 import { locationRealtimeService } from './locationRealtimeService';
 import { DriverState } from '../state/driverStateMachine';
+import { AppTripState } from '../state/tripStateMachine'; // 🔥 CTO FIX: Importação da máquina de estados
 
 class DispatchRealtimeService {
   async setDriverOnline(driverId: string) {
@@ -39,7 +46,6 @@ class DispatchRealtimeService {
           ...payload,
           status: 'pendente',
           criadaEm: Date.now(),
-          // // AJUSTE CTO: Adiciona tempo limite (Timeout) para a oferta expirar da tela.
           expiraEm: Date.now() + 45000, 
         },
         state: DriverState.RECEBENDO_OFERTA,
@@ -50,28 +56,38 @@ class DispatchRealtimeService {
     }
   }
 
-  // Transação Atômica de Aceite
+  // 🔥 CTO FIX: Transação 100% Atômica usando writeBatch.
   async aceitarCorrida(driverId: string, freteId: string) {
     try {
-      // 1. Atualiza o status do Motorista
-      await firebaseRealtimeService.updateDriverRealtime(driverId, {
+      const batch = writeBatch(db);
+      const timestamp = Date.now();
+
+      const driverRef = doc(db, 'motoristas', driverId);
+      const freteRef = doc(db, 'fretes', freteId);
+
+      // 1. Prepara a atualização do Motorista
+      batch.update(driverRef, {
         state: DriverState.ACEITOU,
         freteAtualId: freteId,
         disponivel: false,
-        atualizadoEm: Date.now(),
+        atualizadoEm: timestamp,
       });
 
-      // 2. Atualiza o status do Frete IMEDIATAMENTE na mesma função (Garante Sincronia de Tela com Cliente)
-      await firebaseRealtimeService.updateTripRealtime(freteId, {
-        status: 'ACEITO',
+      // 2. Prepara a atualização do Frete com o Enum correto
+      batch.update(freteRef, {
+        status: AppTripState.ACEITO, // CTO FIX: Substitui 'ACEITO' string por Enum
         motoristaId: driverId,
-        atualizadoEm: Date.now(),
+        atualizadoEm: timestamp,
       });
 
-      // 3. Liga o GPS Compartilhado apenas após ter carga garantida
+      // 3. Executa ambas as operações simultaneamente (Tudo ou Nada)
+      await batch.commit();
+
+      // 4. Liga o GPS Compartilhado apenas após ter a carga GARANTIDA no banco
       locationRealtimeService.start(driverId, freteId);
     } catch (error) {
-      console.error('ERRO ACEITE ATÔMICO:', error);
+      console.error('ERRO ACEITE ATÔMICO (BATCH):', error);
+      throw error; // CTO FIX: Propaga o erro para a UI avisar o motorista que a rede falhou
     }
   }
 
@@ -133,7 +149,8 @@ class DispatchRealtimeService {
     }
   }
 
-  async atualizarStatusTrip(tripId: string, status: string) {
+  // 🔥 CTO FIX: Tipagem de entrada rigorosa para impedir strings aleatórias
+  async atualizarStatusTrip(tripId: string, status: AppTripState) {
     try {
       await firebaseRealtimeService.updateTripRealtime(tripId, {
         status,
