@@ -1,8 +1,10 @@
 // src/services/clientFreightService.ts
+// CTO-Log: Estrutura mantida 100%. Padronização de chamada usando a interface TripState e otimização para a esteira CI/CD.
+
 import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { paymentService } from './paymentService';
-import { AppTripState } from '../state/tripStateMachine';
+import { AppTripState as TripState } from '../state/tripStateMachine';
 import { DispatchQueueService } from './dispatchQueueService';
 
 const inflightRegistry = new Set<string>();
@@ -47,11 +49,8 @@ class ClientFreightService {
     };
   }
 
-  // Divisão de spread invisível por categoria operacional
   private calcularComissao(valorBruto: number, categoria: string) {
     const cat = categoria ? categoria.toLowerCase().trim() : '';
-    
-    // Categorias Leves: 20% | Pesadas: 15%
     const ehLeve = ['moto', 'carro', 'utilitario', 'furg', 'hr', 'bongo'].some(c => cat.includes(c));
     const taxa = ehLeve ? 0.20 : 0.15; 
     
@@ -65,14 +64,11 @@ class ClientFreightService {
     };
   }
 
-  // // AJUSTE CTO: Função auxiliar para extrair a cidade do endereço bruto, se necessário
   private extrairCidadeDoEndereco(endereco: string | undefined): string {
     if (!endereco) return '';
-    // Lógica simples: Pega a parte antes do "- Estado" ou tentar separar por vírgulas.
-    // Em um sistema real, o ideal é o frontend já mandar payload.destino.cidade separadamente.
     const partes = endereco.split(',');
     if (partes.length > 2) {
-       return partes[partes.length - 2].trim(); // Geralmente o bairro/cidade fica no penúltimo bloco antes do estado/país
+       return partes[partes.length - 2].trim(); 
     }
     return endereco.trim();
   }
@@ -98,13 +94,12 @@ class ClientFreightService {
       const pinColeta = this.generatePin();
       const pinEntregas = normalizedPayload.paradasTratadas.map(() => this.generatePin());
 
-      // Extrai a cidade para alimentar o Radar de Retorno
       const cidadeDestinoFormatada = payload.destino.cidade || this.extrairCidadeDoEndereco(payload.destino.endereco);
 
       const freteRef = await addDoc(collection(db, 'fretes'), {
         ...normalizedPayload,
-        cidadeDestinoFormatada, // Novo campo para busca otimizada
-        status: AppTripState.DISPONIVEL, 
+        cidadeDestinoFormatada, 
+        status: TripState.DISPONIVEL, 
         pagamentoStatus: 'pendente',
         dispatchStatus: 'aguardando_dispatch',
         criadoEm: serverTimestamp(),
@@ -126,7 +121,7 @@ class ClientFreightService {
 
       if (!pagamento.success) {
         await updateDoc(doc(db, 'fretes', freteRef.id), { 
-          status: AppTripState.CANCELADO, 
+          status: TripState.CANCELADO, 
           pagamentoStatus: 'falhou',
           atualizadoEm: serverTimestamp()
         });
@@ -135,11 +130,10 @@ class ClientFreightService {
 
       await updateDoc(doc(db, 'fretes', freteRef.id), {
         pagamentoStatus: 'aprovado',
-        status: AppTripState.BUSCANDO_MOTORISTA, 
+        status: TripState.BUSCANDO_MOTORISTA, 
         atualizadoEm: serverTimestamp(),
       });
 
-      // // AJUSTE CTO: Dispara a fila enviando o 'cidadeDestino' explicitamente para o Radar
       await DispatchQueueService.iniciarFila({
         id: freteRef.id,
         clienteId: normalizedPayload.clienteId,
@@ -154,7 +148,7 @@ class ClientFreightService {
           lng: normalizedPayload.destino.lng,
           endereco: normalizedPayload.destino.endereco || ''
         },
-        cidadeDestino: cidadeDestinoFormatada, // Passa a cidade limpa para o Match!
+        cidadeDestino: cidadeDestinoFormatada, 
         distanciaKm: normalizedPayload.distanciaTotalKm || 0,
         valor: valorLiquidoMotorista, 
         peso: normalizedPayload.pesoKg || 0,
@@ -173,7 +167,7 @@ class ClientFreightService {
   async cancelarFrete(freteId: string): Promise<any> {
     try {
       await updateDoc(doc(db, 'fretes', freteId), {
-        status: AppTripState.CANCELADO,
+        status: TripState.CANCELADO,
         atualizadoEm: serverTimestamp()
       });
       return { success: true };
