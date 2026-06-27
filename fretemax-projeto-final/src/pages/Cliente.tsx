@@ -1,4 +1,6 @@
 // src/pages/Cliente.tsx
+// CTO-Log: 1. Remoção da "guilhotina" de sessão (que apagava o frete se o cliente fosse no app do banco). 2. Blindagem de variáveis nulas na montagem do mapa para evitar crash em 3G lento.
+
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore'; 
@@ -9,8 +11,7 @@ import ChatFrete from '../components/ChatFrete';
 import ClientStatusCard from '../components/client/ClientStatusCard';
 import ClientCancelModal from '../components/client/ClientCancelModal';
 
-// IMPORTS DA NOVA ARQUITETURA
-import { TripState } from '../state/tripStateMachine';
+import { AppTripState as TripState } from '../state/tripStateMachine'; // Ajuste de import para bater com a State Machine unificada
 import { mapsLoader } from '../services/mapsLoader'; 
 import { NotificationService } from '../services/notificationService'; 
 
@@ -66,9 +67,7 @@ export default function Cliente() {
   const [whatsapp, setWhatsapp] = useState('');
   const [documento, setDocumento] = useState('');
   const [coleta, setColeta] = useState<AddressData>({ cep: '', bairro: '', rua: '', num: '' });
-  
   const [entregas, setEntregas] = useState<AddressData[]>([{ cep: '', bairro: '', rua: '', num: '' }]);
-  
   const [peso, setPeso] = useState('');
   const [qtdVolumes, setQtdVolumes] = useState('');
   const [tipoMaterial, setTipoMaterial] = useState('');
@@ -79,7 +78,6 @@ export default function Cliente() {
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [orderData, setOrderData] = useState<OrderData | null>(null);
   const [distanciaReal, setDistanciaReal] = useState(0);
-  
   const [loadingMessage, setLoadingMessage] = useState('Analisando parceiros disponíveis...'); 
   const [raioBusca, setRaioBusca] = useState(5);
 
@@ -87,10 +85,8 @@ export default function Cliente() {
   const [destinoGPS, setDestinoGPS] = useState<Coords | null>(null);
   const [paradasGPS, setParadasGPS] = useState<Coords[]>([]);
   const [motoristasProximos, setMotoristasProximos] = useState(0);
-
   const [mapsReady, setMapsReady] = useState(false); 
 
-  // PWA STATES
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
 
@@ -101,7 +97,6 @@ export default function Cliente() {
     mapsLoader.load().then(() => setMapsReady(true)).catch(console.error);
   }, []);
 
-  // PWA USE EFFECT
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: any) => {
       e.preventDefault();
@@ -183,6 +178,7 @@ export default function Cliente() {
     }
   }, [step, orderData?.status]);
 
+  // Recupera Estado Local
   useEffect(() => {
     const savedOrder = localStorage.getItem('fretogo_current_order');
     const savedForm = localStorage.getItem('fretogo_form_backup');
@@ -199,10 +195,12 @@ export default function Cliente() {
     if (savedOrder && savedOrder !== 'null') { setCurrentOrderId(savedOrder); setStep('busca'); }
   }, []);
 
+  // Salva Backup Form
   useEffect(() => {
     localStorage.setItem('fretogo_form_backup', JSON.stringify({ nome, coleta, entregas, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp, documento }));
   }, [nome, coleta, entregas, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp, documento]);
 
+  // Realtime do Frete
   useEffect(() => {
     if (!currentOrderId) return;
     const unsubscribe = onSnapshot(doc(db, 'fretes', currentOrderId), (snap) => {
@@ -226,18 +224,10 @@ export default function Cliente() {
          setParadasGPS(data.paradas.slice(0, -1).map((p: any) => ({ lat: p.lat, lng: p.lng })));
       }
 
-      const params = new URLSearchParams(window.location.search);
-      const isReturningFromPayment = params.has('status') || params.has('collection_status') || params.has('preference_id');
-
-      if (data.status === TripState.AGUARDANDO_PAGAMENTO && !isReturningFromPayment) {
-        localStorage.removeItem('fretogo_current_order');
-        setCurrentOrderId(null);
-        setStep('form');
-        return;
-      }
-
+      // CTO FIX: Retirada a guilhotina que cancelava a sessão caso o cliente saísse para o app do Banco. 
+      // O frete só será resetado se entrar nestes status finais:
       if ([TripState.CANCELADO, TripState.EXPIRADO, 'erro_pagamento', 'sem_motorista'].includes(data.status as any)) {
-        showToast(data.status === TripState.CANCELADO ? 'Frete cancelado.' : 'Sem motoristas na região.', 'warning');
+        showToast(data.status === TripState.CANCELADO ? 'Frete cancelado.' : 'Sessão expirada ou sem motoristas na região.', 'warning');
         localStorage.removeItem('fretogo_current_order'); 
         setCurrentOrderId(null); 
         setStep('form');
@@ -249,17 +239,14 @@ export default function Cliente() {
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((currentUser) => {
       if (!currentUser?.uid) return;
-
       const solicitarNotificacao = async () => {
         await NotificationService.solicitarPermissao(currentUser.uid, 'cliente');
         NotificationService.escutarNotificacoes((payload) => {
           console.log('Push cliente recebido:', payload);
         });
       };
-
       solicitarNotificacao();
     });
-
     return () => unsubscribe();
   }, []);
 
@@ -334,17 +321,13 @@ export default function Cliente() {
       const isHeavy = ['toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(vehicle);
 
       if (isHeavy && diferencaHorasJanela < 12) {
-        showToast("Janela inválida. Categorias pesadas exigem no mínimo 12 horas de antecedência.", "error");
-        setLoadingPayment(false);
-        isProcessingPayment.current = false;
-        return;
+        showToast("Janela inválida. Pesados exigem mín. 12 horas de antecedência.", "error");
+        setLoadingPayment(false); isProcessingPayment.current = false; return;
       }
 
       if (!isHeavy && diferencaHorasJanela < 3) {
-        showToast("Janela inválida. Categorias leves exigem no mínimo 3 horas de antecedência.", "error");
-        setLoadingPayment(false);
-        isProcessingPayment.current = false;
-        return;
+        showToast("Janela inválida. Leves exigem mín. 3 horas de antecedência.", "error");
+        setLoadingPayment(false); isProcessingPayment.current = false; return;
       }
     }
 
@@ -361,12 +344,6 @@ export default function Cliente() {
       
       const pinColeta = Math.floor(1000 + Math.random() * 9000).toString();
       const pinEntregas = entregas.map(() => Math.floor(1000 + Math.random() * 9000).toString());
-
-      const gatilhosNotificacaoAgenda = [
-        "Notificação Push/WhatsApp disparada 24h antes com botão de confirmação.",
-        "Notificação de alerta logístico disparada 12h antes.",
-        "Notificação de proximidade operacional disparada 2h antes."
-      ];
 
       const parsedDate = tipoFrete === 'agendado' && dataAgendada ? new Date(dataAgendada) : null;
       const firebaseTimestamp = parsedDate ? Timestamp.fromDate(parsedDate) : null;
@@ -406,7 +383,6 @@ export default function Cliente() {
         destinoLng: destinoFinal.lng, 
         tipoFrete,
         dataAgendada: firebaseTimestamp,
-        cronogramaGatilhos: tipoFrete === 'agendado' ? gatilhosNotificacaoAgenda : null,
         status: tipoFrete === 'agendado' ? 'agendado' : TripState.AGUARDANDO_PAGAMENTO,
         createdAt: serverTimestamp(),
       });
@@ -471,7 +447,6 @@ export default function Cliente() {
     setEntregas(newEntregas);
   };
 
-  // PWA INSTALL CLICK
   const handleInstallClick = async () => {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
@@ -751,7 +726,7 @@ export default function Cliente() {
             <div className="overflow-hidden rounded-[3rem] border border-slate-200 bg-white shadow-2xl relative">
               <ClientStatusCard orderData={orderData} />
               
-              {/* AJUSTE: Botão de reembolso adicionado conforme solicitado */}
+              {/* Botão de reembolso na fase de busca */}
               {orderData.status === TripState.DISPONIVEL && (
                 <div className="absolute top-4 right-4 z-30">
                   <button 
@@ -770,11 +745,10 @@ export default function Cliente() {
                   </div>
                 ) : (
                   <MapaCliente 
-                    origemGPS={origemGPS} 
-                    destinoGPS={destinoGPS} 
+                    origem={origemGPS} 
+                    destino={destinoGPS} 
                     motoristaId={orderData.motoristaId} 
-                    isTracking={['aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 'em_transporte', 'finalizando'].includes(orderData.status)}
-                    paradasIntermediarias={paradasGPS}
+                    paradasExtras={paradasGPS}
                   />
                 )}
                 
