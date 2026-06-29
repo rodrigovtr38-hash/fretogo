@@ -1,21 +1,40 @@
 // src/pages/Admin.tsx
-// CTO-Log: Alinhamento arquitetural. Troca das "Strings Mágicas" pelo enum oficial AppTripState para evitar divergência de dados entre o painel do dono e o app do motorista.
+// CTO-Log: 
+// 1. Fechadura Digital (Senha 152085) adicionada.
+// 2. Remoção das metas engessadas; inclusão de painel em tempo real infinito para as 7 categorias.
+// 3. Inclusão do botão "Pedir Chave PIX" via WhatsApp para otimizar o repasse.
 
 import { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { collection, onSnapshot, doc, query, orderBy, runTransaction, where, updateDoc, serverTimestamp, limit } from 'firebase/firestore';
 import { NotificationService } from '../services/notificationService';
-import { AppTripState } from '../state/tripStateMachine'; // 🔥 CTO FIX: Cérebro importado
+import { AppTripState } from '../state/tripStateMachine';
 import { 
   Loader2, CheckCircle, XCircle, Search, ShieldAlert, Truck, Users, 
-  Calendar, DollarSign, Activity, Clock, AlertTriangle, Eye, 
-  Map as MapIcon, Wallet, Zap, MessageCircle, ShieldCheck, RefreshCcw, Lock, Target
+  DollarSign, Activity, Clock, AlertTriangle, Map as MapIcon, Wallet, 
+  Zap, MessageCircle, ShieldCheck, RefreshCcw, Lock, Key
 } from 'lucide-react';
 
 const ADMIN_UIDS = ['uV1yeZoGfhZTRWDVL1CnMW6b6NY2']; 
 
+// Configuração das 7 Categorias Oficiais
+const CATEGORIAS_FROTA = [
+  { id: 'moto', label: 'Moto / Courier', icon: '🏍️' },
+  { id: 'carro_pequeno', label: 'Carro / Hatch', icon: '🚗' },
+  { id: 'utilitario', label: 'Utilitário / Van', icon: '🚐' },
+  { id: 'toco', label: 'Caminhão Toco', icon: '🚚' },
+  { id: 'truck', label: 'Caminhão Truck', icon: '🚛' },
+  { id: 'carreta_ls', label: 'Carreta LS', icon: '🛣️' },
+  { id: 'bi_trem_cegonha', label: 'Bi-trem / Cegonha', icon: '🏭' }
+];
+
 export default function Admin() {
   const [authUser, setAuthUser] = useState<any>(null);
+  
+  // 🔥 CTO FIX: Fechadura Digital
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+
   const [tab, setTab] = useState<'dashboard' | 'motoristas' | 'corridas'>('dashboard');
   const [fretes, setFretes] = useState<any[]>([]);
   const [motoristasPendentes, setMotoristasPendentes] = useState<any[]>([]);
@@ -31,13 +50,6 @@ export default function Admin() {
   const [showHistorico, setShowHistorico] = useState(false);
   const [reembolsosPendentes, setReembolsosPendentes] = useState<any[]>([]);
 
-  const METAS_LANCAMENTO = {
-    utilitario: { meta: 300, label: 'Utilitário (Fiorino/Van)' },
-    vuc: { meta: 150, label: 'VUC (HR/Delivery)' },
-    toco: { meta: 100, label: 'Caminhão Toco' },
-    truck: { meta: 50, label: 'Caminhão Truck' }
-  };
-
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(u => {
       setAuthUser(u);
@@ -47,16 +59,16 @@ export default function Admin() {
   }, []);
 
   useEffect(() => {
-    if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
+    if (!isUnlocked || !authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
     const q = query(collection(db, 'motoristas_online'));
     const unsubscribe = onSnapshot(q, (snap) => {
       setMotoristasOnline(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
     return () => unsubscribe();
-  }, [authUser]);
+  }, [isUnlocked, authUser]);
 
   useEffect(() => {
-    if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
+    if (!isUnlocked || !authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
     const qPendentes = query(collection(db, 'motoristas_cadastros'), where('status', '==', 'pendente'));
     const unsubPendentes = onSnapshot(qPendentes, (snap) => {
       setMotoristasPendentes(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
@@ -68,34 +80,34 @@ export default function Admin() {
     });
 
     return () => { unsubPendentes(); unsubAprovados(); };
-  }, [authUser]);
+  }, [isUnlocked, authUser]);
 
   useEffect(() => {
-    if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
+    if (!isUnlocked || !authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
     const q = query(collection(db, 'fretes'), orderBy('createdAt', 'desc'), limit(500));
     const unsubscribe = onSnapshot(q, (snap) => {
       setFretes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
     return () => unsubscribe();
-  }, [authUser]);
+  }, [isUnlocked, authUser]);
 
   useEffect(() => {
-    if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
+    if (!isUnlocked || !authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
     const q = query(collection(db, 'fretes'), where('status', '==', AppTripState.CANCELADO));
     const unsub = onSnapshot(q, (snap) => {
       setReembolsosPendentes(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(f => !f.reembolsado));
     });
     return () => unsub();
-  }, [authUser]);
+  }, [isUnlocked, authUser]);
 
   useEffect(() => {
-    if (!authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
+    if (!isUnlocked || !authUser || !ADMIN_UIDS.includes(authUser.uid)) return;
     const q = query(collection(db, 'fretes'), where('repasseEfetuado', '==', true), orderBy('repasseData', 'desc'), limit(100));
     const unsub = onSnapshot(q, (snap) => {
       setHistoricoPagamentos(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
     return () => unsub();
-  }, [authUser]);
+  }, [isUnlocked, authUser]);
 
   const filterByTime = (frete: any, filterType: string) => {
     if (filterType === 'todos') return true;
@@ -176,21 +188,33 @@ export default function Admin() {
     };
   }, [fretes, motoristasOnline, timeFilter]);
 
-  const metasProgresso = useMemo(() => {
-    const contagem = { utilitario: 0, vuc: 0, toco: 0, truck: 0 };
+  // 🔥 CTO FIX: Contagem Infinita de Categorias
+  const contagemFrota = useMemo(() => {
+    const contagem: Record<string, number> = {
+      moto: 0, carro_pequeno: 0, utilitario: 0, 
+      toco: 0, truck: 0, carreta_ls: 0, bi_trem_cegonha: 0
+    };
     
     motoristasAprovados.forEach(m => {
       const cat = m.categoria ? m.categoria.toLowerCase() : '';
-      if (cat.includes('utilitario') || cat.includes('fiorino') || cat.includes('van')) contagem.utilitario++;
-      else if (cat.includes('vuc') || cat.includes('hr') || cat.includes('delivery')) contagem.vuc++;
-      else if (cat.includes('toco')) contagem.toco++;
-      else if (cat.includes('truck')) contagem.truck++;
+      if (contagem[cat] !== undefined) {
+        contagem[cat]++;
+      }
     });
 
     return contagem;
   }, [motoristasAprovados]);
 
   const aptosPix = useMemo(() => motoristasAprovados.filter(m => m.fotoCnh && m.fotoSelfie).length, [motoristasAprovados]);
+
+  const handleUnlock = () => {
+    if (passwordInput === '152085') {
+      setIsUnlocked(true);
+    } else {
+      alert("Acesso Negado: Código Incorreto");
+      setPasswordInput('');
+    }
+  };
 
   const handleAprovacaoMotorista = async (id: string, status: 'aprovado' | 'rejeitado') => {
     if (!window.confirm(`Deseja confirmar a ação: ${status.toUpperCase()}?`)) return;
@@ -243,6 +267,20 @@ export default function Admin() {
     } catch (e: any) { alert(e.message); }
   };
 
+  // 🔥 CTO FIX: Botão para cobrar Chave PIX do motorista
+  const handlePedirChavePix = (frete: any) => {
+    const telefone = frete.motoristaZap || frete.telefoneMotorista;
+    if (!telefone) {
+      alert("Número do motorista não encontrado.");
+      return;
+    }
+    const numeroLimpo = telefone.replace(/\D/g, '');
+    const valor = Number(frete.valorLiquidoMotorista || frete.valorMotorista || 0).toFixed(2).replace('.', ',');
+    const msg = `Olá *${frete.motoristaNome}*, aqui é a central operacional do *FretoGo*.\n\nVimos que você finalizou a corrida #${frete.id.slice(0,8).toUpperCase()}.\n\nPor favor, envie sua *Chave PIX* para realizarmos o seu repasse no valor de *R$ ${valor}*.`;
+    
+    window.open(`https://wa.me/55${numeroLimpo}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
   const forceClearInsucesso = async (id: string) => {
     try {
       await updateDoc(doc(db, 'fretes', id), { alertaInsucesso: false });
@@ -263,7 +301,7 @@ export default function Admin() {
   if (loading) return (
     <div className="h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
       <Loader2 className="animate-spin text-cyan-500 w-12 h-12" />
-      <p className="text-cyan-500 font-black animate-pulse uppercase tracking-widest text-xs">Descriptografando Terminal de Comando...</p>
+      <p className="text-cyan-500 font-black animate-pulse uppercase tracking-widest text-xs">Descriptografando Terminal...</p>
     </div>
   );
 
@@ -274,8 +312,42 @@ export default function Admin() {
           <ShieldAlert className="text-red-500 w-12 h-12" />
         </div>
         <h2 className="text-white font-black text-4xl uppercase italic tracking-tighter">Acesso Negado</h2>
-        <p className="text-slate-500 mt-3 max-w-sm font-medium leading-relaxed">Você está em uma área restrita. O seu UID não tem as credenciais da diretoria logística para visualizar o FRETOGO HQ.</p>
-        <p className="text-slate-700 mt-8 text-[10px] uppercase tracking-widest">Sua credencial atual: {authUser?.uid || 'Não autenticado'}</p>
+        <p className="text-slate-500 mt-3 max-w-sm font-medium leading-relaxed">O seu UID não tem credenciais da diretoria logística.</p>
+      </div>
+    );
+  }
+
+  // TELA DE SENHA DE PROTEÇÃO
+  if (!isUnlocked) {
+    return (
+      <div className="h-screen bg-[#020617] flex flex-col items-center justify-center p-6 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(6,182,212,0.1),transparent_50%)]" />
+        <div className="bg-slate-900/80 border border-white/10 p-10 rounded-[2rem] backdrop-blur-xl shadow-2xl flex flex-col items-center w-full max-w-sm relative z-10">
+          <div className="w-20 h-20 bg-cyan-500/10 rounded-full flex items-center justify-center mb-6 border border-cyan-500/20">
+            <Lock className="w-10 h-10 text-cyan-500" />
+          </div>
+          <h2 className="text-white font-black text-2xl uppercase tracking-widest mb-2 text-center">Terminal Fechado</h2>
+          <p className="text-slate-400 text-xs text-center mb-8">Insira a chave criptográfica para liberar a central de operações.</p>
+          
+          <div className="w-full relative mb-6">
+            <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-cyan-500 w-5 h-5" />
+            <input 
+              type="password" 
+              value={passwordInput}
+              onChange={(e) => setPasswordInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleUnlock()}
+              placeholder="Código de Acesso"
+              className="w-full bg-slate-950 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-white text-center font-black tracking-[0.5em] focus:border-cyan-500 outline-none transition-all"
+            />
+          </div>
+
+          <button 
+            onClick={handleUnlock}
+            className="w-full bg-cyan-600 hover:bg-cyan-500 text-white py-4 rounded-xl font-black uppercase tracking-widest shadow-[0_0_20px_rgba(8,145,178,0.4)] transition-all"
+          >
+            Desbloquear
+          </button>
+        </div>
       </div>
     );
   }
@@ -300,7 +372,7 @@ export default function Admin() {
           <nav className="flex flex-wrap bg-slate-900/50 p-1.5 rounded-2xl border border-white/5 gap-1">
             {[
               { id: 'dashboard', label: 'Overview', icon: Activity },
-              { id: 'motoristas', label: 'Frota & Metas', icon: Users, badge: motoristasPendentes.length },
+              { id: 'motoristas', label: 'Frota', icon: Users, badge: motoristasPendentes.length },
               { id: 'corridas', label: 'Live Radar', icon: MapIcon }
             ].map(item => (
               <button
@@ -356,10 +428,11 @@ export default function Admin() {
               </div>
             )}
 
+            {/* 🔥 PAINEL DE FROTA INFINITO (SUBSTITUI AS BARRAS LIMITADAS) */}
             <div className="mb-8">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-black italic uppercase tracking-tighter text-white flex items-center gap-2">
-                  <Target className="text-cyan-500 w-5 h-5" /> Vagas da 1ª Turma <span className="text-cyan-500">(Densidade SP/GRU)</span>
+                  <Target className="text-cyan-500 w-5 h-5" /> Base de Operadores <span className="text-cyan-500">(Nacional)</span>
                 </h2>
                 <div className="flex items-center gap-2 bg-slate-900/50 border border-white/10 px-4 py-2 rounded-xl">
                   <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Total Homologados:</span>
@@ -367,25 +440,14 @@ export default function Admin() {
                 </div>
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                {Object.entries(METAS_LANCAMENTO).map(([key, config]) => {
-                  const current = metasProgresso[key as keyof typeof metasProgresso] || 0;
-                  const percentage = Math.min(100, Math.round((current / config.meta) * 100));
-                  const isCompleted = current >= config.meta;
-                  
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                {CATEGORIAS_FROTA.map(cat => {
+                  const qtd = contagemFrota[cat.id] || 0;
                   return (
-                    <div key={key} className="bg-slate-900/60 border border-white/5 p-5 rounded-2xl relative overflow-hidden backdrop-blur-md">
-                      <div className="flex justify-between items-center mb-3">
-                        <span className="text-[11px] font-black uppercase tracking-widest text-slate-300">{config.label}</span>
-                        <span className={`text-sm font-black ${isCompleted ? 'text-green-400' : 'text-cyan-400'}`}>{current} / {config.meta}</span>
-                      </div>
-                      <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-white/5">
-                        <div 
-                          className={`h-full rounded-full transition-all duration-1000 ${isCompleted ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'bg-cyan-500 shadow-[0_0_10px_rgba(8,145,178,0.5)]'}`}
-                          style={{ width: `${percentage}%` }}
-                        ></div>
-                      </div>
-                      {isCompleted && <p className="text-[9px] font-bold text-green-500 uppercase mt-2 text-right">Meta Atingida ✓</p>}
+                    <div key={cat.id} className="bg-slate-900/60 border border-white/5 p-4 rounded-2xl flex flex-col items-center justify-center text-center hover:border-cyan-500/30 transition-all backdrop-blur-md">
+                      <span className="text-2xl mb-2">{cat.icon}</span>
+                      <h3 className="text-2xl font-black text-white">{qtd}</h3>
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">{cat.label}</p>
                     </div>
                   );
                 })}
@@ -428,9 +490,6 @@ export default function Admin() {
                  <Users className="absolute -right-6 -bottom-6 w-32 h-32 text-white/5 group-hover:text-blue-500/10 transition-colors" />
                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2"><MapIcon size={12}/> Radar de Frota</p>
                  <h3 className="text-2xl md:text-3xl font-black text-white tracking-tighter">{motoristasOnline.length} <span className="text-sm text-blue-400 italic font-bold uppercase tracking-normal">Online</span></h3>
-                 <div className="mt-2 flex items-center gap-3 text-[10px]">
-                   <span className="flex items-center gap-1 text-cyan-400"><Target size={10}/> {stats.motoristasRetorno} em retorno</span>
-                 </div>
               </div>
               <div className={`p-6 rounded-[2rem] backdrop-blur-md relative overflow-hidden group transition-all border ${stats.repasses > 0 ? 'bg-amber-900/20 border-amber-500/30' : 'bg-slate-900/60 border-white/5'}`}>
                  <Truck className={`absolute -right-6 -bottom-6 w-32 h-32 transition-colors ${stats.repasses > 0 ? 'text-amber-500/10' : 'text-white/5'}`} />
@@ -642,10 +701,17 @@ export default function Admin() {
                            
                            {/* AÇÕES DE REPASSE DE DINHEIRO E REEMBOLSO */}
                            {f.status === AppTripState.ENTREGUE && (
-                             <button onClick={() => forceStatus(f.id, 'finalizado')} className="bg-purple-600 hover:bg-purple-500 text-white py-4 rounded-xl font-black text-[10px] tracking-widest uppercase shadow-[0_0_20px_rgba(168,85,247,0.4)] transition-all flex flex-col items-center justify-center gap-1 group">
-                               <span className="flex items-center gap-1"><Wallet size={14} /> Liquidar Repasse</span>
-                               <span className="text-[8px] opacity-70 group-hover:opacity-100 font-bold">R$ {Number(f.valorLiquidoMotorista || f.valorMotorista).toFixed(2)}</span>
-                             </button>
+                             <div className="flex flex-col gap-2">
+                               {/* 🔥 NOVO BOTÃO: PEDIR CHAVE PIX P/ MOTORISTA */}
+                               <button onClick={() => handlePedirChavePix(f)} className="bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-black text-[10px] tracking-widest uppercase shadow-[0_0_20px_rgba(34,197,94,0.3)] transition-all flex items-center justify-center gap-2">
+                                 <MessageCircle size={14} /> Cobrar Chave PIX
+                               </button>
+
+                               <button onClick={() => forceStatus(f.id, 'finalizado')} className="bg-purple-600 hover:bg-purple-500 text-white py-4 rounded-xl font-black text-[10px] tracking-widest uppercase shadow-[0_0_20px_rgba(168,85,247,0.4)] transition-all flex flex-col items-center justify-center gap-1 group">
+                                 <span className="flex items-center gap-1"><Wallet size={14} /> Liquidar Repasse</span>
+                                 <span className="text-[8px] opacity-70 group-hover:opacity-100 font-bold">R$ {Number(f.valorLiquidoMotorista || f.valorMotorista).toFixed(2)}</span>
+                               </button>
+                             </div>
                            )}
 
                            {f.status === AppTripState.CANCELADO && !f.reembolsado && (
