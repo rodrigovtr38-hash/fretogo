@@ -1,7 +1,6 @@
 // api/webhook.js
-// CTO-Log: CORREÇÃO CRÍTICA DO BURACO NEGRO DE PAGAMENTO.
-// O Webhook agora captura tanto payloads de IPN (req.query) quanto de Webhooks tradicionais (req.body).
-// Alterada a validação de Sandbox para garantir a liberação do frete para o Radar do Motorista.
+// CTO-Log: CORREÇÃO CRÍTICA DO BURACO NEGRO DE PAGAMENTO MANTIDA.
+// CTO-Log 2: Injeção do Link de Rastreamento Automático (Link Recovery) via WhatsApp.
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
@@ -47,12 +46,10 @@ export default async function handler(req, res) {
     const xSignature = req.headers['x-signature'];
     const xRequestId = req.headers['x-request-id'];
 
-    // 🔥 CTO FIX 1: O Mercado Pago manda aviso por IPN (Query) ou Webhook (Body).
-    // Agora o sistema rastreia o ID da transação não importa de onde venha.
     const dataId = req.query.id || req.query['data.id'] || req.body?.data?.id;
     const type = req.query.topic || req.body?.type || req.body?.action;
 
-    // Verificação de assinatura (Segurança contra hackers tentando forjar pagamento)
+    // Verificação de assinatura do Mercado Pago
     if (xSignature && process.env.MP_WEBHOOK_SECRET) {
       const parts = xSignature.split(',');
       const ts = parts.find(p => p.startsWith('ts='))?.split('=')[1];
@@ -67,13 +64,11 @@ export default async function handler(req, res) {
       }
     }
 
-    // 🔥 CTO FIX 2: Garante que só vai processar se for um evento de "pagamento"
     const isPayment = type === 'payment' || type?.startsWith('payment');
 
     if (isPayment && dataId) {
       const paymentId = dataId;
       
-      // Bate na porta do Mercado Pago para confirmar se o pagamento é real
       const mpResponse = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
         headers: { Authorization: `Bearer ${process.env.MERCADO_PAGO_ACCESS_TOKEN}` }
       });
@@ -91,14 +86,12 @@ export default async function handler(req, res) {
       if (freteSnap.exists) {
         const freteData = freteSnap.data();
 
-        // 🔥 CTO FIX 3: Em Sandbox, o "status_detail" varia muito. Vamos focar apenas no "approved".
         if (paymentData.status === 'approved') {
           
           if (freteData.pagamentoStatus !== 'aprovado') {
             
-            // ✅ ATUALIZAÇÃO MESTRE: Libera o frete para o Radar e destrava a tela do cliente
             await freteRef.update({
-              status: 'disponivel', // É essa palavra mágica que acorda o motorista!
+              status: 'disponivel', 
               pagamentoStatus: 'aprovado',
               dispatchStatus: 'em_andamento',
               pagoEm: FieldValue.serverTimestamp(),
@@ -108,18 +101,19 @@ export default async function handler(req, res) {
             
             console.log(`[SUCESSO WEBHOOK] Pagamento ${pedidoId} Aprovado. Frete lançado no Radar!`);
 
-            if (freteData.telefoneCliente) {
-               dispararWhatsAppAsync(
-                 freteData.telefoneCliente, 
-                 `✅ FretoGo: Pagamento confirmado! A sua carga já está no Radar dos nossos motoristas. Acompanhe pelo app.`
-               );
+            // 🔥 A MÁGICA DO WHATSAPP AQUI: Link de Tracking com Parâmetro ?order=
+            if (freteData.clienteZap || freteData.telefoneCliente) {
+               const zapCliente = freteData.clienteZap || freteData.telefoneCliente;
+               const linkRastreio = `https://app.fretogo.com.br/cliente?order=${pedidoId}`;
+               const mensagemZap = `✅ *FretoGo*: Pagamento confirmado!\n\nSua carga já está no Radar dos nossos motoristas.\n\n📍 *Acompanhe em tempo real e pegue seus PINs de Segurança no link abaixo:*\n${linkRastreio}`;
+               
+               dispararWhatsAppAsync(zapCliente, mensagemZap);
             }
           }
         }
       }
     }
     
-    // Devolve o 200 rápido pro Mercado Pago parar de ligar
     res.status(200).send('OK');
   } catch (err) {
     console.error(`[WEBHOOK ERRO CRÍTICO]:`, err);
