@@ -1,5 +1,6 @@
 // src/pages/Cliente.tsx
-// CTO-Log: 1. Remoção da "guilhotina" de sessão (que apagava o frete se o cliente fosse no app do banco). 2. Blindagem de variáveis nulas na montagem do mapa para evitar crash em 3G lento.
+// CTO-Log: 1. Remoção da "guilhotina" de sessão. 2. Blindagem de variáveis nulas na montagem do mapa.
+// CTO-Log 3: CORREÇÃO CRÍTICA FINANCEIRA. Liberação do botão de "Cancelar e Estornar" em todas as fases de espera (aguardando_pagamento, disponivel, buscando). Inclusão do feedback visual de processamento bancário.
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
@@ -11,7 +12,7 @@ import ChatFrete from '../components/ChatFrete';
 import ClientStatusCard from '../components/client/ClientStatusCard';
 import ClientCancelModal from '../components/client/ClientCancelModal';
 
-import { AppTripState as TripState } from '../state/tripStateMachine'; // Ajuste de import para bater com a State Machine unificada
+import { AppTripState as TripState } from '../state/tripStateMachine'; 
 import { mapsLoader } from '../services/mapsLoader'; 
 import { NotificationService } from '../services/notificationService'; 
 
@@ -224,8 +225,6 @@ export default function Cliente() {
          setParadasGPS(data.paradas.slice(0, -1).map((p: any) => ({ lat: p.lat, lng: p.lng })));
       }
 
-      // CTO FIX: Retirada a guilhotina que cancelava a sessão caso o cliente saísse para o app do Banco. 
-      // O frete só será resetado se entrar nestes status finais:
       if ([TripState.CANCELADO, TripState.EXPIRADO, 'erro_pagamento', 'sem_motorista'].includes(data.status as any)) {
         showToast(data.status === TripState.CANCELADO ? 'Frete cancelado.' : 'Sessão expirada ou sem motoristas na região.', 'warning');
         localStorage.removeItem('fretogo_current_order'); 
@@ -726,14 +725,14 @@ export default function Cliente() {
             <div className="overflow-hidden rounded-[3rem] border border-slate-200 bg-white shadow-2xl relative">
               <ClientStatusCard orderData={orderData} />
               
-              {/* Botão de reembolso na fase de busca */}
-              {orderData.status === TripState.DISPONIVEL && (
+              {/* 🔥 CTO FIX: Botão de reembolso habilitado para TODAS as fases de espera (aguardando_pagamento, disponivel, buscando) */}
+              {['aguardando_pagamento', 'disponivel', 'buscando_motorista', 'agendado'].includes(orderData.status) && (
                 <div className="absolute top-4 right-4 z-30">
                   <button 
                     onClick={() => setShowCancelModal(true)}
-                    className="bg-red-500/90 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest backdrop-blur-sm shadow-lg transition-all"
+                    className="bg-red-500/90 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest backdrop-blur-sm shadow-lg transition-all flex items-center gap-2"
                   >
-                    Solicitar Reembolso
+                    <XCircle size={16} /> Cancelar e Estornar
                   </button>
                 </div>
               )}
@@ -752,7 +751,8 @@ export default function Cliente() {
                   />
                 )}
                 
-                {orderData.status === TripState.DISPONIVEL && (
+                {/* 🔥 CTO FIX: Animação de radar com feedback para 'aguardando_pagamento' */}
+                {['aguardando_pagamento', 'disponivel', 'buscando_motorista'].includes(orderData.status) && (
                   <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-white/60 backdrop-blur-md">
                     <div className="relative mb-8">
                       <div className="absolute -inset-4 animate-pulse rounded-full bg-blue-500/20 blur-xl"></div>
@@ -761,8 +761,12 @@ export default function Cliente() {
                         <Search className="h-10 w-10 animate-bounce text-white" />
                       </div>
                     </div>
-                    <h3 className="text-2xl font-black text-slate-900 tracking-tighter text-center">{loadingMessage}</h3>
-                    <p className="mt-3 text-sm font-bold text-slate-500 uppercase tracking-widest text-center max-w-xs">Nosso radar criptografado está localizando o melhor parceiro para sua carga.</p>
+                    <h3 className="text-2xl font-black text-slate-900 tracking-tighter text-center">
+                      {orderData.status === 'aguardando_pagamento' ? 'Confirmando Pagamento...' : loadingMessage}
+                    </h3>
+                    <p className="mt-3 text-sm font-bold text-slate-500 uppercase tracking-widest text-center max-w-xs">
+                      {orderData.status === 'aguardando_pagamento' ? 'Aguardando o retorno do banco.' : 'Nosso radar criptografado está localizando o melhor parceiro para sua carga.'}
+                    </p>
                   </div>
                 )}
               </div>
