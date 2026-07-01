@@ -1,7 +1,9 @@
+// api/pagamento.js
+// CTO-Log: Arquivo verificado. Lógica de blindagem financeira mantida.
+
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
-// 🔐 Inicialização segura do Firebase Admin
 if (!getApps().length) {
   if (process.env.FIREBASE_ADMIN_CREDENTIAL) {
     initializeApp({
@@ -19,7 +21,6 @@ export default async function handler(req, res) {
     return res.status(405).send('Método não permitido');
   }
 
-  // 🔥 GAP 5 RESOLVIDO: O "preco" não é mais recebido do frontend. Confiança zero no cliente.
   const { titulo, idPedido } = req.body;
 
   try {
@@ -43,20 +44,15 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Valor do frete inválido' });
     }
 
-    // 🔥 EXTRAÇÃO DO DOCUMENTO PARA LIBERAR O PIX NO MERCADO PAGO
     const clienteNome = freteData.clienteNome || 'Cliente Fretogo';
     const clienteDocumento = freteData.clienteDocumento || '';
-    
-    // Identifica dinamicamente se é CPF ou CNPJ baseado no tamanho da string (limpa de pontuação)
     const docType = clienteDocumento.length > 11 ? 'CNPJ' : 'CPF';
 
-    // Montagem do objeto do pagador blindado
     const payerData = {
-      email: `cliente_${idPedido}@fretogo.com`, // E-mail gerado dinamicamente
+      email: `cliente_${idPedido}@fretogo.com`, 
       name: clienteNome,
     };
 
-    // Só injeta o node de identificação se o documento existir, evitando quebrar a API do MP
     if (clienteDocumento) {
       payerData.identification = {
         type: docType,
@@ -77,15 +73,14 @@ export default async function handler(req, res) {
             title: titulo,
             quantity: 1,
             currency_id: 'BRL',
-            unit_price: valorReal // Valor seguro, tirado diretamente do Firestore
+            unit_price: valorReal
           }
         ],
-        payer: payerData, // 🔥 Objeto atualizado com Identificação Fiscal (Libera PIX)
-        external_reference: idPedido, // Crucial para o Webhook saber qual frete liberar
+        payer: payerData,
+        external_reference: idPedido, 
         notification_url: `https://${req.headers.host}/api/webhook`, 
         payment_methods: {
           excluded_payment_types: [], 
-          // 🛡️ ALERTA A4 RESOLVIDO: Bloqueia parcelamento. Frete é serviço, só à vista.
           installments: 1,
           default_installments: 1
         },
@@ -109,7 +104,6 @@ export default async function handler(req, res) {
       });
     }
 
-    // ✅ SUCESSO: Devolve a URL do Mercado Pago pro Cliente.tsx redirecionar a tela
     return res.status(200).json({ url: data.init_point });
 
   } catch (error) {
