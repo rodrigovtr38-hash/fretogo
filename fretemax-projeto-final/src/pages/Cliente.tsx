@@ -1,12 +1,13 @@
 // src/pages/Cliente.tsx
 // CTO-Log: 1. Remoção da "guilhotina" de sessão. 2. Blindagem de variáveis nulas na montagem do mapa.
-// CTO-Log 3: CORREÇÃO CRÍTICA FINANCEIRA. Liberação do botão de "Cancelar e Estornar" em todas as fases de espera (aguardando_pagamento, disponivel, buscando). Inclusão do feedback visual de processamento bancário.
+// CTO-Log 3: Correção do Botão de Estorno (UI Fix). Injeção de Link Recovery via URL Parameters (WhatsApp Tracking).
+// CTO-Log 4: Injeção de lógica de Reset Automático após 'finalizado' e Regra de Bloqueio de Cancelamento após o Aceite do Motorista.
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore'; 
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Sparkles, User, Package, CalendarDays, Plus, Trash2, Flame, Search, Lock } from 'lucide-react';
+import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Sparkles, User, Package, CalendarDays, Plus, Trash2, Flame, Search, Lock, HeadphonesIcon } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import ChatFrete from '../components/ChatFrete';
 import ClientStatusCard from '../components/client/ClientStatusCard';
@@ -179,10 +180,23 @@ export default function Cliente() {
     }
   }, [step, orderData?.status]);
 
-  // Recupera Estado Local
+  // 🔥 CTO FIX: Recupera Estado Local & Lê Parâmetros da URL (Link do WhatsApp Tracking)
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const orderFromUrl = params.get('order');
+
+    if (orderFromUrl) {
+      localStorage.setItem('fretogo_current_order', orderFromUrl);
+      setCurrentOrderId(orderFromUrl);
+      setStep('busca');
+      // Limpa a URL para não prender o usuário nesse frete se ele atualizar a página futuramente
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
+    }
+
     const savedOrder = localStorage.getItem('fretogo_current_order');
     const savedForm = localStorage.getItem('fretogo_form_backup');
+    
     if (savedForm) {
       try {
         const data = JSON.parse(savedForm);
@@ -223,6 +237,15 @@ export default function Cliente() {
       }
       if (data.paradas && data.paradas.length > 1) {
          setParadasGPS(data.paradas.slice(0, -1).map((p: any) => ({ lat: p.lat, lng: p.lng })));
+      }
+
+      // 🔥 CTO FIX: Adicionada a regra 'finalizado'. Quando o motorista encerra, o app volta para Home com Sucesso.
+      if (data.status === 'finalizado') {
+        showToast('Operação Finalizada com Sucesso! Agradecemos por escolher a FretoGo.', 'success');
+        localStorage.removeItem('fretogo_current_order'); 
+        setCurrentOrderId(null); 
+        setStep('form');
+        return;
       }
 
       if ([TripState.CANCELADO, TripState.EXPIRADO, 'erro_pagamento', 'sem_motorista'].includes(data.status as any)) {
@@ -453,6 +476,9 @@ export default function Cliente() {
     if (outcome === 'accepted') setIsInstallable(false);
     setDeferredPrompt(null);
   };
+
+  // 🔥 CTO FIX: Regras de visibilidade do Botão de Estorno
+  const podeCancelar = orderData && ['aguardando_pagamento', 'disponivel', 'buscando_motorista', 'agendado'].includes(orderData.status);
 
   return (
     <div className="relative min-h-[100dvh] w-full flex flex-col bg-slate-50 text-slate-800 font-sans selection:bg-blue-500/20">
@@ -724,18 +750,6 @@ export default function Cliente() {
           <div className="mx-auto w-full max-w-4xl animate-in fade-in slide-in-from-bottom-8 duration-700">
             <div className="overflow-hidden rounded-[3rem] border border-slate-200 bg-white shadow-2xl relative">
               <ClientStatusCard orderData={orderData} />
-              
-              {/* 🔥 CTO FIX: Botão de reembolso habilitado para TODAS as fases de espera (aguardando_pagamento, disponivel, buscando) */}
-              {['aguardando_pagamento', 'disponivel', 'buscando_motorista', 'agendado'].includes(orderData.status) && (
-                <div className="absolute top-4 right-4 z-30">
-                  <button 
-                    onClick={() => setShowCancelModal(true)}
-                    className="bg-red-500/90 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest backdrop-blur-sm shadow-lg transition-all flex items-center gap-2"
-                  >
-                    <XCircle size={16} /> Cancelar e Estornar
-                  </button>
-                </div>
-              )}
 
               <div className="h-[400px] md:h-[500px] w-full border-t border-slate-100 bg-slate-50 relative">
                 {!mapsReady ? (
@@ -751,7 +765,6 @@ export default function Cliente() {
                   />
                 )}
                 
-                {/* 🔥 CTO FIX: Animação de radar com feedback para 'aguardando_pagamento' */}
                 {['aguardando_pagamento', 'disponivel', 'buscando_motorista'].includes(orderData.status) && (
                   <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-white/60 backdrop-blur-md">
                     <div className="relative mb-8">
@@ -771,6 +784,25 @@ export default function Cliente() {
                 )}
               </div>
 
+              {/* 🔥 CTO FIX: Barra de Ações Inferior (Botão de Cancelar Posicionado Corretamente) */}
+              <div className="bg-white border-t border-slate-100 p-4 md:p-6 flex flex-col gap-3">
+                {podeCancelar ? (
+                  <button 
+                    onClick={() => setShowCancelModal(true)}
+                    className="w-full flex items-center justify-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 py-4 rounded-xl font-black uppercase text-xs tracking-widest transition-all"
+                  >
+                    <XCircle size={18} /> Cancelar Pedido e Estornar PIX
+                  </button>
+                ) : (
+                  <button 
+                    onClick={() => window.open('https://wa.me/5511999999999', '_blank')} 
+                    className="w-full flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 py-4 rounded-xl font-black uppercase text-xs tracking-widest transition-all"
+                  >
+                    <HeadphonesIcon size={18} /> Acionar Suporte FretoGo
+                  </button>
+                )}
+              </div>
+
               {orderData.motoristaNome && (
                 <div className="border-t border-slate-100 bg-slate-50/50 p-6 md:p-8">
                    <div className="flex flex-col md:flex-row justify-between items-center gap-6">
@@ -785,16 +817,13 @@ export default function Cliente() {
                         </div>
                       </div>
                       
-                      <div className="flex w-full md:w-auto gap-3">
-                        {orderData.motoristaZap && (
+                      {orderData.motoristaZap && (
+                        <div className="flex w-full md:w-auto gap-3">
                           <button onClick={handleWhatsAppClick} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white px-6 py-4 rounded-xl font-black uppercase text-xs tracking-widest transition-all shadow-lg shadow-green-500/30">
-                             <MessageCircle size={18} /> Contatar
+                             <MessageCircle size={18} /> Contatar Motorista
                           </button>
-                        )}
-                        <button onClick={() => setShowCancelModal(true)} disabled={['em_transporte', 'finalizando', 'entregue', 'finalizado'].includes(orderData.status)} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-white border border-red-200 text-red-500 hover:bg-red-50 hover:border-red-300 px-6 py-4 rounded-xl font-black uppercase text-xs tracking-widest transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-                           <XCircle size={18} /> Abortar
-                        </button>
-                      </div>
+                        </div>
+                      )}
                    </div>
                 </div>
               )}
