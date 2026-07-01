@@ -1,4 +1,8 @@
 // api/webhook.js
+// CTO-Log: CORREÇÃO CRÍTICA DO BURACO NEGRO DE PAGAMENTO.
+// O Webhook agora captura tanto payloads de IPN (req.query) quanto de Webhooks tradicionais (req.body).
+// Alterada a validação de Sandbox para garantir a liberação do frete para o Radar do Motorista.
+
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import crypto from 'crypto';
@@ -15,11 +19,9 @@ if (!getApps().length) {
 
 const db = getFirestore();
 
-// // AJUSTE CTO: Função de Envio de Mensagem (Fire-and-Forget com sistema de Retry básico).
-// Essa função não espera a resposta (await) para não travar o Webhook do Mercado Pago.
+// Disparo de WhatsApp sem travar a thread do Webhook
 async function dispararWhatsAppAsync(telefone, mensagem, tentativa = 1) {
   try {
-    // Aqui entra o POST para a API Oficial do WhatsApp ou Z-API / Evolution
     const apiUrl = process.env.WHATSAPP_API_URL; 
     if (!apiUrl) return;
 
@@ -33,11 +35,7 @@ async function dispararWhatsAppAsync(telefone, mensagem, tentativa = 1) {
     });
   } catch (e) {
     if (tentativa < 3) {
-      console.warn(`[WHATSAPP RETRY] Tentativa ${tentativa} falhou para ${telefone}. Tentando de novo...`);
-      // Fila simples em memória para tentar de novo sem travar
       setTimeout(() => dispararWhatsAppAsync(telefone, mensagem, tentativa + 1), 5000 * tentativa);
-    } else {
-      console.error(`[WHATSAPP FALHOU DEFINITIVO] Não foi possível avisar ${telefone}.`);
     }
   }
 }
@@ -48,8 +46,13 @@ export default async function handler(req, res) {
   try {
     const xSignature = req.headers['x-signature'];
     const xRequestId = req.headers['x-request-id'];
-    const dataId = req.query?.['data.id'] || req.body?.data?.id;
 
+    // 🔥 CTO FIX 1: O Mercado Pago manda aviso por IPN (Query) ou Webhook (Body).
+    // Agora o sistema rastreia o ID da transação não importa de onde venha.
+    const dataId = req.query.id || req.query['data.id'] || req.body?.data?.id;
+    const type = req.query.topic || req.body?.type || req.body?.action;
+
+    // Verificação de assinatura (Segurança contra hackers tentando forjar pagamento)
     if (xSignature && process.env.MP_WEBHOOK_SECRET) {
       const parts = xSignature.split(',');
       const ts = parts.find(p => p.startsWith('ts='))?.split('=')[1];
@@ -64,11 +67,13 @@ export default async function handler(req, res) {
       }
     }
 
-    const payment = req.body; 
+    // 🔥 CTO FIX 2: Garante que só vai processar se for um evento de "pagamento"
+    const isPayment = type === 'payment' || type?.startsWith('payment');
 
-    if (payment?.type === 'payment' && payment.data?.id) {
-      const paymentId = payment.data.id;
+    if (isPayment && dataId) {
+      const paymentId = dataId;
       
+      // Bate na porta do Mercado Pago para confirmar se o pagamento é real
       const mpResponse = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
         headers: { Authorization: `Bearer ${process.env.MERCADO_PAGO_ACCESS_TOKEN}` }
       });
@@ -78,7 +83,7 @@ export default async function handler(req, res) {
       const paymentData = await mpResponse.json();
       const pedidoId = paymentData.external_reference;
 
-      if (!pedidoId) return res.status(400).send('Sem referência');
+      if (!pedidoId) return res.status(400).send('Sem referência no pagamento');
 
       const freteRef = db.collection('fretes').doc(pedidoId);
       const freteSnap = await freteRef.get();
@@ -86,13 +91,14 @@ export default async function handler(req, res) {
       if (freteSnap.exists) {
         const freteData = freteSnap.data();
 
-        if (paymentData.status === 'approved' && paymentData.status_detail === 'accredited') {
+        // 🔥 CTO FIX 3: Em Sandbox, o "status_detail" varia muito. Vamos focar apenas no "approved".
+        if (paymentData.status === 'approved') {
           
           if (freteData.pagamentoStatus !== 'aprovado') {
             
-            // 1. Atualiza o banco (Síncrono e Rápido)
+            // ✅ ATUALIZAÇÃO MESTRE: Libera o frete para o Radar e destrava a tela do cliente
             await freteRef.update({
-              status: 'disponivel', // AJUSTE APLICADO: Alinhado com a Máquina de Estados do Frontend
+              status: 'disponivel', // É essa palavra mágica que acorda o motorista!
               pagamentoStatus: 'aprovado',
               dispatchStatus: 'em_andamento',
               pagoEm: FieldValue.serverTimestamp(),
@@ -100,15 +106,12 @@ export default async function handler(req, res) {
               atualizadoEm: FieldValue.serverTimestamp()
             });
             
-            console.log(`[WEBHOOK] Pagamento do Frete ${pedidoId} Aprovado.`);
+            console.log(`[SUCESSO WEBHOOK] Pagamento ${pedidoId} Aprovado. Frete lançado no Radar!`);
 
-            // // AJUSTE CTO: Desacoplamento.
-            // O webhook dispara a notificação no fundo e JÁ DEVOLVE a resposta 200 ao Mercado Pago.
-            // Se o Zap demorar, não quebra a transação do cliente.
             if (freteData.telefoneCliente) {
                dispararWhatsAppAsync(
                  freteData.telefoneCliente, 
-                 `✅ FretoGo: Seu pagamento do frete foi confirmado! Estamos localizando o melhor motorista na região.`
+                 `✅ FretoGo: Pagamento confirmado! A sua carga já está no Radar dos nossos motoristas. Acompanhe pelo app.`
                );
             }
           }
@@ -116,7 +119,7 @@ export default async function handler(req, res) {
       }
     }
     
-    // Devolve o 200 pro MP em menos de 1 segundo
+    // Devolve o 200 rápido pro Mercado Pago parar de ligar
     res.status(200).send('OK');
   } catch (err) {
     console.error(`[WEBHOOK ERRO CRÍTICO]:`, err);
