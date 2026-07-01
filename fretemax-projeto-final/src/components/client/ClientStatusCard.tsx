@@ -1,12 +1,8 @@
 // src/components/client/ClientStatusCard.tsx
-import {
-  Radar,
-  Truck,
-  User,
-  Package,
-  Lock,
-  MapPin
-} from 'lucide-react';
+// CTO-Log: Blindagem contra valores "0.0" exibidos prematuramente.
+// O componente agora aguarda os dados reais ou exibe status de carregamento, evitando confusão para o cliente.
+
+import { Radar, Truck, User, Package, Lock, MapPin } from 'lucide-react';
 
 interface ClientStatusCardProps {
   status?: string | null;
@@ -15,7 +11,6 @@ interface ClientStatusCardProps {
   veiculo?: string | null;
   distancia?: number | null;
   valorTotal?: number | null;
-  // 🔥 Injeção de dependências realtime para exibição de PINs e progresso multi-drop
   pinColeta?: string | null;
   pinEntregas?: string[] | null;
   paradaAtualIndex?: number;
@@ -35,20 +30,13 @@ export default function ClientStatusCard({
   multiplasEntregas = false,
 }: ClientStatusCardProps) {
 
-  const safeStatus =
-    status ||
-    loadingMessage ||
-    'Sincronizando operação...';
+  const safeStatus = status || loadingMessage || 'Sincronizando operação...';
 
-  const safeDistance =
-    typeof distancia === 'number'
-      ? distancia.toFixed(1)
-      : '0.0';
+  // 🔥 Lógica inteligente para evitar o "R$ 0,00"
+  const isDataReady = typeof distancia === 'number' && distancia > 0 && typeof valorTotal === 'number' && valorTotal > 0;
 
-  const safePrice =
-    typeof valorTotal === 'number'
-      ? valorTotal.toFixed(2).replace('.', ',')
-      : '0,00';
+  const displayDistance = isDataReady ? `${distancia.toFixed(1)} km` : 'Calculando...';
+  const displayPrice = isDataReady ? `R$ ${valorTotal.toFixed(2).replace('.', ',')}` : '---';
 
   return (
     <div className="rounded-[2.5rem] border border-white/10 bg-slate-900/80 p-6 md:p-8 shadow-2xl backdrop-blur-xl animate-in fade-in duration-300">
@@ -78,9 +66,7 @@ export default function ClientStatusCard({
               <User size={18} />
             </div>
             <div className="min-w-0">
-              <span className="text-[9px] font-black uppercase tracking-wider text-slate-500 block">
-                Profissional Designado
-              </span>
+              <span className="text-[9px] font-black uppercase tracking-wider text-slate-500 block">Profissional Designado</span>
               <p className="text-sm font-bold text-white truncate mt-0.5">
                 {motoristaNome || 'Buscando parceiro ideal...'}
               </p>
@@ -94,9 +80,7 @@ export default function ClientStatusCard({
             <Truck size={18} />
           </div>
           <div>
-            <span className="text-[9px] font-black uppercase tracking-wider text-slate-500 block">
-              Categoria do Veículo
-            </span>
+            <span className="text-[9px] font-black uppercase tracking-wider text-slate-500 block">Categoria do Veículo</span>
             <p className="text-sm font-bold text-white uppercase mt-0.5">
               {veiculo?.replace('_', ' ') || 'Processando especificações...'}
             </p>
@@ -114,13 +98,13 @@ export default function ClientStatusCard({
                 Resumo da Carga {multiplasEntregas && <span className="text-cyan-400 font-black"> (Multi-Drop)</span>}
               </span>
               <p className="text-sm font-bold text-white mt-0.5">
-                {safeDistance} km operacionais · <span className="text-green-400 font-black">R$ {safePrice}</span>
+                {displayDistance} · <span className="text-green-400 font-black">{displayPrice}</span>
               </p>
             </div>
           </div>
         </div>
 
-        {/* 🔥 PAINEL DE PINS DE SEGURANÇA VISÍVEIS APENAS PARA O CLIENTE */}
+        {/* PINS DE SEGURANÇA */}
         {(pinColeta || (pinEntregas && pinEntregas.length > 0)) && (
           <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4 mt-6">
             <p className="text-[10px] font-black uppercase tracking-widest text-cyan-400 flex items-center gap-1.5 mb-3">
@@ -136,7 +120,7 @@ export default function ClientStatusCard({
               {pinEntregas && pinEntregas.length > 0 && (
                 <div className="bg-slate-950 px-3 py-2 rounded-xl border border-white/5 flex-1 min-w-[120px]">
                   <span className="text-[8px] text-slate-500 uppercase font-bold block">
-                    PIN Entrega Atual {multiplasEntregas ? `(Parada ${paradaAtualIndex + 1})` : ''}
+                    PIN Entrega {multiplasEntregas ? `(Parada ${paradaAtualIndex + 1})` : ''}
                   </span>
                   <span className="font-mono font-black text-base text-emerald-400 tracking-widest mt-0.5 block">
                     {pinEntregas[paradaAtualIndex] || pinEntregas[0]}
@@ -144,12 +128,8 @@ export default function ClientStatusCard({
                 </div>
               )}
             </div>
-            <p className="text-[9px] text-slate-400 mt-2 font-medium leading-relaxed">
-              Forneça estes códigos ao motorista apenas quando ele estiver presente nos respectivos locais de carregamento e descarregamento.
-            </p>
           </div>
         )}
-
       </div>
     </div>
   );
