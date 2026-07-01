@@ -1,3 +1,6 @@
+// DriverActiveTrip.tsx
+// CTO-Log: Lógica Multi-Drop de PINs validada. Textos ajustados para maior clareza do motorista durante múltiplas paradas.
+
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '../../firebase';
@@ -66,24 +69,27 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
         
         await dispatchRealtimeService.atualizarStatusTrip(frete.id, 'em_transporte');
       } 
-      // Validação do PIN de Entrega (Multi-drop)
+      // Validação do PIN de Entrega (Multi-drop ou Simples)
       else { 
         const pinEntregas = frete.pinEntregas || [];
-        // Se houver array de PINs (Multi-drop) ou se for um frete simples com 1 destino
         const expectedPin = pinEntregas.length > 0 ? pinEntregas[paradaAtualIndex] : frete.pinEntrega;
 
         if (pinValue !== expectedPin) { setPinError('PIN de entrega incorreto.'); setActionLoading(false); return; }
         
-        // Verifica se há mais paradas ou se é a última entrega
+        // Verifica se há mais paradas no trajeto
         if (pinEntregas.length > 0 && paradaAtualIndex + 1 < pinEntregas.length) {
+           // Incrementa a parada e continua a viagem
            await updateDoc(doc(db, 'fretes', frete.id), { paradaAtualIndex: paradaAtualIndex + 1 });
         } else {
+           // Era a última parada. Finaliza a viagem para o motorista receber.
            await dispatchRealtimeService.atualizarStatusTrip(frete.id, 'entregue');
         }
       }
       setIsPinModalOpen(false); setPinValue('');
     } catch (e) { setPinError('Erro ao validar.'); } finally { setActionLoading(false); }
   };
+
+  const isMultiDrop = frete.pinEntregas && frete.pinEntregas.length > 1;
 
   return (
     <>
@@ -93,10 +99,10 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
         <div className="mb-4 text-center">
           <h2 className="text-xl font-black text-cyan-400 uppercase tracking-widest">
             {frete.status === 'aceito' || frete.status === 'indo_coleta' || frete.status === 'chegou_coleta' || frete.status === 'coletando' 
-              ? 'Etapa 1: Ir para a Coleta' 
-              : frete.pinEntregas && frete.pinEntregas.length > 1 
+              ? 'Etapa 1: Retirada da Carga' 
+              : isMultiDrop 
                 ? `Etapa 2: Entrega ${paradaAtualIndex + 1} de ${frete.pinEntregas.length}`
-                : 'Etapa 2: Ir para Entrega Final'}
+                : 'Etapa 2: Entrega Final'}
           </h2>
         </div>
 
@@ -106,26 +112,26 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
         
         <div className="space-y-4">
           {frete.status === 'aceito' && (
-            <button onClick={() => handleStatusUpdate('indo_coleta')} disabled={actionLoading} className="w-full bg-blue-600 py-4 font-black uppercase tracking-widest rounded-xl disabled:opacity-50">
-              Deslocar p/ Coleta
+            <button onClick={() => handleStatusUpdate('indo_coleta')} disabled={actionLoading} className="w-full bg-blue-600 py-4 font-black uppercase tracking-widest rounded-xl disabled:opacity-50 hover:bg-blue-500 transition-colors">
+              Deslocar para Coleta
             </button>
           )}
           
           {frete.status === 'indo_coleta' && (
-            <button onClick={() => handleStatusUpdate('chegou_coleta')} disabled={actionLoading} className="w-full bg-indigo-500 py-4 font-black uppercase tracking-widest rounded-xl text-white disabled:opacity-50">
+            <button onClick={() => handleStatusUpdate('chegou_coleta')} disabled={actionLoading} className="w-full bg-indigo-500 py-4 font-black uppercase tracking-widest rounded-xl text-white disabled:opacity-50 hover:bg-indigo-400 transition-colors">
               Cheguei no Local
             </button>
           )}
 
           {frete.status === 'chegou_coleta' && (
-            <button onClick={() => handleStatusUpdate('coletando')} disabled={actionLoading} className="w-full bg-amber-500 py-4 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50">
-              Iniciar Coleta
+            <button onClick={() => handleStatusUpdate('coletando')} disabled={actionLoading} className="w-full bg-amber-500 py-4 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50 hover:bg-amber-400 transition-colors">
+              Iniciar Carregamento
             </button>
           )}
 
           {['coletando', 'em_transporte'].includes(frete.status) && (
-            <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full bg-cyan-500 py-4 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50 shadow-[0_0_20px_rgba(6,182,212,0.4)]">
-              Validar PIN para {frete.status === 'coletando' ? 'Sair com Carga' : 'Finalizar Entrega'}
+            <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full bg-cyan-500 py-4 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50 shadow-[0_0_20px_rgba(6,182,212,0.4)] hover:bg-cyan-400 transition-colors">
+              Validar PIN - {frete.status === 'coletando' ? 'Sair com Carga' : (isMultiDrop && paradaAtualIndex + 1 < frete.pinEntregas.length ? 'Próximo Destino' : 'Finalizar Entrega')}
             </button>
           )}
         </div>
@@ -143,7 +149,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
               initial={{ scale: 0.9, y: 50 }} 
               animate={{ scale: 1, y: 0 }} 
               exit={{ scale: 0.9, y: 50 }} 
-              className="bg-slate-900 p-8 rounded-3xl w-full max-w-sm border border-cyan-500"
+              className="bg-slate-900 p-8 rounded-3xl w-full max-w-sm border border-cyan-500 shadow-2xl"
             >
               <div className="flex justify-center mb-4">
                 <LockKeyhole size={40} className="text-cyan-400" />
@@ -151,8 +157,8 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
               <h3 className="text-white text-center font-black mb-2 uppercase">
                 {frete.status === 'coletando' ? 'PIN do Embarcador' : 'PIN do Recebedor'}
               </h3>
-              <p className="text-slate-400 text-xs text-center mb-6">
-                Peça os 4 dígitos ao responsável no local para liberar o sistema.
+              <p className="text-slate-400 text-xs text-center mb-6 font-medium">
+                Peça os 4 dígitos ao responsável no local para liberar a próxima etapa.
               </p>
               
               <input 
@@ -164,13 +170,13 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
                 placeholder="0000"
               />
               
-              {pinError && <p className="text-red-400 font-bold text-xs text-center mb-4 uppercase">{pinError}</p>}
+              {pinError && <p className="text-red-400 font-bold text-xs text-center mb-4 uppercase animate-pulse">{pinError}</p>}
               
               <div className="flex gap-2">
-                <button onClick={() => { setIsPinModalOpen(false); setPinValue(''); setPinError(''); }} className="w-1/3 bg-transparent border border-white/10 py-4 font-black uppercase text-xs rounded-xl text-slate-400">
+                <button onClick={() => { setIsPinModalOpen(false); setPinValue(''); setPinError(''); }} className="w-1/3 bg-transparent border border-white/10 py-4 font-black uppercase text-xs rounded-xl text-slate-400 hover:bg-white/5 transition-colors">
                   Voltar
                 </button>
-                <button onClick={handlePinSubmit} disabled={actionLoading || pinValue.length < 4} className="w-2/3 bg-cyan-500 py-4 font-black uppercase tracking-widest rounded-xl text-slate-950 disabled:opacity-50">
+                <button onClick={handlePinSubmit} disabled={actionLoading || pinValue.length < 4} className="w-2/3 bg-cyan-500 py-4 font-black uppercase tracking-widest rounded-xl text-slate-950 disabled:opacity-50 hover:bg-cyan-400 transition-colors">
                   {actionLoading ? 'Validando...' : 'Confirmar'}
                 </button>
               </div>
