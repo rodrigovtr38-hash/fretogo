@@ -2,6 +2,7 @@
 // CTO-Log: 1. Remoção da "guilhotina" de sessão. 2. Blindagem de variáveis nulas na montagem do mapa.
 // CTO-Log 3: Correção do Botão de Estorno (UI Fix). Injeção de Link Recovery via URL Parameters (WhatsApp Tracking).
 // CTO-Log 4: Injeção de lógica de Reset Automático após 'finalizado' e Regra de Bloqueio de Cancelamento após o Aceite do Motorista.
+// CTO-Log 5: Blindagem total (Optional Chaining) contra TypeScript Strict Mode "Object is possibly 'null'".
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
@@ -448,7 +449,7 @@ export default function Cliente() {
 
   const handleWhatsAppClick = () => {
     if (!orderData?.motoristaZap) return;
-    window.open(`https://wa.me/55${orderData.motoristaZap.replace(/\D/g, '')}`, '_blank');
+    window.open(`https://wa.me/55${orderData?.motoristaZap.replace(/\D/g, '')}`, '_blank');
   };
 
   const resetFlow = () => {
@@ -477,8 +478,11 @@ export default function Cliente() {
     setDeferredPrompt(null);
   };
 
-  // 🔥 CTO FIX: Regras de visibilidade do Botão de Estorno
-  const podeCancelar = orderData && ['aguardando_pagamento', 'disponivel', 'buscando_motorista', 'agendado'].includes(orderData.status);
+  // 🔥 CTO FIX: Regras de visibilidade do Botão de Estorno (Blindado contra Object is possibly null)
+  const podeCancelar = orderData && ['aguardando_pagamento', 'agendado'].includes(orderData?.status || '');
+  const textoCancelar = ((orderData as any)?.pagamentoStatus === 'aprovado' || (orderData as any)?.pagamentoStatus === 'confirmado') 
+    ? 'Cancelar Pedido' 
+    : 'Cancelar Pedido e Estornar PIX';
 
   return (
     <div className="relative min-h-[100dvh] w-full flex flex-col bg-slate-50 text-slate-800 font-sans selection:bg-blue-500/20">
@@ -760,12 +764,12 @@ export default function Cliente() {
                   <MapaCliente 
                     origem={origemGPS} 
                     destino={destinoGPS} 
-                    motoristaId={orderData.motoristaId} 
+                    motoristaId={orderData?.motoristaId} 
                     paradasExtras={paradasGPS}
                   />
                 )}
                 
-                {['aguardando_pagamento', 'disponivel', 'buscando_motorista'].includes(orderData.status) && (
+                {['aguardando_pagamento'].includes(orderData?.status || '') && (
                   <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-white/60 backdrop-blur-md">
                     <div className="relative mb-8">
                       <div className="absolute -inset-4 animate-pulse rounded-full bg-blue-500/20 blur-xl"></div>
@@ -775,10 +779,10 @@ export default function Cliente() {
                       </div>
                     </div>
                     <h3 className="text-2xl font-black text-slate-900 tracking-tighter text-center">
-                      {orderData.status === 'aguardando_pagamento' ? 'Confirmando Pagamento...' : loadingMessage}
+                      {orderData?.status === 'aguardando_pagamento' ? 'Confirmando Pagamento...' : loadingMessage}
                     </h3>
                     <p className="mt-3 text-sm font-bold text-slate-500 uppercase tracking-widest text-center max-w-xs">
-                      {orderData.status === 'aguardando_pagamento' ? 'Aguardando o retorno do banco.' : 'Nosso radar criptografado está localizando o melhor parceiro para sua carga.'}
+                      {orderData?.status === 'aguardando_pagamento' ? 'Aguardando o retorno do banco.' : 'Nosso radar criptografado está localizando o melhor parceiro para sua carga.'}
                     </p>
                   </div>
                 )}
@@ -791,7 +795,7 @@ export default function Cliente() {
                     onClick={() => setShowCancelModal(true)}
                     className="w-full flex items-center justify-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 py-4 rounded-xl font-black uppercase text-xs tracking-widest transition-all"
                   >
-                    <XCircle size={18} /> Cancelar Pedido e Estornar PIX
+                    <XCircle size={18} /> {textoCancelar}
                   </button>
                 ) : (
                   <button 
@@ -803,7 +807,7 @@ export default function Cliente() {
                 )}
               </div>
 
-              {orderData.motoristaNome && (
+              {orderData?.motoristaNome && (
                 <div className="border-t border-slate-100 bg-slate-50/50 p-6 md:p-8">
                    <div className="flex flex-col md:flex-row justify-between items-center gap-6">
                       <div className="flex items-center gap-4 w-full md:w-auto">
@@ -812,12 +816,12 @@ export default function Cliente() {
                         </div>
                         <div>
                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Parceiro Designado</p>
-                          <p className="text-xl font-black text-slate-900 leading-none">{orderData.motoristaNome}</p>
-                          <p className="text-xs font-bold text-slate-500 mt-2 uppercase">{orderData.veiculo?.replace('_', ' ') || 'Veículo Padrão'}</p>
+                          <p className="text-xl font-black text-slate-900 leading-none">{orderData?.motoristaNome}</p>
+                          <p className="text-xs font-bold text-slate-500 mt-2 uppercase">{orderData?.veiculo?.replace('_', ' ') || 'Veículo Padrão'}</p>
                         </div>
                       </div>
                       
-                      {orderData.motoristaZap && (
+                      {orderData?.motoristaZap && (
                         <div className="flex w-full md:w-auto gap-3">
                           <button onClick={handleWhatsAppClick} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white px-6 py-4 rounded-xl font-black uppercase text-xs tracking-widest transition-all shadow-lg shadow-green-500/30">
                              <MessageCircle size={18} /> Contatar Motorista
@@ -828,21 +832,21 @@ export default function Cliente() {
                 </div>
               )}
 
-              {['aceito', 'indo_coleta', 'chegou_coleta', 'coletando'].includes(orderData.status) && (
+              {['aceito', 'indo_coleta', 'chegou_coleta', 'coletando'].includes(orderData?.status || '') && (
                 <div className="border-t border-slate-100 bg-white p-6 md:p-8 text-center">
                    <p className="text-xs font-black uppercase tracking-widest text-slate-400 mb-3 flex items-center justify-center gap-2"><Lock size={14}/> Segurança na Coleta</p>
-                   <p className="text-4xl md:text-5xl font-mono font-black text-slate-900 tracking-[0.2em]">{orderData.pinColeta}</p>
+                   <p className="text-4xl md:text-5xl font-mono font-black text-slate-900 tracking-[0.2em]">{orderData?.pinColeta}</p>
                    <p className="text-[10px] font-bold text-slate-500 uppercase mt-3">Informe este PIN ao motorista apenas no momento do embarque da carga.</p>
                 </div>
               )}
 
-              {['em_transporte', 'finalizando'].includes(orderData.status) && (
+              {['em_transporte', 'finalizando'].includes(orderData?.status || '') && (
                 <div className="border-t border-slate-100 bg-white p-6 md:p-8 text-center relative overflow-hidden">
                    <div className="absolute inset-0 bg-blue-50/50"></div>
                    <div className="relative z-10">
-                     <p className="text-xs font-black uppercase tracking-widest text-blue-500 mb-3 flex items-center justify-center gap-2"><Lock size={14}/> PIN de Segurança - Entrega {orderData.multiplasEntregas ? `${(orderData.paradaAtualIndex || 0) + 1} de ${(orderData.paradas?.length || 1)}` : 'Final'}</p>
+                     <p className="text-xs font-black uppercase tracking-widest text-blue-500 mb-3 flex items-center justify-center gap-2"><Lock size={14}/> PIN de Segurança - Entrega {orderData?.multiplasEntregas ? `${(orderData?.paradaAtualIndex || 0) + 1} de ${(orderData?.paradas?.length || 1)}` : 'Final'}</p>
                      <p className="text-4xl md:text-5xl font-mono font-black text-blue-900 tracking-[0.2em]">
-                       {orderData.multiplasEntregas && orderData.pinEntregas ? orderData.pinEntregas[orderData.paradaAtualIndex || 0] : (orderData.pinEntregas ? orderData.pinEntregas[0] : '---')}
+                       {orderData?.multiplasEntregas && orderData?.pinEntregas ? orderData?.pinEntregas[orderData?.paradaAtualIndex || 0] : (orderData?.pinEntregas ? orderData?.pinEntregas[0] : '---')}
                      </p>
                      <p className="text-[10px] font-bold text-slate-500 uppercase mt-3">Informe ao motorista apenas após conferir a mercadoria descarregada.</p>
                    </div>
