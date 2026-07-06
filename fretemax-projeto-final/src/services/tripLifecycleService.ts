@@ -1,3 +1,4 @@
+// src/services/tripLifecycleService.ts
 import {
   doc,
   getDoc,
@@ -152,6 +153,27 @@ export class TripLifecycleService {
           ...extras,
         },
       );
+
+      // GATILHO AUTOMÁTICO: Se virou DISPONIVEL, inicia busca por motoristas
+
+      if (statusReal === AppTripState.DISPONIVEL) {
+        try {
+          const fretePayload = {
+            id: freteId,
+            ...data,
+            status: statusReal,
+          } as FretePayload;
+                
+          // Dispara matching em background (não bloqueia retorno)
+          DispatchQueueRuntime.iniciarFila(fretePayload).catch(err => 
+            console.error('[AUTO_DISPATCH_ERROR]', err)
+          );
+                
+          console.log(`[TRIP_LIFECYCLE] Auto-dispatch iniciado para frete ${freteId}`);
+        } catch (dispatchError) {
+          console.error('[TRIP_LIFECYCLE] Falha ao iniciar auto-dispatch:', dispatchError);
+        }
+      }
 
       return true;
     } catch (error) {
