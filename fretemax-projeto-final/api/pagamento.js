@@ -86,9 +86,9 @@ export default async function handler(req, res) {
         },
         statement_descriptor: "FRETOGO", 
         back_urls: {
-          success: `https://${req.headers.host}/cliente`,
-          failure: `https://${req.headers.host}/cliente`,
-          pending: `https://${req.headers.host}/cliente`
+          success: `https://${req.headers.host}/cliente?order=${idPedido}`,
+          failure: `https://${req.headers.host}/cliente?order=${idPedido}`,
+          pending: `https://${req.headers.host}/cliente?order=${idPedido}`
         },
         auto_return: "approved"
       })
