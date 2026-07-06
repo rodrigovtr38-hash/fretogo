@@ -97,6 +97,9 @@ export class DriverMatchingService {
       const motoristas: MatchedDriver[] = [];
       const destinoFreteFormatado = payload.cidadeDestino?.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
 
+      // DEBUG: Loga quantos motoristas passaram na query inicial
+      console.log(`[DriverMatching] Motoristas encontrados na Query Base: ${snapshot.size}`);
+
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
         
