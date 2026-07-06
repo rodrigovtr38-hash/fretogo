@@ -187,6 +187,7 @@ export default function Cliente() {
     const orderFromUrl = params.get('order');
 
     if (orderFromUrl) {
+      localStorage.removeItem('fretogo_pending_payment');
       localStorage.setItem('fretogo_current_order', orderFromUrl);
       setCurrentOrderId(orderFromUrl);
       setStep('busca');
@@ -335,7 +336,9 @@ export default function Cliente() {
 
   const handleContratar = async () => {
     if (loadingRoute || loadingPayment || isProcessingPayment.current) return;
-    isProcessingPayment.current = true; setLoadingPayment(true);
+    isProcessingPayment.current = true;
+    setLoadingPayment(true);
+    await new Promise(resolve => setTimeout(resolve, 50));
     
     if (tipoFrete === 'agendado' && dataAgendada) {
       const agoraTimestamp = Date.now();
