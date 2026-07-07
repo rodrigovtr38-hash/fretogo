@@ -772,7 +772,7 @@ export default function Cliente() {
                   />
                 )}
                 
-                {['aguardando_pagamento'].includes(orderData?.status || '') && (
+                {['aguardando_pagamento', 'disponivel', 'buscando_motorista'].includes(orderData?.status || '') && (
                   <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-white/60 backdrop-blur-md">
                     <div className="relative mb-8">
                       <div className="absolute -inset-4 animate-pulse rounded-full bg-blue-500/20 blur-xl"></div>
