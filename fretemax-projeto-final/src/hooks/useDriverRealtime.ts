@@ -28,11 +28,12 @@ export const useDriverRealtime = (
     activeDriverRef.current = driverId;
     initializedRef.current = true;
 
-    // 🔥 CTO FIX P0 #3: REMOVIDA LIGAÇÃO PREMATURA DO GPS AQUI. 
-    // O locationRealtimeService.start() agora é chamado EXCLUSIVAMENTE 
-    // no dispatchRealtimeService.aceitarCorrida(), garantindo que só ligamos
-    // o rastreamento pesado (e custoso no Firebase) quando há frete ativo.
-    if (!isOnline) {
+    // 🔥 CTO FIX REVERTIDO: Se o motorista está ONLINE, 
+    // a telemetria GPS TEM que estar ligada e transmitindo. 
+    // Sem isso, a Vercel não acha ele na caixa de busca e dá SEM_MOTORISTA.
+    if (isOnline) {
+      locationRealtimeService.start();
+    } else {
       locationRealtimeService.stop();
     }
 
