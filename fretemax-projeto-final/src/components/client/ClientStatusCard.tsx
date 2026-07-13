@@ -1,53 +1,52 @@
 // src/components/client/ClientStatusCard.tsx
-// CTO-Log: Blindagem contra valores "0.0" exibidos prematuramente.
-// O componente agora aguarda os dados reais ou exibe status de carregamento, evitando confusão para o cliente.
+// CTO-Log: Blindagem de Status para suportar 'Tempo Esgotado' e Motoristas Offline graciosamente.
 
-import { Radar, Truck, User, Package, Lock, MapPin } from 'lucide-react';
+import { Radar, Truck, User, Package, Lock, AlertTriangle } from 'lucide-react';
 
 interface ClientStatusCardProps {
-  status?: string | null;
-  loadingMessage?: string | null;
-  motoristaNome?: string | null;
-  veiculo?: string | null;
-  distancia?: number | null;
-  valorTotal?: number | null;
-  pinColeta?: string | null;
-  pinEntregas?: string[] | null;
-  paradaAtualIndex?: number;
-  multiplasEntregas?: boolean;
+  orderData: any;
 }
 
-export default function ClientStatusCard({
-  status,
-  loadingMessage,
-  motoristaNome,
-  veiculo,
-  distancia,
-  valorTotal,
-  pinColeta,
-  pinEntregas,
-  paradaAtualIndex = 0,
-  multiplasEntregas = false,
-}: ClientStatusCardProps) {
+export default function ClientStatusCard({ orderData }: ClientStatusCardProps) {
+  const status = orderData?.status;
+  const motoristaNome = orderData?.motoristaNome;
+  const veiculo = orderData?.veiculo;
+  const distancia = orderData?.distancia;
+  const valorTotal = orderData?.valorTotal;
+  const pinColeta = orderData?.pinColeta;
+  const pinEntregas = orderData?.pinEntregas;
+  const paradaAtualIndex = orderData?.paradaAtualIndex || 0;
+  const multiplasEntregas = orderData?.multiplasEntregas || false;
 
-  const safeStatus = status || loadingMessage || 'Sincronizando operação...';
+  let safeStatus = 'Sincronizando operação...';
+  if (status === 'aguardando_pagamento') safeStatus = 'Aguardando Pagamento';
+  if (status === 'disponivel') safeStatus = 'Buscando Parceiros';
+  if (status === 'sem_motorista' || status === 'expirado') safeStatus = 'Tempo de Busca Esgotado';
+  if (status === 'cancelado') safeStatus = 'Corrida Cancelada';
+  if (['aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 'em_transporte', 'finalizando', 'finalizado'].includes(status)) {
+    safeStatus = status;
+  }
 
-  // 🔥 Lógica inteligente para evitar o "R$ 0,00"
   const isDataReady = typeof distancia === 'number' && distancia > 0 && typeof valorTotal === 'number' && valorTotal > 0;
-
   const displayDistance = isDataReady ? `${distancia.toFixed(1)} km` : 'Calculando...';
   const displayPrice = isDataReady ? `R$ ${valorTotal.toFixed(2).replace('.', ',')}` : '---';
+
+  const showWarning = status === 'sem_motorista' || status === 'expirado';
 
   return (
     <div className="rounded-[2.5rem] border border-white/10 bg-slate-900/80 p-6 md:p-8 shadow-2xl backdrop-blur-xl animate-in fade-in duration-300">
 
       {/* HEADER DE STATUS */}
       <div className="mb-8 flex items-center gap-4">
-        <div className="bg-cyan-500/10 p-3 rounded-2xl border border-cyan-500/20">
-          <Radar className="h-6 w-6 animate-spin text-cyan-400" style={{ animationDuration: '3s' }} />
+        <div className={`p-3 rounded-2xl border ${showWarning ? 'bg-amber-500/10 border-amber-500/20' : 'bg-cyan-500/10 border-cyan-500/20'}`}>
+          {showWarning ? (
+            <AlertTriangle className="h-6 w-6 text-amber-400" />
+          ) : (
+            <Radar className={`h-6 w-6 text-cyan-400 ${['disponivel', 'aguardando_pagamento'].includes(status) ? 'animate-spin' : ''}`} style={{ animationDuration: '3s' }} />
+          )}
         </div>
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-400">
+          <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${showWarning ? 'text-amber-400' : 'text-cyan-400'}`}>
             Torre de Monitoramento
           </p>
           <h2 className="text-xl md:text-2xl font-black text-white uppercase italic tracking-tight mt-0.5">
@@ -67,8 +66,8 @@ export default function ClientStatusCard({
             </div>
             <div className="min-w-0">
               <span className="text-[9px] font-black uppercase tracking-wider text-slate-500 block">Profissional Designado</span>
-              <p className="text-sm font-bold text-white truncate mt-0.5">
-                {motoristaNome || 'Buscando parceiro ideal...'}
+              <p className={`text-sm font-bold truncate mt-0.5 ${showWarning ? 'text-amber-400/80' : 'text-white'}`}>
+                {motoristaNome || (showWarning ? 'Sem motoristas online na região' : 'Buscando parceiro ideal...')}
               </p>
             </div>
           </div>
