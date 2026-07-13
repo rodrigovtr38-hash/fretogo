@@ -1,14 +1,13 @@
 // src/pages/Cliente.tsx
-// CTO-Log: 1. Remoção da "guilhotina" de sessão. 2. Blindagem de variáveis nulas na montagem do mapa.
-// CTO-Log 3: Correção do Botão de Estorno (UI Fix). Injeção de Link Recovery via URL Parameters (WhatsApp Tracking).
-// CTO-Log 4: Injeção de lógica de Reset Automático após 'finalizado' e Regra de Bloqueio de Cancelamento após o Aceite do Motorista.
-// CTO-Log 5: Blindagem total (Optional Chaining) contra TypeScript Strict Mode "Object is possibly 'null'".
+// CTO-Log: 1. Remoção da "guilhotina" de sessão ('sem_motorista').
+// CTO-Log 2. Injeção de Tela de Espera com Botões de Re-Busca e Estorno Direto.
+// CTO-Log 3. Blindagem total de UX para manter o cliente informado.
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore'; 
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Sparkles, User, Package, CalendarDays, Plus, Trash2, Flame, Search, Lock, HeadphonesIcon } from 'lucide-react';
+import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Sparkles, User, Package, CalendarDays, Plus, Trash2, Flame, Search, Lock, HeadphonesIcon, RefreshCw } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import ChatFrete from '../components/ChatFrete';
 import ClientStatusCard from '../components/client/ClientStatusCard';
@@ -20,7 +19,7 @@ import { NotificationService } from '../services/notificationService';
 
 interface AddressData { cep: string; bairro: string; rua: string; num: string; lat?: number; lng?: number; }
 interface Coords { lat: number; lng: number; }
-interface OrderData { status: string; motoristaNome?: string; motoristaZap?: string; rotaInteligente?: boolean; motoristaId?: string; veiculo?: string; distancia?: number; valorTotal?: number; origemLat?: number; origemLng?: number; destinoLat?: number; destinoLng?: number; paradas?: any[]; pinColeta?: string; pinEntregas?: string[]; multiplasEntregas?: boolean; paradaAtualIndex?: number; }
+interface OrderData { status: string; motoristaNome?: string; motoristaZap?: string; rotaInteligente?: boolean; motoristaId?: string; veiculo?: string; distancia?: number; valorTotal?: number; origemLat?: number; origemLng?: number; destinoLat?: number; destinoLng?: number; paradas?: any[]; pinColeta?: string; pinEntregas?: string[]; multiplasEntregas?: boolean; paradaAtualIndex?: number; pagamentoStatus?: string; }
 type VehicleType = 'moto' | 'carro_pequeno' | 'utilitario' | 'toco' | 'truck' | 'carreta_ls' | 'bi_trem_cegonha';
 
 const VEHICLE_CONFIG: Record<VehicleType, { nome: string; fator: number }> = {
@@ -170,10 +169,10 @@ export default function Cliente() {
       const interval = setInterval(() => {
         setRaioBusca(prev => {
           const novoRaio = prev >= 50 ? 5 : prev + 5;
-          if (novoRaio === 10) setLoadingMessage('Ampliando busca para 10km...');
+          if (novoRaio === 10) setLoadingMessage('Notificando parceiros offline na região...');
           if (novoRaio === 20) setLoadingMessage('Buscando em 20km para garantir seu frete...');
           if (novoRaio === 30) setLoadingMessage('Rede nacional ativada - 30km...');
-          if (novoRaio === 50) setLoadingMessage('Busca máxima - encontrando o melhor parceiro...');
+          if (novoRaio === 50) setLoadingMessage('Busca máxima - aguardando motorista abrir o app...');
           return novoRaio;
         });
       }, 8000);
@@ -181,7 +180,6 @@ export default function Cliente() {
     }
   }, [step, orderData?.status]);
 
-  // 🔥 CTO FIX: Recupera Estado Local & Lê Parâmetros da URL (Link do WhatsApp Tracking)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const orderFromUrl = params.get('order');
@@ -191,7 +189,6 @@ export default function Cliente() {
       localStorage.setItem('fretogo_current_order', orderFromUrl);
       setCurrentOrderId(orderFromUrl);
       setStep('busca');
-      // Limpa a URL para não prender o usuário nesse frete se ele atualizar a página futuramente
       window.history.replaceState({}, document.title, window.location.pathname);
       return;
     }
@@ -212,12 +209,10 @@ export default function Cliente() {
     if (savedOrder && savedOrder !== 'null') { setCurrentOrderId(savedOrder); setStep('busca'); }
   }, []);
 
-  // Salva Backup Form
   useEffect(() => {
     localStorage.setItem('fretogo_form_backup', JSON.stringify({ nome, coleta, entregas, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp, documento }));
   }, [nome, coleta, entregas, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp, documento]);
 
-  // Realtime do Frete
   useEffect(() => {
     if (!currentOrderId) return;
     const unsubscribe = onSnapshot(doc(db, 'fretes', currentOrderId), (snap) => {
@@ -241,7 +236,6 @@ export default function Cliente() {
          setParadasGPS(data.paradas.slice(0, -1).map((p: any) => ({ lat: p.lat, lng: p.lng })));
       }
 
-      // 🔥 CTO FIX: Adicionada a regra 'finalizado'. Quando o motorista encerra, o app volta para Home com Sucesso.
       if (data.status === 'finalizado') {
         showToast('Operação Finalizada com Sucesso! Agradecemos por escolher a FretoGo.', 'success');
         localStorage.removeItem('fretogo_current_order'); 
@@ -250,8 +244,9 @@ export default function Cliente() {
         return;
       }
 
-      if ([TripState.CANCELADO, TripState.EXPIRADO, 'erro_pagamento', 'sem_motorista'].includes(data.status as any)) {
-        showToast(data.status === TripState.CANCELADO ? 'Frete cancelado.' : 'Sessão expirada ou sem motoristas na região.', 'warning');
+      // CTO FIX: Removido 'sem_motorista' e 'expirado' da guilhotina automática. Apenas erros críticos derrubam a tela.
+      if (['cancelado', 'erro_pagamento'].includes(data.status as any)) {
+        showToast(data.status === 'cancelado' ? 'Frete cancelado.' : 'Erro de pagamento.', 'warning');
         localStorage.removeItem('fretogo_current_order'); 
         setCurrentOrderId(null); 
         setStep('form');
@@ -444,10 +439,21 @@ export default function Cliente() {
     if (!currentOrderId || isCancelling) return;
     setIsCancelling(true);
     try {
-      await updateDoc(doc(db, 'fretes', currentOrderId), { status: TripState.CANCELADO, canceladoEm: serverTimestamp(), canceladoPor: 'cliente' });
+      await updateDoc(doc(db, 'fretes', currentOrderId), { status: 'cancelado', canceladoEm: serverTimestamp(), canceladoPor: 'cliente' });
       setShowCancelModal(false);
     } catch { showToast('Falha ao cancelar.', 'error'); } 
     finally { setIsCancelling(false); }
+  };
+
+  const handleRetrySearch = async () => {
+    if (!currentOrderId) return;
+    showToast("Reativando radares...", "success");
+    try {
+      await updateDoc(doc(db, 'fretes', currentOrderId), {
+        status: 'disponivel',
+        updatedAt: serverTimestamp()
+      });
+    } catch { showToast('Erro ao reiniciar busca.', 'error'); }
   };
 
   const handleWhatsAppClick = () => {
@@ -481,11 +487,10 @@ export default function Cliente() {
     setDeferredPrompt(null);
   };
 
-  // 🔥 CTO FIX: Regras de visibilidade do Botão de Estorno (Blindado contra Object is possibly null)
-  const podeCancelar = orderData && ['aguardando_pagamento', 'agendado'].includes(orderData?.status || '');
-  const textoCancelar = ((orderData as any)?.pagamentoStatus === 'aprovado' || (orderData as any)?.pagamentoStatus === 'confirmado') 
-    ? 'Cancelar Pedido' 
-    : 'Cancelar Pedido e Estornar PIX';
+  const podeCancelar = orderData && ['aguardando_pagamento', 'agendado', 'sem_motorista', 'expirado'].includes(orderData?.status || '');
+  const textoCancelar = ((orderData as any)?.pagamentoStatus === 'aprovado' || (orderData as any)?.pagamentoStatus === 'confirmado' || orderData?.status === 'sem_motorista' || orderData?.status === 'expirado') 
+    ? 'Cancelar Pedido e Estornar PIX'
+    : 'Cancelar Pedido';
 
   return (
     <div className="relative min-h-[100dvh] w-full flex flex-col bg-slate-50 text-slate-800 font-sans selection:bg-blue-500/20">
@@ -772,6 +777,28 @@ export default function Cliente() {
                   />
                 )}
                 
+                {/* 🛡️ CTO FIX: Tela de Falha na Busca (Congelamento Seguro com Botões de Reembolso) */}
+                {['sem_motorista', 'expirado'].includes(orderData?.status || '') && (
+                  <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-white/90 backdrop-blur-xl p-6 text-center animate-in fade-in zoom-in duration-300">
+                    <div className="bg-amber-100 p-4 rounded-full mb-6 border border-amber-200 shadow-inner">
+                      <AlertTriangle className="h-12 w-12 text-amber-500" />
+                    </div>
+                    <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-2">Sem Parceiros no Raio</h3>
+                    <p className="text-sm font-bold text-slate-500 max-w-md mb-8">
+                      Nenhum motorista disponível na região aceitou a corrida a tempo. O que você deseja fazer agora?
+                    </p>
+                    <div className="flex flex-col gap-4 w-full max-w-sm">
+                      <button onClick={handleRetrySearch} className="w-full flex items-center justify-center gap-2 py-4 bg-blue-600 text-white rounded-[1.25rem] font-black uppercase tracking-widest text-xs shadow-lg hover:bg-blue-700 hover:scale-[1.02] transition-all">
+                        <RefreshCw size={18} /> Ampliar Busca e Tentar Novamente
+                      </button>
+                      <button onClick={() => setShowCancelModal(true)} className="w-full flex items-center justify-center gap-2 py-4 bg-red-50 text-red-600 border border-red-200 rounded-[1.25rem] font-black uppercase tracking-widest text-xs hover:bg-red-100 transition-all">
+                        <XCircle size={18} /> Cancelar e Reembolsar PIX
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Loading Padrão da Busca */}
                 {['aguardando_pagamento', 'disponivel', 'buscando_motorista'].includes(orderData?.status || '') && (
                   <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-white/60 backdrop-blur-md">
                     <div className="relative mb-8">
@@ -791,7 +818,6 @@ export default function Cliente() {
                 )}
               </div>
 
-              {/* 🔥 CTO FIX: Barra de Ações Inferior (Botão de Cancelar Posicionado Corretamente) */}
               <div className="bg-white border-t border-slate-100 p-4 md:p-6 flex flex-col gap-3">
                 {podeCancelar ? (
                   <button 
