@@ -2,6 +2,7 @@
 // CTO-Log: 1. Remoção da "guilhotina" de sessão ('sem_motorista').
 // CTO-Log 2. Injeção de Tela de Espera com Botões de Re-Busca e Estorno Direto.
 // CTO-Log 3. Blindagem total de UX para manter o cliente informado.
+// CTO-Log 4. Integração Definitiva da API de Reembolso do Mercado Pago (Ponte Financeira).
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
@@ -435,14 +436,39 @@ export default function Cliente() {
     } finally { setLoadingPayment(false); isProcessingPayment.current = false; }
   };
 
+  // 🔥 CTO FIX: Função completa de Cancelamento integrando a API de Estorno Financeiro
   const handleCancelarPedido = async () => {
     if (!currentOrderId || isCancelling) return;
     setIsCancelling(true);
+    
     try {
-      await updateDoc(doc(db, 'fretes', currentOrderId), { status: 'cancelado', canceladoEm: serverTimestamp(), canceladoPor: 'cliente' });
+      showToast('Iniciando estorno seguro junto ao banco...', 'warning');
+      
+      // 1. Aciona a API de Reembolso que fará a comunicação segura com o Mercado Pago
+      const res = await fetch('/api/reembolso', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idPedido: currentOrderId })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || data.detalhe || 'Erro na devolução.');
+      }
+
+      // 2. Limpeza da interface se o banco devolver o dinheiro com sucesso
+      showToast('Estorno realizado com sucesso! O PIX retornou para sua conta.', 'success');
       setShowCancelModal(false);
-    } catch { showToast('Falha ao cancelar.', 'error'); } 
-    finally { setIsCancelling(false); }
+      resetFlow(); 
+
+    } catch (error: any) { 
+      // Se a API bloquear (ex: motorista aceitou no exato segundo do clique)
+      showToast(error.message, 'error'); 
+      setShowCancelModal(false);
+    } finally { 
+      setIsCancelling(false); 
+    }
   };
 
   const handleRetrySearch = async () => {
