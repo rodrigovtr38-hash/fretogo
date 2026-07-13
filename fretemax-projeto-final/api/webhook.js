@@ -1,6 +1,7 @@
 // api/webhook.js
 // CTO-Log: CORREÇÃO CRÍTICA DO BURACO NEGRO DE PAGAMENTO MANTIDA.
 // CTO-Log 2: Injeção do Link de Rastreamento Automático (Link Recovery) via WhatsApp.
+// CTO-Log 3: 🛡️ BLINDAGEM DE ASSINATURA DUPLA (KEY ROTATION BUG FIX). Suporte a múltiplas chaves (v1) pós-redefinição no Mercado Pago.
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
@@ -49,17 +50,21 @@ export default async function handler(req, res) {
     const dataId = req.query.id || req.query['data.id'] || req.body?.data?.id;
     const type = req.query.topic || req.body?.type || req.body?.action;
 
-    // Verificação de assinatura do Mercado Pago
+    // 🛡️ CTO FIX: Verificação de múltiplas assinaturas para evitar bloqueio em Key Rotation
     if (xSignature && process.env.MP_WEBHOOK_SECRET) {
       const parts = xSignature.split(',');
       const ts = parts.find(p => p.startsWith('ts='))?.split('=')[1];
-      const v1 = parts.find(p => p.startsWith('v1='))?.split('=')[1];
+      
+      // Mapeia TODAS as assinaturas v1 enviadas pelo banco no cabeçalho
+      const v1Signatures = parts.filter(p => p.startsWith('v1=')).map(p => p.split('=')[1]);
+      
       const manifest = `id:${dataId};request-id:${xRequestId};ts:${ts};`;
       const hmac = crypto.createHmac('sha256', process.env.MP_WEBHOOK_SECRET)
         .update(manifest).digest('hex');
       
-      if (hmac !== v1) {
-        console.error("[FRAUDE BLOQUEADA] Assinatura do Webhook inválida.");
+      // Libera o sistema se a nossa chave bater com QUALQUER UMA das chaves recebidas
+      if (!v1Signatures.includes(hmac)) {
+        console.error("[FRAUDE BLOQUEADA] Nenhuma das assinaturas do Webhook é válida.");
         return res.status(401).send('Assinatura inválida');
       }
     }
