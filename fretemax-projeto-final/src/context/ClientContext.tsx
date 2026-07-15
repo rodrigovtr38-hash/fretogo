@@ -1,5 +1,7 @@
-// src/context/ClientContext.tsx
-// CTO-Log: Contexto validado. Estrutura de Storage local preservada e dependências do useMemo otimizadas para garantir ciclo de renderização estável.
+// =========================================================
+// NOME DO ARQUIVO: src/context/ClientContext.tsx
+// CTO-Log: Contexto validado. Storage atualizado para Fretogo V2. Dependências do useMemo otimizadas.
+// =========================================================
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
 
@@ -34,7 +36,8 @@ interface ClientProviderProps {
   children: ReactNode;
 }
 
-const CLIENT_RUNTIME_STORAGE = 'fretmax_client_runtime';
+// ATUALIZADO: Rebranding para FretoGo e versão V2 para evitar conflito de cache antigo
+const CLIENT_RUNTIME_STORAGE = 'fretogo_client_runtime_v2';
 
 export function ClientProvider({ children }: ClientProviderProps) {
   const [activeRequest, setActiveRequestState] = useState<string | null>(null);
@@ -56,18 +59,10 @@ export function ClientProvider({ children }: ClientProviderProps) {
 
       const parsed = JSON.parse(storage);
 
-      if (parsed?.activeRequest !== undefined) {
-        setActiveRequestState(parsed.activeRequest);
-      }
-      if (parsed?.destinationCode !== undefined) {
-        setDestinationCodeState(parsed.destinationCode);
-      }
-      if (parsed?.driverAccepted !== undefined) {
-        setDriverAcceptedState(parsed.driverAccepted);
-      }
-      if (parsed?.realtime) {
-        setRealtime(parsed.realtime);
-      }
+      if (parsed?.activeRequest !== undefined) setActiveRequestState(parsed.activeRequest);
+      if (parsed?.destinationCode !== undefined) setDestinationCodeState(parsed.destinationCode);
+      if (parsed?.driverAccepted !== undefined) setDriverAcceptedState(parsed.driverAccepted);
+      if (parsed?.realtime) setRealtime(parsed.realtime);
     } catch (error) {
       console.error('CLIENT_CONTEXT_HYDRATION_ERROR', error);
     }
