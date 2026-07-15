@@ -1,14 +1,15 @@
-// src/pages/Cliente.tsx
-// CTO-Log: 1. Remoção da "guilhotina" de sessão ('sem_motorista').
-// CTO-Log 2. Injeção de Tela de Espera com Botões de Re-Busca e Estorno Direto.
-// CTO-Log 3. Blindagem total de UX para manter o cliente informado.
-// CTO-Log 4. Integração Definitiva da API de Reembolso do Mercado Pago (Ponte Financeira).
+// =========================================================
+// NOME DO ARQUIVO: src/pages/Cliente.tsx (PAINEL DO EMBARCADOR / B2B)
+// CTO-Log: Refatoração Sprint 2 - Transição de B2C (Push) para B2B Marketplace (Pull).
+// CTO-Log 2: Injeção de Input de "Valor da Oferta Livre". Cálculo de Split (15% Plataforma / 85% Motorista) automatizado no Payload do Firebase.
+// CTO-Log 3: Enriquecimento do Payload B2B (empresaId, tipoConta) para suportar Dashboard e Histórico no Sprint 3.
+// =========================================================
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore'; 
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Sparkles, User, Package, CalendarDays, Plus, Trash2, Flame, Search, Lock, HeadphonesIcon, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Building2, User, Package, CalendarDays, Plus, Trash2, Flame, Search, Lock, HeadphonesIcon, RefreshCw, DollarSign } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import ChatFrete from '../components/ChatFrete';
 import ClientStatusCard from '../components/client/ClientStatusCard';
@@ -74,20 +75,20 @@ export default function Cliente() {
   const [peso, setPeso] = useState('');
   const [qtdVolumes, setQtdVolumes] = useState('');
   const [tipoMaterial, setTipoMaterial] = useState('');
-  const [vehicle, setVehicle] = useState<VehicleType>('carro_pequeno');
+  const [vehicle, setVehicle] = useState<VehicleType>('carreta_ls');
   const [tipoFrete, setTipoFrete] = useState<'imediato' | 'agendado'>('imediato');
   const [dataAgendada, setDataAgendada] = useState('');
+  
+  const [valorOferta, setValorOferta] = useState('');
 
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [orderData, setOrderData] = useState<OrderData | null>(null);
   const [distanciaReal, setDistanciaReal] = useState(0);
-  const [loadingMessage, setLoadingMessage] = useState('Analisando parceiros disponíveis...'); 
-  const [raioBusca, setRaioBusca] = useState(5);
-
+  const [loadingMessage, setLoadingMessage] = useState('Publicando carga no mural...'); 
+  
   const [origemGPS, setOrigemGPS] = useState<Coords | null>(null);
   const [destinoGPS, setDestinoGPS] = useState<Coords | null>(null);
   const [paradasGPS, setParadasGPS] = useState<Coords[]>([]);
-  const [motoristasProximos, setMotoristasProximos] = useState(0);
   const [mapsReady, setMapsReady] = useState(false); 
 
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -112,53 +113,29 @@ export default function Cliente() {
 
   const validDistancia = useMemo(() => Number.isNaN(distanciaReal) || distanciaReal <= 0 ? (5 * entregas.length) : distanciaReal, [distanciaReal, entregas.length]);
 
-  const calculoFinanceiro = useMemo(() => {
+  const valorSugerido = useMemo(() => {
     const isHeavy = ['toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(vehicle);
-    const isMOPP = tipoMaterial.toLowerCase().includes('mopp') || 
-                   tipoMaterial.toLowerCase().includes('quimic') || 
-                   tipoMaterial.toLowerCase().includes('perigo');
-
-    let valorMotoristaBase = 0;
-
+    let base = 0;
     switch (vehicle) {
-      case 'moto': valorMotoristaBase = validDistancia <= 15 ? 30 : 30 + (validDistancia - 15) * 2; break;
-      case 'carro_pequeno': valorMotoristaBase = validDistancia <= 15 ? 100 : 100 + (validDistancia - 15) * 4; break;
-      case 'utilitario': valorMotoristaBase = validDistancia <= 15 ? 180 : 180 + (validDistancia - 15) * 6; break;
-      case 'toco': valorMotoristaBase = validDistancia <= 15 ? 350 : 350 + (validDistancia - 15) * 7; break;
-      case 'truck': valorMotoristaBase = validDistancia <= 15 ? 550 : 550 + (validDistancia - 15) * 8.5; break;
-      case 'carreta_ls': valorMotoristaBase = Math.max(1200, validDistancia * 10.5); break;
-      case 'bi_trem_cegonha': valorMotoristaBase = Math.max(1800, validDistancia * 12.5); break;
-      default: valorMotoristaBase = 100;
+      case 'moto': base = validDistancia <= 15 ? 30 : 30 + (validDistancia - 15) * 2; break;
+      case 'carro_pequeno': base = validDistancia <= 15 ? 100 : 100 + (validDistancia - 15) * 4; break;
+      case 'utilitario': base = validDistancia <= 15 ? 180 : 180 + (validDistancia - 15) * 6; break;
+      case 'toco': base = validDistancia <= 15 ? 350 : 350 + (validDistancia - 15) * 7; break;
+      case 'truck': base = validDistancia <= 15 ? 550 : 550 + (validDistancia - 15) * 8.5; break;
+      case 'carreta_ls': base = Math.max(1200, validDistancia * 10.5); break;
+      case 'bi_trem_cegonha': base = Math.max(1800, validDistancia * 12.5); break;
+      default: base = 100;
     }
-
-    const custoParadasExtras = Math.max(0, entregas.length - 1) * (isHeavy ? 150.0 : 8.0);
-    let valorLiquidoMotorista = valorMotoristaBase + custoParadasExtras;
-
-    if (isMOPP) valorLiquidoMotorista *= 1.20;
-
-    const divisorMargem = isHeavy ? 0.85 : 0.80;
-    const precoFinalClienteCalculado = valorLiquidoMotorista / divisorMargem;
-    const comissaoRetidaPlataforma = precoFinalClienteCalculado - valorLiquidoMotorista;
-
-    const precisaPedagio = validDistancia > 40 && ['utilitario', 'toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(vehicle);
-    const valorPedagioCalculado = precisaPedagio ? validDistancia * (isHeavy ? 0.85 : 0.35) : 0;
-
-    return {
-      precoFinalCliente: Math.round(precoFinalClienteCalculado),
-      valorLiquidoMotorista: Number(valorLiquidoMotorista.toFixed(2)),
-      comissaoFretogoRetida: Number(comissaoRetidaPlataforma.toFixed(2)),
-      tollCost: Number(valorPedagioCalculado.toFixed(2))
-    };
-  }, [validDistancia, vehicle, entregas.length, tipoMaterial, peso, qtdVolumes]);
-
-  const valorAncora = (calculoFinanceiro.precoFinalCliente + calculoFinanceiro.tollCost) * 1.42;
+    const paradas = Math.max(0, entregas.length - 1) * (isHeavy ? 150.0 : 8.0);
+    return base + paradas;
+  }, [validDistancia, vehicle, entregas.length]);
 
   const pesoValido = useMemo(() => {
     const pesoNum = parseInt(peso.replace(/\D/g, ''), 10);
     return Number.isNaN(pesoNum) || pesoNum <= LIMITES_PESO[vehicle];
   }, [peso, vehicle]);
 
-  const isFormValid = nome.trim() !== '' && whatsapp.length >= 10 && documento.replace(/\D/g, '').length >= 11 && coleta.rua.trim() !== '' && entregas.every(e => e.rua.trim() !== '' && e.cep.replace(/\D/g, '').length === 8) && peso.trim() !== '' && pesoValido && qtdVolumes.trim() !== '' && (tipoFrete === 'imediato' || (tipoFrete === 'agendado' && dataAgendada.trim() !== ''));
+  const isFormValid = nome.trim() !== '' && whatsapp.length >= 10 && documento.replace(/\D/g, '').length >= 11 && coleta.rua.trim() !== '' && entregas.every(e => e.rua.trim() !== '' && e.cep.replace(/\D/g, '').length === 8) && peso.trim() !== '' && pesoValido && qtdVolumes.trim() !== '' && valorOferta.trim() !== '' && Number(valorOferta.replace(/\D/g, '')) > 0 && (tipoFrete === 'imediato' || (tipoFrete === 'agendado' && dataAgendada.trim() !== ''));
 
   const showToast = (msg: string, type: 'error' | 'success' | 'warning' = 'error') => {
     setToast({ msg, type });
@@ -168,15 +145,12 @@ export default function Cliente() {
   useEffect(() => {
     if (step === 'busca' && orderData?.status === TripState.DISPONIVEL) {
       const interval = setInterval(() => {
-        setRaioBusca(prev => {
-          const novoRaio = prev >= 50 ? 5 : prev + 5;
-          if (novoRaio === 10) setLoadingMessage('Notificando parceiros offline na região...');
-          if (novoRaio === 20) setLoadingMessage('Buscando em 20km para garantir seu frete...');
-          if (novoRaio === 30) setLoadingMessage('Rede nacional ativada - 30km...');
-          if (novoRaio === 50) setLoadingMessage('Busca máxima - aguardando motorista abrir o app...');
-          return novoRaio;
+        setLoadingMessage(prev => {
+          if (prev.includes('Publicando')) return 'Carga ativa no Mural Nacional...';
+          if (prev.includes('Nacional')) return 'Aguardando motoristas analisarem a oferta...';
+          return 'Carga ativa no Mural Nacional...';
         });
-      }, 8000);
+      }, 10000);
       return () => clearInterval(interval);
     }
   }, [step, orderData?.status]);
@@ -203,16 +177,17 @@ export default function Cliente() {
         setNome(data.nome || ''); setColeta(data.coleta || coleta); 
         setEntregas(data.entregas || (data.entrega ? [data.entrega] : [{ cep: '', bairro: '', rua: '', num: '' }]));
         setPeso(data.peso || ''); setQtdVolumes(data.qtdVolumes || ''); setTipoMaterial(data.tipoMaterial || '');
-        setVehicle(data.vehicle || 'carro_pequeno'); setTipoFrete(data.tipoFrete || 'imediato');
+        setVehicle(data.vehicle || 'carreta_ls'); setTipoFrete(data.tipoFrete || 'imediato');
         setDataAgendada(data.dataAgendada || ''); setWhatsapp(data.whatsapp || ''); setDocumento(data.documento || '');
+        setValorOferta(data.valorOferta || '');
       } catch { localStorage.removeItem('fretogo_form_backup'); }
     }
     if (savedOrder && savedOrder !== 'null') { setCurrentOrderId(savedOrder); setStep('busca'); }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('fretogo_form_backup', JSON.stringify({ nome, coleta, entregas, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp, documento }));
-  }, [nome, coleta, entregas, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp, documento]);
+    localStorage.setItem('fretogo_form_backup', JSON.stringify({ nome, coleta, entregas, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp, documento, valorOferta }));
+  }, [nome, coleta, entregas, peso, qtdVolumes, tipoMaterial, vehicle, tipoFrete, dataAgendada, whatsapp, documento, valorOferta]);
 
   useEffect(() => {
     if (!currentOrderId) return;
@@ -238,16 +213,15 @@ export default function Cliente() {
       }
 
       if (data.status === 'finalizado') {
-        showToast('Operação Finalizada com Sucesso! Agradecemos por escolher a FretoGo.', 'success');
+        showToast('Entrega Finalizada! Agradecemos pela parceria.', 'success');
         localStorage.removeItem('fretogo_current_order'); 
         setCurrentOrderId(null); 
         setStep('form');
         return;
       }
 
-      // CTO FIX: Removido 'sem_motorista' e 'expirado' da guilhotina automática. Apenas erros críticos derrubam a tela.
       if (['cancelado', 'erro_pagamento'].includes(data.status as any)) {
-        showToast(data.status === 'cancelado' ? 'Frete cancelado.' : 'Erro de pagamento.', 'warning');
+        showToast(data.status === 'cancelado' ? 'Postagem cancelada e estornada.' : 'Erro de pagamento.', 'warning');
         localStorage.removeItem('fretogo_current_order'); 
         setCurrentOrderId(null); 
         setStep('form');
@@ -261,9 +235,6 @@ export default function Cliente() {
       if (!currentUser?.uid) return;
       const solicitarNotificacao = async () => {
         await NotificationService.solicitarPermissao(currentUser.uid, 'cliente');
-        NotificationService.escutarNotificacoes((payload) => {
-          console.log('Push cliente recebido:', payload);
-        });
       };
       solicitarNotificacao();
     });
@@ -287,7 +258,7 @@ export default function Cliente() {
     }
 
     setLoadingRoute(true);
-    if (entregas.length > 1) showToast('Mapeando múltiplas rotas. Isso pode levar alguns segundos...', 'warning');
+    if (entregas.length > 1) showToast('Mapeando múltiplas rotas...', 'warning');
     
     try {
       const origStr = `${coleta.rua}, ${coleta.num}, ${coleta.bairro}, Brazil`;
@@ -315,7 +286,6 @@ export default function Cliente() {
       setDestinoGPS(pGPS[pGPS.length - 1]);
       if(totalKm > 0) setDistanciaReal(totalKm);
       
-      setMotoristasProximos(Math.floor(Math.random() * 8) + 3);
       setStep('preview');
     } catch {
       showToast('Calculando rota por estimativa de CEP.', 'warning');
@@ -346,11 +316,6 @@ export default function Cliente() {
         showToast("Janela inválida. Pesados exigem mín. 12 horas de antecedência.", "error");
         setLoadingPayment(false); isProcessingPayment.current = false; return;
       }
-
-      if (!isHeavy && diferencaHorasJanela < 3) {
-        showToast("Janela inválida. Leves exigem mín. 3 horas de antecedência.", "error");
-        setLoadingPayment(false); isProcessingPayment.current = false; return;
-      }
     }
 
     try {
@@ -371,38 +336,57 @@ export default function Cliente() {
       const firebaseTimestamp = parsedDate ? Timestamp.fromDate(parsedDate) : null;
 
       const currentUser = auth.currentUser;
-      if (!currentUser) throw new Error("Faça login para prosseguir com o pedido de frete.");
+      if (!currentUser) throw new Error("Sua sessão expirou. Faça login novamente.");
 
+      const valorFreteBruto = Number(valorOferta.replace(',', '.'));
+      const lucroPlataforma = valorFreteBruto * 0.15; 
+      const valorLiquidoMotorista = valorFreteBruto * 0.85; 
+
+      // 🔥 CTO FIX: ADIÇÃO DE METADADOS DA EMPRESA (BLINDAGEM B2B)
       const docRef = await addDoc(collection(db, 'fretes'), {
+        
+        // --- IDENTIFICAÇÃO DA EMPRESA E TIPO DE CONTA ---
+        empresaId: currentUser.uid, 
         clienteId: currentUser.uid, 
+        tipoConta: 'b2b',
+        empresaNome: nome || 'Empresa Embarcadora',
+        empresaDocumento: documentoLimpo,
+        clienteNome: nome || 'Empresa Embarcadora', 
+        clienteZap: whatsapp, 
+        clienteDocumento: documentoLimpo,
+        
+        // --- ESPECIFICAÇÕES DO FRETE ---
         distancia: validDistancia, 
         veiculo: vehicle, 
-        valorTotal: Number((calculoFinanceiro.precoFinalCliente + calculoFinanceiro.tollCost).toFixed(2)),
-        valorFreteBruto: Number(calculoFinanceiro.precoFinalCliente.toFixed(2)),
-        valorLiquidoMotorista: Number(calculoFinanceiro.valorLiquidoMotorista.toFixed(2)),
-        valorMotorista: Number(calculoFinanceiro.valorLiquidoMotorista.toFixed(2)), 
-        lucroPlataforma: Number(calculoFinanceiro.comissaoFretogoRetida.toFixed(2)),
-        valorPedagio: Number(calculoFinanceiro.tollCost.toFixed(2)),
+        peso: peso || 'Não informado', 
+        qtdVolumes: qtdVolumes || 'Não informado', 
+        tipoMaterial: tipoMaterial || 'Carga geral',
+        
+        // --- CÁLCULO E SPLIT FINANCEIRO B2B ---
+        valorTotal: valorFreteBruto, 
+        valorFreteBruto: valorFreteBruto,
+        valorLiquidoMotorista: Number(valorLiquidoMotorista.toFixed(2)),
+        valorMotorista: Number(valorLiquidoMotorista.toFixed(2)), 
+        lucroPlataforma: Number(lucroPlataforma.toFixed(2)),
+        valorPedagio: 0, 
+        
+        // --- ENDEREÇOS E COORDENADAS ---
         cidadeOrigem: coleta.bairro, 
         cidadeDestino: destinoFinal.bairro,
         enderecoColetaTexto: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`, 
         enderecoEntregaTexto: `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}`,
-        peso: peso || 'Não informado', 
-        qtdVolumes: qtdVolumes || 'Não informado', 
-        tipoMaterial: tipoMaterial || 'Carga geral',
-        clienteNome: nome || 'Anônimo', 
-        clienteZap: whatsapp, 
-        clienteDocumento: documentoLimpo,
         coleta, 
         entrega: destinoFinal, 
         paradas: coordsEntregas,
-        pinColeta, 
-        pinEntregas, 
-        multiplasEntregas: entregas.length > 1,
         origemLat: c1.lat, 
         origemLng: c1.lng, 
         destinoLat: destinoFinal.lat, 
         destinoLng: destinoFinal.lng, 
+        
+        // --- SEGURANÇA E GERENCIAMENTO DE ESTADO ---
+        pinColeta, 
+        pinEntregas, 
+        multiplasEntregas: entregas.length > 1,
         tipoFrete,
         dataAgendada: firebaseTimestamp,
         status: tipoFrete === 'agendado' ? 'agendado' : TripState.AGUARDANDO_PAGAMENTO,
@@ -415,7 +399,7 @@ export default function Cliente() {
         try {
           const res = await fetch('/api/pagamento', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ titulo: `FRETOGO - ${VEHICLE_CONFIG[vehicle].nome}`, idPedido: docRef.id }),
+            body: JSON.stringify({ titulo: `Postagem de Carga - ${VEHICLE_CONFIG[vehicle].nome}`, idPedido: docRef.id }),
           });
           if (!res.ok) throw new Error('API indisponível');
           const data = await res.json();
@@ -426,7 +410,7 @@ export default function Cliente() {
              throw new Error('Link inválido');
           }
         } catch (apiError) {
-           showToast("Erro ao processar pagamento. Tente novamente.", "error");
+           showToast("Erro ao processar custódia. Tente novamente.", "error");
         }
       } else { 
         setStep('busca'); 
@@ -436,15 +420,12 @@ export default function Cliente() {
     } finally { setLoadingPayment(false); isProcessingPayment.current = false; }
   };
 
-  // 🔥 CTO FIX: Função completa de Cancelamento integrando a API de Estorno Financeiro
   const handleCancelarPedido = async () => {
     if (!currentOrderId || isCancelling) return;
     setIsCancelling(true);
     
     try {
       showToast('Iniciando estorno seguro junto ao banco...', 'warning');
-      
-      // 1. Aciona a API de Reembolso que fará a comunicação segura com o Mercado Pago
       const res = await fetch('/api/reembolso', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -452,34 +433,18 @@ export default function Cliente() {
       });
 
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.detalhe || 'Erro na devolução.');
 
-      if (!res.ok) {
-        throw new Error(data.error || data.detalhe || 'Erro na devolução.');
-      }
-
-      // 2. Limpeza da interface se o banco devolver o dinheiro com sucesso
-      showToast('Estorno realizado com sucesso! O PIX retornou para sua conta.', 'success');
+      showToast('Estorno realizado! O PIX retornou para sua conta.', 'success');
       setShowCancelModal(false);
       resetFlow(); 
 
     } catch (error: any) { 
-      // Se a API bloquear (ex: motorista aceitou no exato segundo do clique)
       showToast(error.message, 'error'); 
       setShowCancelModal(false);
     } finally { 
       setIsCancelling(false); 
     }
-  };
-
-  const handleRetrySearch = async () => {
-    if (!currentOrderId) return;
-    showToast("Reativando radares...", "success");
-    try {
-      await updateDoc(doc(db, 'fretes', currentOrderId), {
-        status: 'disponivel',
-        updatedAt: serverTimestamp()
-      });
-    } catch { showToast('Erro ao reiniciar busca.', 'error'); }
   };
 
   const handleWhatsAppClick = () => {
@@ -496,7 +461,7 @@ export default function Cliente() {
 
   const handleAddEntrega = () => {
     if (entregas.length < 5) setEntregas([...entregas, { cep: '', bairro: '', rua: '', num: '' }]);
-    else showToast('Limite máximo de 5 paradas atingido no aplicativo.', 'warning');
+    else showToast('Limite máximo de 5 paradas.', 'warning');
   };
   const handleRemoveEntrega = (index: number) => setEntregas(entregas.filter((_, i) => i !== index));
   const updateEntrega = (index: number, field: string, value: string) => {
@@ -505,18 +470,17 @@ export default function Cliente() {
     setEntregas(newEntregas);
   };
 
-  const handleInstallClick = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') setIsInstallable(false);
-    setDeferredPrompt(null);
+  const formatCurrency = (val: string) => {
+    let numeric = val.replace(/\D/g, '');
+    if (!numeric) return '';
+    numeric = (Number(numeric) / 100).toFixed(2).replace('.', ',');
+    return numeric;
   };
 
-  const podeCancelar = orderData && ['aguardando_pagamento', 'agendado', 'sem_motorista', 'expirado'].includes(orderData?.status || '');
-  const textoCancelar = ((orderData as any)?.pagamentoStatus === 'aprovado' || (orderData as any)?.pagamentoStatus === 'confirmado' || orderData?.status === 'sem_motorista' || orderData?.status === 'expirado') 
-    ? 'Cancelar Pedido e Estornar PIX'
-    : 'Cancelar Pedido';
+  const podeCancelar = orderData && ['aguardando_pagamento', 'agendado', 'sem_motorista', 'expirado', 'disponivel'].includes(orderData?.status || '');
+  const textoCancelar = ((orderData as any)?.pagamentoStatus === 'aprovado' || orderData?.status === 'disponivel') 
+    ? 'Cancelar e Estornar Pagamento'
+    : 'Cancelar Postagem';
 
   return (
     <div className="relative min-h-[100dvh] w-full flex flex-col bg-slate-50 text-slate-800 font-sans selection:bg-blue-500/20">
@@ -530,58 +494,36 @@ export default function Cliente() {
               <ArrowLeft size={20} className="text-slate-600" />
             </button>
             <div className="flex items-center gap-3">
-              <Zap className="h-7 w-7 fill-blue-600 text-blue-600 drop-shadow-sm" />
-              <span className="text-2xl font-black italic tracking-tighter text-slate-900">FRETOGO</span>
+              <Building2 className="h-7 w-7 text-blue-600 drop-shadow-sm" />
+              <span className="text-2xl font-black italic tracking-tighter text-slate-900">PAINEL EMBARCADOR</span>
             </div>
           </div>
           <div className="hidden items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-5 py-2 md:flex">
             <ShieldCheck className="h-4 w-4 text-blue-600" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-800">Plataforma Logística Segura</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-800">Pagamento em Escrow</span>
           </div>
         </nav>
       </header>
 
       <main className="relative z-10 w-full max-w-6xl mx-auto flex flex-col justify-center px-4 py-8 pb-20 sm:px-6 lg:px-8">
         
-        {isInstallable && step === 'form' && (
-          <div className="mx-auto mb-6 w-full max-w-6xl rounded-2xl border-blue-200 bg-blue-50 p-4 shadow-sm animate-in slide-in-from-top-2">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600">
-                  <span className="text-lg">📱</span>
-                </div>
-                <div>
-                  <p className="text-sm font-black text-slate-900">Instale o App FretoGo</p>
-                  <p className="text-xs text-slate-600">Receba alertas de coleta e entrega em tempo real</p>
-                </div>
-              </div>
-              <button onClick={handleInstallClick} className="shrink-0 rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-black uppercase tracking-widest text-white hover:bg-blue-700 transition-colors">
-                Instalar
-              </button>
-            </div>
-          </div>
-        )}
-
         {step === 'form' && (
           <div className="w-full rounded-[2rem] border border-slate-200 bg-white p-6 shadow-2xl animate-in fade-in slide-in-from-bottom-4 md:p-12">
             <div className="mb-10 text-center md:text-left">
-              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-5 py-2">
-                <Sparkles className="h-4 w-4 text-blue-600" />
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-700">Orçamento Inteligente</span>
-              </div>
               <h1 className="text-4xl font-black tracking-tight text-slate-900 md:text-5xl leading-tight">
-                Para onde vai a <span className="italic text-blue-600">carga?</span>
+                Publicar <span className="italic text-blue-600">Carga</span>
               </h1>
+              <p className="mt-4 text-slate-500 font-medium max-w-2xl">Insira os dados da operação e defina o valor que deseja pagar. A carga irá direto para o Mural de Fretes da FretoGo.</p>
             </div>
 
             <div className="mb-8">
               <h2 className="mb-4 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
-                <User className="h-4 w-4 text-blue-500" /> Contato Responsável
+                <Building2 className="h-4 w-4 text-blue-500" /> Dados da Empresa
               </h2>
               <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-                <input className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base md:text-lg font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="Seu Nome Completo" value={nome} onChange={(e) => setNome(e.target.value)} />
-                <input className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base md:text-lg font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="WhatsApp (DDD)" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
-                <input className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base md:text-lg font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="CPF ou CNPJ" value={documento} onChange={(e) => setDocumento(e.target.value)} />
+                <input className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base md:text-lg font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="Nome / Razão Social" value={nome} onChange={(e) => setNome(e.target.value)} />
+                <input className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base md:text-lg font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="WhatsApp Contato" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
+                <input className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base md:text-lg font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="CNPJ / CPF" value={documento} onChange={(e) => setDocumento(e.target.value)} />
               </div>
             </div>
 
@@ -644,9 +586,33 @@ export default function Cliente() {
                     {Object.entries(VEHICLE_CONFIG).map(([key, conf]) => (<option key={key} value={key}>{conf.nome}</option>))}
                   </select>
                 </div>
-                <input className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="Peso (Ex: 200kg)" value={peso} onChange={e => setPeso(e.target.value)} />
-                <input className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="Qtd Volumes (Ex: 4 Cx)" value={qtdVolumes} onChange={e => setQtdVolumes(e.target.value)} />
-                <input className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="O que é? (Móveis)" value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)} />
+                <input className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="Peso (Ex: 25000kg)" value={peso} onChange={e => setPeso(e.target.value)} />
+                <input className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="Qtd Volumes / Pallets" value={qtdVolumes} onChange={e => setQtdVolumes(e.target.value)} />
+                <input className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="O que é? (Ex: Grãos, Baú)" value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)} />
+              </div>
+
+              {/* 🔥 CTO FIX: SEÇÃO DE VALOR OFERTADO B2B */}
+              <div className="border-t border-slate-200 pt-8 mb-6">
+                <div className="mb-4 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <DollarSign className="h-5 w-5 text-emerald-600" />
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-700">Valor Ofertado pela Carga</p>
+                  </div>
+                  <p className="text-xs text-slate-400">Sugestão Mínima: R$ {valorSugerido.toFixed(2).replace('.', ',')}</p>
+                </div>
+                <div className="relative">
+                  <span className="absolute left-6 top-1/2 -translate-y-1/2 text-xl font-black text-slate-400">R$</span>
+                  <input 
+                    type="text" 
+                    className="w-full rounded-2xl border-2 border-emerald-200 bg-emerald-50/30 py-6 pl-16 pr-6 text-3xl font-black text-emerald-900 transition-all placeholder:text-slate-300 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/20 outline-none" 
+                    placeholder="0,00" 
+                    value={valorOferta} 
+                    onChange={e => setValorOferta(formatCurrency(e.target.value))} 
+                  />
+                </div>
+                <p className="text-[10px] font-bold text-slate-500 mt-3 uppercase tracking-widest text-center">
+                  O valor será mantido em custódia segura. O sistema repassará automaticamente a porcentagem do motorista.
+                </p>
               </div>
               
               <div className="border-t border-slate-200 pt-8">
@@ -665,13 +631,13 @@ export default function Cliente() {
             {!isFormValid && (
               <div className="mb-8 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-center">
                 <p className="flex items-center justify-center gap-2 text-xs font-black uppercase tracking-widest text-amber-600">
-                  <AlertTriangle size={18}/> Preencha todos os campos (incluindo documento) para prosseguir
+                  <AlertTriangle size={18}/> Preencha todos os campos e o Valor da Oferta para postar a carga.
                 </p>
               </div>
             )}
 
             <button onClick={calcularDistanciaReal} disabled={loadingRoute || loadingPayment || !isFormValid} className={`flex w-full min-h-[58px] items-center justify-center gap-3 rounded-[1.5rem] py-4 text-base font-black uppercase italic tracking-[0.2em] transition-all duration-300 ${!isFormValid ? 'cursor-not-allowed bg-slate-200 text-slate-400' : 'bg-blue-600 text-white shadow-xl shadow-blue-600/30 hover:scale-[1.02] hover:bg-blue-700 active:scale-95'}`}>
-              {loadingRoute ? <><Loader2 className="h-6 w-6 animate-spin"/> Mapeando Rota Segura...</> : <><Zap size={22}/> Calcular Frete</>}
+              {loadingRoute ? <><Loader2 className="h-6 w-6 animate-spin"/> Validando Informações...</> : <><Zap size={22}/> Continuar para Postagem</>}
             </button>
           </div>
         )}
@@ -681,25 +647,10 @@ export default function Cliente() {
             <div className="rounded-[2rem] border border-slate-200 bg-white p-6 md:p-10 shadow-2xl">
               <div className="mb-10 flex items-center justify-between border-b border-slate-100 pb-6">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.25em] text-blue-600 font-bold">Prévia Operacional</p>
-                  <h2 className="mt-2 text-3xl md:text-4xl font-black italic tracking-tighter text-slate-900">Trajeto Mapeado</h2>
+                  <p className="text-xs uppercase tracking-[0.25em] text-blue-600 font-bold">Resumo da Postagem</p>
+                  <h2 className="mt-2 text-3xl md:text-4xl font-black italic tracking-tighter text-slate-900">Validar Carga</h2>
                 </div>
                 <CheckCircle className="h-12 w-12 text-blue-600" />
-              </div>
-
-              <div className="mx-4 mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-3">
-                <div className="bg-amber-100 p-1.5 rounded-full shrink-0">
-                  <Flame className="w-4 h-4 text-amber-600" />
-                </div>
-                <div>
-                  <p className="text-xs font-black text-amber-900 uppercase tracking-widest">Atenção: Alta Demanda</p>
-                  <p className="text-[10px] text-amber-800 mt-0.5 font-bold">
-                    {motoristasProximos > 0 
-                      ? `Identificamos ${motoristasProximos} motoristas (${VEHICLE_CONFIG[vehicle].nome}) operando na sua região. Efetue o pagamento para reservar o seu veículo imediatamente.`
-                      : `Estamos conectando a rede de parceiros (${VEHICLE_CONFIG[vehicle].nome}) na sua região. Efetue o pagamento para disparar o alerta de coleta prioritária.`
-                    }
-                  </p>
-                </div>
               </div>
         
               <div className="mb-10 grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -724,46 +675,37 @@ export default function Cliente() {
                     destino={destinoGPS} 
                     paradasExtras={paradasGPS.length > 1 ? paradasGPS.slice(0, -1) : undefined}
                     vehicleType={vehicle} 
-                    operationalMessage={`Otimizando rotas para ${VEHICLE_CONFIG[vehicle].nome}...`} 
+                    operationalMessage={`Validando trajeto B2B...`} 
                   />
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-blue-500">
                     <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-3"></div>
-                    <p className="text-[10px] font-black uppercase tracking-widest">Iniciando Satélites...</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest">Carregando Mapa...</p>
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="relative flex h-full flex-col overflow-hidden rounded-[2rem] border border-blue-200 bg-white p-8 lg:p-10 shadow-2xl">
-              <div className="absolute left-0 right-0 top-0 h-[4px] bg-gradient-to-r from-blue-400 to-cyan-400"></div>
+            <div className="relative flex h-full flex-col overflow-hidden rounded-[2rem] border border-emerald-200 bg-white p-8 lg:p-10 shadow-2xl">
+              <div className="absolute left-0 right-0 top-0 h-[4px] bg-gradient-to-r from-emerald-400 to-teal-400"></div>
               
               <div className="mb-8 flex items-center gap-3">
-                <ShieldCheck className="h-6 w-6 text-blue-600" />
-                <span className="text-[10px] font-black uppercase tracking-[0.25em] text-blue-800">Valor Blindado</span>
+                <ShieldCheck className="h-6 w-6 text-emerald-600" />
+                <span className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-800">Custódia Segura (Escrow)</span>
               </div>
               
               <div className="mb-10">
-                <p className="text-sm font-bold text-slate-400 line-through mb-1">Médio: R$ {valorAncora.toFixed(2).replace('.', ',')}</p>
-                <h2 className="text-5xl md:text-6xl font-black tracking-tighter text-slate-900">R$ {(calculoFinanceiro.precoFinalCliente + calculoFinanceiro.tollCost).toFixed(2).replace('.', ',')}</h2>
-                {calculoFinanceiro.tollCost > 0 && (
-                  <p className="text-xs font-black text-emerald-600 mt-2">
-                    * Inclui R$ {calculoFinanceiro.tollCost.toFixed(2).replace('.', ',')} de Vale-Pedágio Obrigatório destacados
-                  </p>
-                )}
+                <p className="text-sm font-bold text-slate-400 mb-1 uppercase tracking-widest">Oferta da Empresa</p>
+                <h2 className="text-5xl md:text-6xl font-black tracking-tighter text-emerald-900">R$ {valorOferta}</h2>
               </div>
               
               <div className="mb-10 space-y-5 rounded-[1.5rem] border border-slate-100 bg-slate-50 p-6 text-sm text-slate-600">
                 <div className="flex items-center justify-between border-b border-slate-200 pb-4">
-                  <span className="font-bold">Distância da Rota</span>
+                  <span className="font-bold">Distância Estimada</span>
                   <strong className="rounded-lg bg-blue-100 px-3 py-1.5 text-xs text-blue-800">{validDistancia.toFixed(1)} km</strong>
                 </div>
                 <div className="flex items-center justify-between border-b border-slate-200 pb-4">
-                  <span className="font-bold">Modalidade</span>
-                  <strong className="text-[10px] font-black uppercase tracking-widest text-blue-600">{tipoFrete}</strong>
-                </div>
-                <div className="flex items-center justify-between border-b border-slate-200 pb-4">
-                  <span className="font-bold">Veículo</span>
+                  <span className="font-bold">Veículo Requisitado</span>
                   <strong className="max-w-[140px] truncate text-right text-slate-900 font-bold">{VEHICLE_CONFIG[vehicle].nome}</strong>
                 </div>
                 <div className="flex items-center justify-between">
@@ -773,8 +715,8 @@ export default function Cliente() {
               </div>
 
               <div className="mt-auto space-y-4">
-                <button onClick={handleContratar} disabled={loadingPayment || isProcessingPayment.current} className={`flex min-h-[58px] w-full items-center justify-center gap-3 rounded-[1.25rem] px-8 py-4 text-[14px] font-black uppercase tracking-[0.2em] transition-all duration-300 ${loadingPayment ? 'bg-slate-200 text-slate-400' : 'bg-blue-600 text-white shadow-xl shadow-blue-600/30 hover:scale-[1.02] hover:bg-blue-700 active:scale-95'}`}>
-                  {loadingPayment ? <><Loader2 className="h-6 w-6 animate-spin" /> Gerando Pagamento...</> : <><Zap size={20} /> Liberar Motorista</>}
+                <button onClick={handleContratar} disabled={loadingPayment || isProcessingPayment.current} className={`flex min-h-[58px] w-full items-center justify-center gap-3 rounded-[1.25rem] px-8 py-4 text-[14px] font-black uppercase tracking-[0.2em] transition-all duration-300 ${loadingPayment ? 'bg-slate-200 text-slate-400' : 'bg-emerald-600 text-white shadow-xl shadow-emerald-600/30 hover:scale-[1.02] hover:bg-emerald-700 active:scale-95'}`}>
+                  {loadingPayment ? <><Loader2 className="h-6 w-6 animate-spin" /> Processando Custódia...</> : <><Lock size={20} /> Depositar e Postar Carga</>}
                 </button>
                 <button onClick={() => setStep('form')} className="flex min-h-[54px] w-full items-center justify-center rounded-[1.25rem] border border-slate-200 bg-white px-8 py-4 text-xs font-black uppercase tracking-[0.2em] text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-800">
                   Voltar e Editar
@@ -803,19 +745,18 @@ export default function Cliente() {
                   />
                 )}
                 
-                {/* 🛡️ CTO FIX: Tela de Falha na Busca (Congelamento Seguro com Botões de Reembolso) */}
                 {['sem_motorista', 'expirado'].includes(orderData?.status || '') && (
                   <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-white/90 backdrop-blur-xl p-6 text-center animate-in fade-in zoom-in duration-300">
                     <div className="bg-amber-100 p-4 rounded-full mb-6 border border-amber-200 shadow-inner">
                       <AlertTriangle className="h-12 w-12 text-amber-500" />
                     </div>
-                    <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-2">Sem Parceiros no Raio</h3>
+                    <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-2">Mural Vazio / Tempo Esgotado</h3>
                     <p className="text-sm font-bold text-slate-500 max-w-md mb-8">
-                      Nenhum motorista disponível na região aceitou a corrida a tempo. O que você deseja fazer agora?
+                      A sua oferta expirou no mural ou não houve parceiros compatíveis na região.
                     </p>
                     <div className="flex flex-col gap-4 w-full max-w-sm">
                       <button onClick={handleRetrySearch} className="w-full flex items-center justify-center gap-2 py-4 bg-blue-600 text-white rounded-[1.25rem] font-black uppercase tracking-widest text-xs shadow-lg hover:bg-blue-700 hover:scale-[1.02] transition-all">
-                        <RefreshCw size={18} /> Ampliar Busca e Tentar Novamente
+                        <RefreshCw size={18} /> Republicar Carga
                       </button>
                       <button onClick={() => setShowCancelModal(true)} className="w-full flex items-center justify-center gap-2 py-4 bg-red-50 text-red-600 border border-red-200 rounded-[1.25rem] font-black uppercase tracking-widest text-xs hover:bg-red-100 transition-all">
                         <XCircle size={18} /> Cancelar e Reembolsar PIX
@@ -824,21 +765,20 @@ export default function Cliente() {
                   </div>
                 )}
 
-                {/* Loading Padrão da Busca */}
+                {/* Loading Padrão da Postagem (Fim do Radar) */}
                 {['aguardando_pagamento', 'disponivel', 'buscando_motorista'].includes(orderData?.status || '') && (
-                  <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-white/60 backdrop-blur-md">
+                  <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-white/80 backdrop-blur-md">
                     <div className="relative mb-8">
-                      <div className="absolute -inset-4 animate-pulse rounded-full bg-blue-500/20 blur-xl"></div>
-                      <div className="absolute -inset-8 animate-pulse rounded-full bg-cyan-400/20 blur-2xl delay-150"></div>
-                      <div className="relative z-10 flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-cyan-500 shadow-2xl">
-                        <Search className="h-10 w-10 animate-bounce text-white" />
+                      <div className="absolute -inset-4 animate-pulse rounded-full bg-emerald-500/20 blur-xl"></div>
+                      <div className="relative z-10 flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-teal-400 shadow-2xl">
+                        <CheckCircle className="h-10 w-10 text-white" />
                       </div>
                     </div>
                     <h3 className="text-2xl font-black text-slate-900 tracking-tighter text-center">
-                      {orderData?.status === 'aguardando_pagamento' ? 'Confirmando Pagamento...' : loadingMessage}
+                      {orderData?.status === 'aguardando_pagamento' ? 'Confirmando Custódia...' : 'Carga no Mural Nacional'}
                     </h3>
                     <p className="mt-3 text-sm font-bold text-slate-500 uppercase tracking-widest text-center max-w-xs">
-                      {orderData?.status === 'aguardando_pagamento' ? 'Aguardando o retorno do banco.' : 'Nosso radar criptografado está localizando o melhor parceiro para sua carga.'}
+                      {orderData?.status === 'aguardando_pagamento' ? 'Aguardando o retorno do banco.' : 'Aguardando motoristas analisarem sua oferta e aceitarem o frete.'}
                     </p>
                   </div>
                 )}
@@ -854,10 +794,10 @@ export default function Cliente() {
                   </button>
                 ) : (
                   <button 
-                    onClick={() => window.open('https://wa.me/5511999999999', '_blank')} 
+                    onClick={() => window.open('https://wa.me/5511946099840', '_blank')} 
                     className="w-full flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 py-4 rounded-xl font-black uppercase text-xs tracking-widest transition-all"
                   >
-                    <HeadphonesIcon size={18} /> Acionar Suporte FretoGo
+                    <HeadphonesIcon size={18} /> Falar com o Suporte B2B
                   </button>
                 )}
               </div>
@@ -870,7 +810,7 @@ export default function Cliente() {
                            <User className="w-8 h-8 text-blue-600" />
                         </div>
                         <div>
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Parceiro Designado</p>
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Carga Aceita por</p>
                           <p className="text-xl font-black text-slate-900 leading-none">{orderData?.motoristaNome}</p>
                           <p className="text-xs font-bold text-slate-500 mt-2 uppercase">{orderData?.veiculo?.replace('_', ' ') || 'Veículo Padrão'}</p>
                         </div>
@@ -879,7 +819,7 @@ export default function Cliente() {
                       {orderData?.motoristaZap && (
                         <div className="flex w-full md:w-auto gap-3">
                           <button onClick={handleWhatsAppClick} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white px-6 py-4 rounded-xl font-black uppercase text-xs tracking-widest transition-all shadow-lg shadow-green-500/30">
-                             <MessageCircle size={18} /> Contatar Motorista
+                             <MessageCircle size={18} /> Contatar Transportador
                           </button>
                         </div>
                       )}
@@ -889,9 +829,9 @@ export default function Cliente() {
 
               {['aceito', 'indo_coleta', 'chegou_coleta', 'coletando'].includes(orderData?.status || '') && (
                 <div className="border-t border-slate-100 bg-white p-6 md:p-8 text-center">
-                   <p className="text-xs font-black uppercase tracking-widest text-slate-400 mb-3 flex items-center justify-center gap-2"><Lock size={14}/> Segurança na Coleta</p>
+                   <p className="text-xs font-black uppercase tracking-widest text-slate-400 mb-3 flex items-center justify-center gap-2"><Lock size={14}/> PIN de Segurança - Coleta</p>
                    <p className="text-4xl md:text-5xl font-mono font-black text-slate-900 tracking-[0.2em]">{orderData?.pinColeta}</p>
-                   <p className="text-[10px] font-bold text-slate-500 uppercase mt-3">Informe este PIN ao motorista apenas no momento do embarque da carga.</p>
+                   <p className="text-[10px] font-bold text-slate-500 uppercase mt-3">Passe este PIN ao motorista na retirada para iniciar o trajeto coberto.</p>
                 </div>
               )}
 
@@ -903,13 +843,13 @@ export default function Cliente() {
                      <p className="text-4xl md:text-5xl font-mono font-black text-blue-900 tracking-[0.2em]">
                        {orderData?.multiplasEntregas && orderData?.pinEntregas ? orderData?.pinEntregas[orderData?.paradaAtualIndex || 0] : (orderData?.pinEntregas ? orderData?.pinEntregas[0] : '---')}
                      </p>
-                     <p className="text-[10px] font-bold text-slate-500 uppercase mt-3">Informe ao motorista apenas após conferir a mercadoria descarregada.</p>
+                     <p className="text-[10px] font-bold text-slate-500 uppercase mt-3">Ao receber este PIN, o motorista fará o saque automático do valor da carga.</p>
                    </div>
                 </div>
               )}
             </div>
 
-            {currentOrderId && <ChatFrete freteId={currentOrderId} isCliente={true} nome={nome || "Cliente"} />}
+            {currentOrderId && <ChatFrete freteId={currentOrderId} isCliente={true} nome={nome || "Empresa Embarcadora"} />}
           </div>
         )}
 
