@@ -1,9 +1,8 @@
-// src/pages/Admin.tsx
-// CTO-Log: 
-// 1. Arquivo restaurado para a versão original do cliente. Nenhuma regra de negócio alterada.
-// 2. Adicionado bloqueio de senha (152085) após a validação do UID.
-// 3. Adicionado Painel de Categorias Dinâmicas (Contagem em tempo real).
-// 4. Adicionado Botão WhatsApp "Pedir Chave PIX".
+// =========================================================
+// NOME DO ARQUIVO: src/pages/Admin.tsx
+// CTO-Log: Auditoria Concluída - FASE 5
+// Status: Sincronizado com nova arquitetura B2B. Lógica Preservada.
+// =========================================================
 
 import { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
