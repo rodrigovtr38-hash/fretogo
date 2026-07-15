@@ -1,8 +1,8 @@
 // =========================================================
 // NOME DO ARQUIVO: src/pages/Cliente.tsx (PAINEL DO EMBARCADOR / B2B)
 // CTO-Log: Refatoração Sprint 2 - Transição de B2C (Push) para B2B Marketplace (Pull).
-// CTO-Log 2: Injeção de Input de "Valor da Oferta Livre". Cálculo de Split (15% Plataforma / 85% Motorista) automatizado no Payload do Firebase.
-// CTO-Log 3: Enriquecimento do Payload B2B (empresaId, tipoConta) para suportar Dashboard e Histórico no Sprint 3.
+// CTO-Log 2: Injeção de Input de "Valor da Oferta Livre". Cálculo de Split Dinâmico automatizado.
+// CTO-Log 3: Restauração da Engine Original de Precificação (ANTT, MOPP, Pedágio) como âncora/sugestão.
 // =========================================================
 
 import { useState, useEffect, useRef, useMemo } from 'react';
@@ -113,22 +113,44 @@ export default function Cliente() {
 
   const validDistancia = useMemo(() => Number.isNaN(distanciaReal) || distanciaReal <= 0 ? (5 * entregas.length) : distanciaReal, [distanciaReal, entregas.length]);
 
-  const valorSugerido = useMemo(() => {
+  // 🔥 RESTAURAÇÃO DO MOTOR DE CÁLCULO ORIGINAL COMO ÂNCORA/SUGESTÃO
+  const calculoFinanceiro = useMemo(() => {
     const isHeavy = ['toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(vehicle);
-    let base = 0;
+    const isMOPP = tipoMaterial.toLowerCase().includes('mopp') || 
+                   tipoMaterial.toLowerCase().includes('quimic') || 
+                   tipoMaterial.toLowerCase().includes('perigo');
+
+    let valorMotoristaBase = 0;
+
     switch (vehicle) {
-      case 'moto': base = validDistancia <= 15 ? 30 : 30 + (validDistancia - 15) * 2; break;
-      case 'carro_pequeno': base = validDistancia <= 15 ? 100 : 100 + (validDistancia - 15) * 4; break;
-      case 'utilitario': base = validDistancia <= 15 ? 180 : 180 + (validDistancia - 15) * 6; break;
-      case 'toco': base = validDistancia <= 15 ? 350 : 350 + (validDistancia - 15) * 7; break;
-      case 'truck': base = validDistancia <= 15 ? 550 : 550 + (validDistancia - 15) * 8.5; break;
-      case 'carreta_ls': base = Math.max(1200, validDistancia * 10.5); break;
-      case 'bi_trem_cegonha': base = Math.max(1800, validDistancia * 12.5); break;
-      default: base = 100;
+      case 'moto': valorMotoristaBase = validDistancia <= 15 ? 30 : 30 + (validDistancia - 15) * 2; break;
+      case 'carro_pequeno': valorMotoristaBase = validDistancia <= 15 ? 100 : 100 + (validDistancia - 15) * 4; break;
+      case 'utilitario': valorMotoristaBase = validDistancia <= 15 ? 180 : 180 + (validDistancia - 15) * 6; break;
+      case 'toco': valorMotoristaBase = validDistancia <= 15 ? 350 : 350 + (validDistancia - 15) * 7; break;
+      case 'truck': valorMotoristaBase = validDistancia <= 15 ? 550 : 550 + (validDistancia - 15) * 8.5; break;
+      case 'carreta_ls': valorMotoristaBase = Math.max(1200, validDistancia * 10.5); break;
+      case 'bi_trem_cegonha': valorMotoristaBase = Math.max(1800, validDistancia * 12.5); break;
+      default: valorMotoristaBase = 100;
     }
-    const paradas = Math.max(0, entregas.length - 1) * (isHeavy ? 150.0 : 8.0);
-    return base + paradas;
-  }, [validDistancia, vehicle, entregas.length]);
+
+    const custoParadasExtras = Math.max(0, entregas.length - 1) * (isHeavy ? 150.0 : 8.0);
+    let valorLiquidoMotorista = valorMotoristaBase + custoParadasExtras;
+
+    if (isMOPP) valorLiquidoMotorista *= 1.20;
+
+    const divisorMargem = isHeavy ? 0.85 : 0.80;
+    const precoFinalClienteCalculado = valorLiquidoMotorista / divisorMargem;
+    
+    const precisaPedagio = validDistancia > 40 && ['utilitario', 'toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(vehicle);
+    const valorPedagioCalculado = precisaPedagio ? validDistancia * (isHeavy ? 0.85 : 0.35) : 0;
+
+    return {
+      precoFinalCliente: Math.round(precoFinalClienteCalculado),
+      tollCost: Number(valorPedagioCalculado.toFixed(2))
+    };
+  }, [validDistancia, vehicle, entregas.length, tipoMaterial]);
+
+  const valorSugeridoCalculado = calculoFinanceiro.precoFinalCliente + calculoFinanceiro.tollCost;
 
   const pesoValido = useMemo(() => {
     const pesoNum = parseInt(peso.replace(/\D/g, ''), 10);
@@ -338,11 +360,13 @@ export default function Cliente() {
       const currentUser = auth.currentUser;
       if (!currentUser) throw new Error("Sua sessão expirou. Faça login novamente.");
 
-      const valorFreteBruto = Number(valorOferta.replace(',', '.'));
-      const lucroPlataforma = valorFreteBruto * 0.15; 
-      const valorLiquidoMotorista = valorFreteBruto * 0.85; 
+      // CÁLCULO DINÂMICO DE SPLIT B2B COM BASE NA OFERTA DO CLIENTE
+      const isHeavy = ['toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(vehicle);
+      const taxaPlataforma = isHeavy ? 0.15 : 0.20;
+      const valorFreteBruto = Number(valorOferta.replace(/\./g, '').replace(',', '.')); 
+      const lucroPlataforma = valorFreteBruto * taxaPlataforma; 
+      const valorLiquidoMotorista = valorFreteBruto - lucroPlataforma; 
 
-      // 🔥 CTO FIX: ADIÇÃO DE METADADOS DA EMPRESA (BLINDAGEM B2B)
       const docRef = await addDoc(collection(db, 'fretes'), {
         
         // --- IDENTIFICAÇÃO DA EMPRESA E TIPO DE CONTA ---
@@ -368,7 +392,7 @@ export default function Cliente() {
         valorLiquidoMotorista: Number(valorLiquidoMotorista.toFixed(2)),
         valorMotorista: Number(valorLiquidoMotorista.toFixed(2)), 
         lucroPlataforma: Number(lucroPlataforma.toFixed(2)),
-        valorPedagio: 0, 
+        valorPedagio: calculoFinanceiro.tollCost, // Gravando pedágio sugerido para log
         
         // --- ENDEREÇOS E COORDENADAS ---
         cidadeOrigem: coleta.bairro, 
@@ -450,6 +474,17 @@ export default function Cliente() {
   const handleWhatsAppClick = () => {
     if (!orderData?.motoristaZap) return;
     window.open(`https://wa.me/55${orderData?.motoristaZap.replace(/\D/g, '')}`, '_blank');
+  };
+
+  const handleRetrySearch = async () => {
+    if (!currentOrderId) return;
+    showToast("Reativando radares...", "success");
+    try {
+      await updateDoc(doc(db, 'fretes', currentOrderId), {
+        status: 'disponivel',
+        updatedAt: serverTimestamp()
+      });
+    } catch { showToast('Erro ao reiniciar busca.', 'error'); }
   };
 
   const resetFlow = () => {
@@ -588,17 +623,17 @@ export default function Cliente() {
                 </div>
                 <input className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="Peso (Ex: 25000kg)" value={peso} onChange={e => setPeso(e.target.value)} />
                 <input className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="Qtd Volumes / Pallets" value={qtdVolumes} onChange={e => setQtdVolumes(e.target.value)} />
-                <input className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="O que é? (Ex: Grãos, Baú)" value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)} />
+                <input className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="O que é? (Ex: Química/MOPP)" value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)} />
               </div>
 
-              {/* 🔥 CTO FIX: SEÇÃO DE VALOR OFERTADO B2B */}
+              {/* 🔥 CTO FIX: SEÇÃO DE VALOR OFERTADO B2B COM CÁLCULO MÍNIMO SUGERIDO */}
               <div className="border-t border-slate-200 pt-8 mb-6">
                 <div className="mb-4 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <DollarSign className="h-5 w-5 text-emerald-600" />
                     <p className="text-xs font-black uppercase tracking-widest text-slate-700">Valor Ofertado pela Carga</p>
                   </div>
-                  <p className="text-xs text-slate-400">Sugestão Mínima: R$ {valorSugerido.toFixed(2).replace('.', ',')}</p>
+                  <p className="text-xs text-slate-400">Sugestão Mínima: R$ {valorSugeridoCalculado.toFixed(2).replace('.', ',')}</p>
                 </div>
                 <div className="relative">
                   <span className="absolute left-6 top-1/2 -translate-y-1/2 text-xl font-black text-slate-400">R$</span>
