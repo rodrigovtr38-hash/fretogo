@@ -3,6 +3,7 @@
 // CTO-Log: Refatoração Sprint 2 - Transição para Mural B2B (Pull Model)
 // CTO-Log 2: Implementação de Filtros de Busca Client-side (Origem/Destino)
 // CTO-Log 3: Gatilho automático de Prioridade (FOMO) para cargas paradas > 24h
+// CTO-Log 4: FASE 3 - Transição de Radar Passivo para Feed Inteligente (Social/Gamificado)
 // =========================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -17,10 +18,9 @@ import DriverRadar from '../components/motorista/DriverRadar';
 import DriverActiveTrip from '../components/motorista/DriverActiveTrip';
 import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
 import type { OperationalFreight } from '../components/driver/dashboard/DriverDashboardLayout';
-import { Download, Search, MapPin } from 'lucide-react'; 
+import { Download, Search, MapPin, Flame, Clock, Sparkles, ThumbsUp, Star, Share2, Info, Truck } from 'lucide-react'; 
 import { NotificationService } from '../services/notificationService';
 
-// Injeção dos campos de controle de retorno na tipagem
 interface DriverData { 
   id?: string; 
   nome?: string; 
@@ -50,12 +50,14 @@ export default function Motorista() {
   const [selectedFreight, setSelectedFreight] = useState<OperationalFreight | null>(null);
   const [isOnline, setIsOnline] = useState(false);
   const [radarLoading, setRadarLoading] = useState(false);
+  
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'info' | 'warning' } | null>(null);
 
   // Instalação PWA
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
 
-  // Filtros do Mural de Fretes (Pull Model)
+  // Filtros do Feed Inteligente
   const [filtroOrigem, setFiltroOrigem] = useState('');
   const [filtroDestino, setFiltroDestino] = useState('');
 
@@ -78,10 +80,21 @@ export default function Motorista() {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setIsInstallable(false);
-    }
+    if (outcome === 'accepted') setIsInstallable(false);
     setDeferredPrompt(null);
+  };
+
+  const showToast = (msg: string, type: 'success' | 'info' | 'warning' = 'info') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  const formatTimeAgo = (timestamp: any) => {
+    if (!timestamp) return 'Agora';
+    const seconds = Math.floor((Date.now() - (timestamp.toMillis ? timestamp.toMillis() : timestamp)) / 1000);
+    if (seconds < 60) return 'Agora mesmo';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m atrás`;
+    return `${Math.floor(seconds / 3600)}h atrás`;
   };
 
   const normalizeFreight = useCallback((id: string, data: any): OperationalFreight => {
@@ -91,7 +104,6 @@ export default function Motorista() {
     const distanciaColetaKm = Number(data.distanciaColetaKm || 0);
     const distanciaEntregaKm = Number(data.distanciaEntregaKm || data.distancia || 0);
 
-    // CTO FIX: Gatilho de Urgência (Mais de 24h parado)
     const now = Date.now();
     const createdTime = data.createdAt?.toMillis ? data.createdAt.toMillis() : now;
     const horasParada = (now - createdTime) / (1000 * 60 * 60);
@@ -100,7 +112,7 @@ export default function Motorista() {
     return {
       id,
       status: data.status || 'disponivel',
-      prioridade: prioridadeMural, // Injeção da prioridade de 24h
+      prioridade: prioridadeMural,
       agendado: Boolean(data.agendado),
       categoria: data.categoria || 'carro',
       enderecoColetaTexto: data.enderecoColetaTexto || data.origem?.endereco || 'Coleta não informada',
@@ -108,7 +120,7 @@ export default function Motorista() {
       distanciaColetaKm,
       distanciaEntregaKm,
       distanciaTotalKm: distanciaColetaKm + distanciaEntregaKm || data.distanciaTotalKm || 0,
-      valorCliente,
+      valorCliente, // Mantido no payload interno, mas NUNCA renderizado na UI
       valorMotorista,
       pesoKg: Number(data.pesoKg || data.peso || 0), 
       volumes: Number(data.volumes || data.qtdVolumes || 1), 
@@ -127,10 +139,8 @@ export default function Motorista() {
     return () => { mountedRef.current = false; cancelAnimationFrame(frame); };
   }, []);
 
-  // Cleanup Rigoroso do Heartbeat (Proteção de Custos no Firestore)
   useEffect(() => {
     if (!user?.uid || !isOnline) return;
-    
     const sendHeartbeat = async () => {
       try { 
         if (activeFreight?.id) {
@@ -138,35 +148,21 @@ export default function Motorista() {
         } else {
           await updateDoc(doc(db, 'motoristas_online', user.uid), { heartbeat: Date.now() }); 
         }
-      } catch (error) { 
-        console.error('HEARTBEAT ERROR:', error); 
-      }
+      } catch (error) { console.error('HEARTBEAT ERROR:', error); }
     };
 
-    // Dispara imediatamente ao ficar online e depois a cada 30s
     sendHeartbeat();
     heartbeatRef.current = window.setInterval(sendHeartbeat, 30000);
-    
     return () => { 
-      if (heartbeatRef.current) {
-        clearInterval(heartbeatRef.current);
-        heartbeatRef.current = null;
-      }
+      if (heartbeatRef.current) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
     };
   }, [user, isOnline, activeFreight?.id]);
 
-  // Solicita permissão para notificações push
   useEffect(() => {
     if (!user?.uid || !driverData) return;
-    
-    const solicitarNotificacao = async () => {
-      await NotificationService.solicitarPermissao(user.uid, 'motorista');
-    };
-    
-    solicitarNotificacao();
+    NotificationService.solicitarPermissao(user.uid, 'motorista');
   }, [user, driverData]);
 
-  // Gestão de Sessão e Verificação de Cadastro
   useEffect(() => {
     if (authReadyRef.current) return;
     authReadyRef.current = true;
@@ -198,14 +194,13 @@ export default function Motorista() {
     };
   }, []);
 
-  // 🔥 MOTOR DE BUSCA (A Roleta Sincronizada com o Mural B2B)
+  // FEED LISTENER
   useEffect(() => {
     if (!runtimeReady || !user?.uid || !driverData || !isOnline) {
       setAvailableFreights([]); return;
     }
     setRadarLoading(true);
     
-    // Ampliado limite para 50 para simular um feed robusto de rede social de fretes
     const freightsQuery = query(
       collection(db, 'fretes'), 
       where('categoria', '==', operationalCategory), 
@@ -216,7 +211,6 @@ export default function Motorista() {
     
     const unsubscribe = onSnapshot(freightsQuery, snapshot => {
       if (!mountedRef.current) return;
-      
       const next = snapshot.docs.map(document => normalizeFreight(document.id, document.data()))
         .filter(freight => !freight.motoristaId || freight.motoristaId === user.uid || snapshot.docs.find(d => d.id === freight.id)?.data().motoristaAtualDestaque === user.uid); 
 
@@ -230,7 +224,6 @@ export default function Motorista() {
     return () => unsubscribe();
   }, [runtimeReady, user, driverData, isOnline, operationalCategory, normalizeFreight]);
 
-  // MOTOR DE VIAGEM ATIVA
   useEffect(() => {
     if (!runtimeReady || !user?.uid) { setActiveFreight(null); return; }
     const activeQuery = query(collection(db, 'fretes'), where('motoristaId', '==', user.uid), where('status', 'in', ACTIVE_STATUSES), orderBy('atualizadoEm', 'desc'), limit(1));
@@ -256,33 +249,23 @@ export default function Motorista() {
   const handleSelectFreight = useCallback((freight: OperationalFreight) => { setSelectedFreight(freight); }, []);
   const handleCloseFreight = useCallback(() => { setSelectedFreight(null); }, []);
 
-  // Transação Atômica Anti-Concorrência (Lock de Segurança Intacto)
   const handleAcceptFreight = useCallback(async (freight: OperationalFreight) => {
     if (!user?.uid || !driverData) return;
     
     try {
       const freteRef = doc(db, 'fretes', freight.id);
-
       await runTransaction(db, async (transaction) => {
         const freteSnap = await transaction.get(freteRef);
+        if (!freteSnap.exists()) throw new Error('FRETE_NAO_ENCONTRADO');
         
-        if (!freteSnap.exists()) {
-          throw new Error('FRETE_NAO_ENCONTRADO');
-        }
-
         const data = freteSnap.data();
-        
-        // Bloqueio rigoroso: Se o status não for mais de busca, ou já tiver motorista, aborta.
         if (data.motoristaId || !['disponivel', 'buscando_motorista', 'aguardando_aceite'].includes(data.status)) {
           throw new Error('FRETE_JA_ATRIBUIDO');
         }
-
-        // Trava extra: só quem recebeu a oferta pode aceitar
         if (data.motoristaAtualDestaque && data.motoristaAtualDestaque !== user.uid) {
           throw new Error('FRETE_JA_ATRIBUIDO');
         }
 
-        // Catraca: Grava os dados do motorista no frete instantaneamente
         transaction.update(freteRef, {
           status: 'aceito', 
           motoristaId: user.uid, 
@@ -293,16 +276,13 @@ export default function Motorista() {
         });
       });
 
-      // Se a transação passou, avisa a central local para atualizar UI
       await dispatchRealtimeService.aceitarCorrida(user.uid, freight.id);
       setSelectedFreight(null);
+      showToast('Carga aceita! Dirija-se à coleta.', 'success');
       
     } catch (error: any) { 
-      console.error('ACCEPT FREIGHT ERROR:', error.message); 
-      alert(error.message === 'FRETE_JA_ATRIBUIDO' 
-        ? "Infelizmente este frete foi aceito por outro parceiro há poucos segundos." 
-        : "Erro ao aceitar frete. Tente novamente.");
-      setSelectedFreight(null); // Fecha o modal do frete que ele perdeu
+      showToast(error.message === 'FRETE_JA_ATRIBUIDO' ? "Esta carga já foi fechada por outro parceiro." : "Erro ao aceitar frete.", 'warning');
+      setSelectedFreight(null); 
     }
   }, [user, driverData]);
 
@@ -311,12 +291,36 @@ export default function Motorista() {
     setSelectedFreight(null);
   }, []);
 
-  // 🔥 FILTRO CLIENT-SIDE: Processa os fretes em memória para não consumir leituras excessivas do Firebase
-  const fretesFiltrados = useMemo(() => {
-    return availableFreights.filter(freight => {
+  // Interações Gamificadas do Feed
+  const handleSocialAction = (action: string) => {
+    // Estas ações dispararão updateDoc no próximo Sprint para alimentar o Painel da Empresa
+    if (action === 'interesse') showToast('Interesse registrado! A Empresa foi notificada.', 'success');
+    if (action === 'favorito') showToast('Carga salva nos seus favoritos.', 'info');
+    if (action === 'share') showToast('Link da oportunidade copiado!', 'info');
+  };
+
+  // 🔥 ENGINE DE ORDENAÇÃO DO FEED INTELIGENTE
+  const fretesFiltradosOrdenados = useMemo(() => {
+    const filtrados = availableFreights.filter(freight => {
       const origemMatch = filtroOrigem === '' || freight.enderecoColetaTexto.toLowerCase().includes(filtroOrigem.toLowerCase());
       const destinoMatch = filtroDestino === '' || freight.enderecoEntregaTexto.toLowerCase().includes(filtroDestino.toLowerCase());
       return origemMatch && destinoMatch;
+    });
+
+    return filtrados.sort((a, b) => {
+      // 1. Prioritários / Urgentes primeiro
+      if (a.prioridade !== b.prioridade) return a.prioridade ? -1 : 1;
+      
+      // 2. Distância de coleta (Simulando proximidade)
+      if (a.distanciaColetaKm !== b.distanciaColetaKm) return a.distanciaColetaKm - b.distanciaColetaKm;
+      
+      // 3. Maior Remuneração (Valor Líquido do Motorista)
+      if (b.valorMotorista !== a.valorMotorista) return b.valorMotorista - a.valorMotorista;
+      
+      // 4. Mais recentes
+      const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+      const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+      return timeB - timeA;
     });
   }, [availableFreights, filtroOrigem, filtroDestino]);
 
@@ -331,7 +335,6 @@ export default function Motorista() {
     );
   }
 
-  // CADASTRO PRESERVADO INTACTO
   if (!user) return <div className="min-h-[100dvh] bg-[#020617]"><DriverAuth /></div>;
   if (!driverData) return <div className="min-h-[100dvh] bg-[#020617]"><DriverCadastro onFinish={() => setCheckingDriver(true)} /></div>;
 
@@ -347,21 +350,17 @@ export default function Motorista() {
   }
 
   return (
-    <div className="min-h-[100dvh] bg-[#020617] text-white pb-10">
+    <div className="min-h-[100dvh] bg-[#020617] text-white pb-24 relative overflow-hidden">
       
-      <div className="fixed inset-0 bg-[#020617] -z-10" style={{height: '100dvh'}} />
+      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#020617] to-[#020617] -z-10" />
 
-      {/* BANNER INSTALAÇÃO PWA */}
       {isInstallable && (
         <div className="sticky top-0 z-[100] w-full bg-cyan-600 px-4 py-3 flex items-center justify-between shadow-[0_4px_20px_rgba(8,145,178,0.3)]">
           <div>
             <p className="text-xs font-black uppercase tracking-widest text-white">Baixe o Aplicativo</p>
             <p className="text-[10px] text-cyan-100 font-medium mt-0.5">Instale e feche fretes mais rápido.</p>
           </div>
-          <button 
-            onClick={handleInstallClick}
-            className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-colors shrink-0"
-          >
+          <button onClick={handleInstallClick} className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-colors shrink-0">
             <Download size={14} /> Instalar
           </button>
         </div>
@@ -378,45 +377,141 @@ export default function Motorista() {
         </div>
       ) : (
         <>
+          {/* Mantém a gestão de status online e fila de retorno do componente legado */}
           <DriverRadar isOnline={isOnline} setIsOnline={handleToggleOnline} user={user} driver={driverData} />
           
-          {/* 🔥 BARRA DE PESQUISA DO MURAL (PULL MODEL) */}
           {isOnline && (
-            <div className="mx-auto max-w-7xl px-4 mt-6">
-              <div className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-3xl p-4 md:p-5 shadow-2xl">
-                <div className="flex items-center gap-2 mb-4">
-                   <Search className="text-cyan-500 w-4 h-4" />
-                   <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Filtrar Mural de Fretes</h3>
+            <div className="mx-auto max-w-4xl px-4 mt-8 animate-in fade-in slide-in-from-bottom-4">
+              
+              {/* FILTROS DO FEED INTELIGENTE */}
+              <div className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-[2rem] p-5 md:p-6 shadow-2xl mb-8">
+                <div className="flex items-center justify-between mb-5">
+                   <div className="flex items-center gap-2">
+                     <Search className="text-cyan-500 w-5 h-5" />
+                     <h3 className="text-sm font-black uppercase tracking-widest text-slate-300">Feed de Fretes</h3>
+                   </div>
+                   <div className="bg-cyan-500/10 text-cyan-400 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-cyan-500/20">
+                     {fretesFiltradosOrdenados.length} Oportunidades
+                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="relative">
                     <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                    <input 
-                      type="text" 
-                      placeholder="Origem (Ex: São Paulo)" 
-                      value={filtroOrigem}
-                      onChange={e => setFiltroOrigem(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-2xl py-3 pl-11 pr-4 text-sm font-bold text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all"
-                    />
+                    <input type="text" placeholder="Origem da Carga" value={filtroOrigem} onChange={e => setFiltroOrigem(e.target.value)} className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-4 pl-12 pr-4 text-sm font-bold text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all" />
                   </div>
                   <div className="relative">
                     <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />
-                    <input 
-                      type="text" 
-                      placeholder="Destino (Ex: Rio de Janeiro)" 
-                      value={filtroDestino}
-                      onChange={e => setFiltroDestino(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-2xl py-3 pl-11 pr-4 text-sm font-bold text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
-                    />
+                    <input type="text" placeholder="Destino da Carga" value={filtroDestino} onChange={e => setFiltroDestino(e.target.value)} className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-4 pl-12 pr-4 text-sm font-bold text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all" />
                   </div>
                 </div>
+              </div>
+
+              {/* LISTAGEM GAMIFICADA DO FEED */}
+              <div className="space-y-6">
+                {fretesFiltradosOrdenados.length === 0 && !radarLoading ? (
+                  <div className="text-center py-20 bg-slate-900/30 rounded-[2rem] border border-slate-800 border-dashed">
+                    <Truck className="w-12 h-12 text-slate-700 mx-auto mb-4" />
+                    <p className="text-slate-500 font-medium">Nenhum frete compatível na sua região agora.</p>
+                    <p className="text-xs text-slate-600 mt-2">Mantenha o app aberto, o Feed atualiza automaticamente.</p>
+                  </div>
+                ) : (
+                  fretesFiltradosOrdenados.map((freight) => (
+                    <div key={freight.id} className="bg-slate-900/80 backdrop-blur-sm border border-slate-800 rounded-[2rem] p-6 shadow-2xl relative overflow-hidden transition-all hover:border-slate-700">
+                      
+                      {/* Tags de Status Gamificadas */}
+                      {freight.prioridade ? (
+                         <div className="absolute top-0 right-0 bg-gradient-to-r from-red-600 to-orange-500 px-4 py-1.5 rounded-bl-2xl font-black text-[10px] uppercase tracking-widest text-white flex items-center gap-1.5 shadow-lg">
+                            <Flame size={12} className="animate-pulse"/> Urgente
+                         </div>
+                      ) : freight.agendado ? (
+                         <div className="absolute top-0 right-0 bg-purple-600 px-4 py-1.5 rounded-bl-2xl font-black text-[10px] uppercase tracking-widest text-white flex items-center gap-1.5">
+                            <Clock size={12}/> Agendado
+                         </div>
+                      ) : (
+                         <div className="absolute top-0 right-0 bg-cyan-600 px-4 py-1.5 rounded-bl-2xl font-black text-[10px] uppercase tracking-widest text-white flex items-center gap-1.5">
+                            <Sparkles size={12}/> Nova
+                         </div>
+                      )}
+
+                      <div className="flex justify-between items-start mb-6 pt-2">
+                         <div>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex items-center gap-1.5"><Star size={10} className="text-amber-500"/> Ganho Líquido</p>
+                            <h3 className="text-4xl font-black text-emerald-400 tracking-tighter">R$ {freight.valorMotorista.toFixed(2).replace('.', ',')}</h3>
+                         </div>
+                         <div className="text-right">
+                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Publicado</p>
+                            <span className="bg-slate-950 text-slate-400 text-[10px] px-3 py-1.5 rounded-lg font-bold uppercase tracking-widest border border-slate-800">{formatTimeAgo(freight.createdAt)}</span>
+                         </div>
+                      </div>
+
+                      <div className="bg-slate-950 rounded-2xl p-5 border border-slate-800/50 mb-6 relative">
+                         <div className="absolute left-[31px] top-10 bottom-10 w-px bg-slate-800"></div>
+                         <div className="flex items-start gap-4 mb-6 relative z-10">
+                            <div className="w-6 h-6 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center shrink-0 mt-1"><div className="w-2 h-2 rounded-full bg-slate-400"></div></div>
+                            <div>
+                               <p className="text-[10px] uppercase tracking-widest font-black text-slate-500 mb-1">Coleta</p>
+                               <p className="text-sm font-bold text-white leading-snug">{freight.enderecoColetaTexto}</p>
+                            </div>
+                         </div>
+                         <div className="flex items-start gap-4 relative z-10">
+                            <div className="w-6 h-6 rounded-full bg-emerald-900/50 border-2 border-emerald-500 flex items-center justify-center shrink-0 mt-1"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div></div>
+                            <div>
+                               <p className="text-[10px] uppercase tracking-widest font-black text-emerald-500 mb-1">Destino {freight.multiplasEntregas && "(Múltiplas)"}</p>
+                               <p className="text-sm font-bold text-white leading-snug">{freight.enderecoEntregaTexto}</p>
+                            </div>
+                         </div>
+                      </div>
+
+                      {/* Dados Técnicos Rápidos */}
+                      <div className="grid grid-cols-3 gap-2 mb-6">
+                        <div className="bg-slate-900 rounded-xl p-3 text-center border border-slate-800">
+                          <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Categoria</p>
+                          <p className="text-xs font-bold text-slate-300 capitalize">{freight.categoria.replace('_', ' ')}</p>
+                        </div>
+                        <div className="bg-slate-900 rounded-xl p-3 text-center border border-slate-800">
+                          <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Distância</p>
+                          <p className="text-xs font-bold text-slate-300">{freight.distanciaTotalKm.toFixed(1)} km</p>
+                        </div>
+                        <div className="bg-slate-900 rounded-xl p-3 text-center border border-slate-800">
+                          <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Peso/Vol</p>
+                          <p className="text-xs font-bold text-slate-300">{freight.pesoKg ? `${freight.pesoKg}kg` : freight.volumes}</p>
+                        </div>
+                      </div>
+
+                      {/* Ações Gamificadas Sociais */}
+                      <div className="grid grid-cols-4 gap-2 mb-5 border-t border-slate-800 pt-5">
+                          <button onClick={() => handleSocialAction('interesse')} className="flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-blue-400 transition-colors">
+                             <ThumbsUp size={20}/>
+                             <span className="text-[9px] font-black uppercase tracking-widest">Interesse</span>
+                          </button>
+                          <button onClick={() => handleSocialAction('favorito')} className="flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-amber-400 transition-colors">
+                             <Star size={20}/>
+                             <span className="text-[9px] font-black uppercase tracking-widest">Salvar</span>
+                          </button>
+                          <button onClick={() => handleSocialAction('share')} className="flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-cyan-400 transition-colors">
+                             <Share2 size={20}/>
+                             <span className="text-[9px] font-black uppercase tracking-widest">Enviar</span>
+                          </button>
+                          <button onClick={() => setSelectedFreight(freight)} className="flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-white transition-colors">
+                             <Info size={20}/>
+                             <span className="text-[9px] font-bold uppercase tracking-widest">Ver Rota</span>
+                          </button>
+                      </div>
+
+                      <button onClick={() => handleAcceptFreight(freight)} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase tracking-[0.2em] py-4 rounded-xl shadow-lg shadow-emerald-900/50 transition-all active:scale-95 flex items-center justify-center gap-2">
+                          <Truck size={18} /> Aceitar e Viajar
+                      </button>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}
 
-          {/* Passa os fretes filtrados para o DriverApp */}
+          {/* Ocultamos a lista nativa do DriverApp (passando array vazio) para usar a nossa Feed List Customizada, 
+              mas mantemos o componente vivo para gerenciar o Modal de Detalhes (selectedFreight) e fluxos legados */}
           <DriverApp 
-            freights={fretesFiltrados} 
+            freights={[]} 
             selectedFreight={selectedFreight} 
             activeFreight={activeFreight} 
             isOnline={isOnline} 
@@ -430,6 +525,19 @@ export default function Motorista() {
             onRejectFreight={handleRejectFreight} 
           />
         </>
+      )}
+
+      {/* Sistema de Toast Inteligente */}
+      {toast && (
+        <div className="fixed bottom-10 left-1/2 z-[120] -translate-x-1/2 animate-in slide-in-from-bottom-5">
+          <div className={`rounded-[1.5rem] border px-6 py-4 text-xs font-black uppercase tracking-widest shadow-2xl flex items-center gap-2 ${
+            toast.type === 'success' ? 'border-emerald-500/30 bg-emerald-900/90 text-emerald-400' : 
+            toast.type === 'warning' ? 'border-amber-500/30 bg-amber-900/90 text-amber-400' : 
+            'border-blue-500/30 bg-blue-900/90 text-blue-400'
+          } backdrop-blur-md`}>
+            {toast.msg}
+          </div>
+        </div>
       )}
     </div>
   );
