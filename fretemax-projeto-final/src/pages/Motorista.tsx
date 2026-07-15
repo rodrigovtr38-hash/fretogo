@@ -1,4 +1,10 @@
-// src/pages/Motorista.tsx
+// =========================================================
+// NOME DO ARQUIVO: src/pages/Motorista.tsx
+// CTO-Log: Refatoração Sprint 2 - Transição para Mural B2B (Pull Model)
+// CTO-Log 2: Implementação de Filtros de Busca Client-side (Origem/Destino)
+// CTO-Log 3: Gatilho automático de Prioridade (FOMO) para cargas paradas > 24h
+// =========================================================
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { auth, db } from '../firebase';
 import { collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, runTransaction, updateDoc, where } from 'firebase/firestore'; 
@@ -11,7 +17,7 @@ import DriverRadar from '../components/motorista/DriverRadar';
 import DriverActiveTrip from '../components/motorista/DriverActiveTrip';
 import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
 import type { OperationalFreight } from '../components/driver/dashboard/DriverDashboardLayout';
-import { Download } from 'lucide-react'; 
+import { Download, Search, MapPin } from 'lucide-react'; 
 import { NotificationService } from '../services/notificationService';
 
 // Injeção dos campos de controle de retorno na tipagem
@@ -49,6 +55,10 @@ export default function Motorista() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
 
+  // Filtros do Mural de Fretes (Pull Model)
+  const [filtroOrigem, setFiltroOrigem] = useState('');
+  const [filtroDestino, setFiltroDestino] = useState('');
+
   const operationalCategory = useMemo(() => {
     if (!driverData?.categoria) return 'carro';
     return driverData.categoria.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -81,10 +91,16 @@ export default function Motorista() {
     const distanciaColetaKm = Number(data.distanciaColetaKm || 0);
     const distanciaEntregaKm = Number(data.distanciaEntregaKm || data.distancia || 0);
 
+    // CTO FIX: Gatilho de Urgência (Mais de 24h parado)
+    const now = Date.now();
+    const createdTime = data.createdAt?.toMillis ? data.createdAt.toMillis() : now;
+    const horasParada = (now - createdTime) / (1000 * 60 * 60);
+    const prioridadeMural = horasParada >= 24 || Boolean(data.prioridade);
+
     return {
       id,
       status: data.status || 'disponivel',
-      prioridade: Boolean(data.prioridade),
+      prioridade: prioridadeMural, // Injeção da prioridade de 24h
       agendado: Boolean(data.agendado),
       categoria: data.categoria || 'carro',
       enderecoColetaTexto: data.enderecoColetaTexto || data.origem?.endereco || 'Coleta não informada',
@@ -145,14 +161,12 @@ export default function Motorista() {
     
     const solicitarNotificacao = async () => {
       await NotificationService.solicitarPermissao(user.uid, 'motorista');
-      NotificationService.escutarNotificacoes((payload) => {
-        console.log('Push recebido:', payload);
-      });
     };
     
     solicitarNotificacao();
   }, [user, driverData]);
 
+  // Gestão de Sessão e Verificação de Cadastro
   useEffect(() => {
     if (authReadyRef.current) return;
     authReadyRef.current = true;
@@ -166,12 +180,14 @@ export default function Motorista() {
       }
       setCheckingDriver(true);
       if (listenerRegistryRef.current.driver) listenerRegistryRef.current.driver();
+      
       const unsubscribeDriver = onSnapshot(doc(db, 'motoristas_cadastros', firebaseUser.uid), snapshot => {
         if (!mountedRef.current) return;
         if (snapshot.exists()) { setDriverData({ id: snapshot.id, ...snapshot.data() } as DriverData); } 
         else { setDriverData(null); }
         setCheckingDriver(false); setLoading(false);
       });
+      
       listenerRegistryRef.current.driver = unsubscribeDriver;
     });
     return () => {
@@ -182,19 +198,20 @@ export default function Motorista() {
     };
   }, []);
 
-  // 🔥 MOTOR DE BUSCA (A Roleta Sincronizada com o Cliente)
+  // 🔥 MOTOR DE BUSCA (A Roleta Sincronizada com o Mural B2B)
   useEffect(() => {
     if (!runtimeReady || !user?.uid || !driverData || !isOnline) {
       setAvailableFreights([]); return;
     }
     setRadarLoading(true);
     
+    // Ampliado limite para 50 para simular um feed robusto de rede social de fretes
     const freightsQuery = query(
       collection(db, 'fretes'), 
       where('categoria', '==', operationalCategory), 
       where('status', 'in', ['disponivel', 'buscando_motorista', 'aguardando_aceite']), 
       orderBy('createdAt', 'desc'), 
-      limit(10)
+      limit(50) 
     );
     
     const unsubscribe = onSnapshot(freightsQuery, snapshot => {
@@ -239,7 +256,7 @@ export default function Motorista() {
   const handleSelectFreight = useCallback((freight: OperationalFreight) => { setSelectedFreight(freight); }, []);
   const handleCloseFreight = useCallback(() => { setSelectedFreight(null); }, []);
 
-  // Transação Atômica Anti-Concorrência (Lock)
+  // Transação Atômica Anti-Concorrência (Lock de Segurança Intacto)
   const handleAcceptFreight = useCallback(async (freight: OperationalFreight) => {
     if (!user?.uid || !driverData) return;
     
@@ -294,6 +311,15 @@ export default function Motorista() {
     setSelectedFreight(null);
   }, []);
 
+  // 🔥 FILTRO CLIENT-SIDE: Processa os fretes em memória para não consumir leituras excessivas do Firebase
+  const fretesFiltrados = useMemo(() => {
+    return availableFreights.filter(freight => {
+      const origemMatch = filtroOrigem === '' || freight.enderecoColetaTexto.toLowerCase().includes(filtroOrigem.toLowerCase());
+      const destinoMatch = filtroDestino === '' || freight.enderecoEntregaTexto.toLowerCase().includes(filtroDestino.toLowerCase());
+      return origemMatch && destinoMatch;
+    });
+  }, [availableFreights, filtroOrigem, filtroDestino]);
+
   if (!runtimeReady || loading || checkingDriver) {
     return (
       <div className="flex min-h-[100dvh] items-center justify-center bg-[#020617] text-white">
@@ -305,6 +331,7 @@ export default function Motorista() {
     );
   }
 
+  // CADASTRO PRESERVADO INTACTO
   if (!user) return <div className="min-h-[100dvh] bg-[#020617]"><DriverAuth /></div>;
   if (!driverData) return <div className="min-h-[100dvh] bg-[#020617]"><DriverCadastro onFinish={() => setCheckingDriver(true)} /></div>;
 
@@ -351,9 +378,57 @@ export default function Motorista() {
         </div>
       ) : (
         <>
-          {/* O componente DriverRadar agora pode acessar a prop `driver` e checar as cotas */}
           <DriverRadar isOnline={isOnline} setIsOnline={handleToggleOnline} user={user} driver={driverData} />
-          <DriverApp freights={availableFreights} selectedFreight={selectedFreight} activeFreight={activeFreight} isOnline={isOnline} loading={radarLoading} driverCategory={operationalCategory} driverName={driverData.nome} onToggleOnline={handleToggleOnline} onSelectFreight={handleSelectFreight} onCloseFreight={handleCloseFreight} onAcceptFreight={handleAcceptFreight} onRejectFreight={handleRejectFreight} />
+          
+          {/* 🔥 BARRA DE PESQUISA DO MURAL (PULL MODEL) */}
+          {isOnline && (
+            <div className="mx-auto max-w-7xl px-4 mt-6">
+              <div className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-3xl p-4 md:p-5 shadow-2xl">
+                <div className="flex items-center gap-2 mb-4">
+                   <Search className="text-cyan-500 w-4 h-4" />
+                   <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Filtrar Mural de Fretes</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="relative">
+                    <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    <input 
+                      type="text" 
+                      placeholder="Origem (Ex: São Paulo)" 
+                      value={filtroOrigem}
+                      onChange={e => setFiltroOrigem(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-2xl py-3 pl-11 pr-4 text-sm font-bold text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all"
+                    />
+                  </div>
+                  <div className="relative">
+                    <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />
+                    <input 
+                      type="text" 
+                      placeholder="Destino (Ex: Rio de Janeiro)" 
+                      value={filtroDestino}
+                      onChange={e => setFiltroDestino(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-2xl py-3 pl-11 pr-4 text-sm font-bold text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Passa os fretes filtrados para o DriverApp */}
+          <DriverApp 
+            freights={fretesFiltrados} 
+            selectedFreight={selectedFreight} 
+            activeFreight={activeFreight} 
+            isOnline={isOnline} 
+            loading={radarLoading} 
+            driverCategory={operationalCategory} 
+            driverName={driverData.nome} 
+            onToggleOnline={handleToggleOnline} 
+            onSelectFreight={handleSelectFreight} 
+            onCloseFreight={handleCloseFreight} 
+            onAcceptFreight={handleAcceptFreight} 
+            onRejectFreight={handleRejectFreight} 
+          />
         </>
       )}
     </div>
