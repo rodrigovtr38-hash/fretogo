@@ -3,13 +3,14 @@
 // CTO-Log: Refatoração Sprint 2 - Transição de B2C (Push) para B2B Marketplace (Pull).
 // CTO-Log 2: Injeção de Input de "Valor da Oferta Livre". Cálculo de Split Dinâmico automatizado.
 // CTO-Log 3: Restauração da Engine Original de Precificação (ANTT, MOPP, Pedágio) como âncora/sugestão.
+// CTO-Log 4: Injeção da Fase 2 (Gamificação de Oferta, Contraste UI, Central da Carga Viva).
 // =========================================================
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore'; 
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Building2, User, Package, CalendarDays, Plus, Trash2, Flame, Search, Lock, HeadphonesIcon, RefreshCw, DollarSign } from 'lucide-react';
+import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Building2, User, Package, CalendarDays, Plus, Trash2, Flame, Search, Lock, HeadphonesIcon, RefreshCw, DollarSign, Activity, Eye, Users } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import ChatFrete from '../components/ChatFrete';
 import ClientStatusCard from '../components/client/ClientStatusCard';
@@ -21,7 +22,7 @@ import { NotificationService } from '../services/notificationService';
 
 interface AddressData { cep: string; bairro: string; rua: string; num: string; lat?: number; lng?: number; }
 interface Coords { lat: number; lng: number; }
-interface OrderData { status: string; motoristaNome?: string; motoristaZap?: string; rotaInteligente?: boolean; motoristaId?: string; veiculo?: string; distancia?: number; valorTotal?: number; origemLat?: number; origemLng?: number; destinoLat?: number; destinoLng?: number; paradas?: any[]; pinColeta?: string; pinEntregas?: string[]; multiplasEntregas?: boolean; paradaAtualIndex?: number; pagamentoStatus?: string; }
+interface OrderData { status: string; motoristaNome?: string; motoristaZap?: string; rotaInteligente?: boolean; motoristaId?: string; veiculo?: string; distancia?: number; valorTotal?: number; origemLat?: number; origemLng?: number; destinoLat?: number; destinoLng?: number; paradas?: any[]; pinColeta?: string; pinEntregas?: string[]; multiplasEntregas?: boolean; paradaAtualIndex?: number; pagamentoStatus?: string; createdAt?: any; valorFreteBruto?: number; }
 type VehicleType = 'moto' | 'carro_pequeno' | 'utilitario' | 'toco' | 'truck' | 'carreta_ls' | 'bi_trem_cegonha';
 
 const VEHICLE_CONFIG: Record<VehicleType, { nome: string; fator: number }> = {
@@ -84,7 +85,11 @@ export default function Cliente() {
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [orderData, setOrderData] = useState<OrderData | null>(null);
   const [distanciaReal, setDistanciaReal] = useState(0);
-  const [loadingMessage, setLoadingMessage] = useState('Publicando carga no mural...'); 
+  
+  // Simuladores de Eventos (Startup Feel da Central da Carga)
+  const [simViews, setSimViews] = useState(0);
+  const [simCompat, setSimCompat] = useState(0);
+  const [simInterest, setSimInterest] = useState(0);
   
   const [origemGPS, setOrigemGPS] = useState<Coords | null>(null);
   const [destinoGPS, setDestinoGPS] = useState<Coords | null>(null);
@@ -151,28 +156,32 @@ export default function Cliente() {
   }, [validDistancia, vehicle, entregas.length, tipoMaterial]);
 
   const valorSugeridoCalculado = calculoFinanceiro.precoFinalCliente + calculoFinanceiro.tollCost;
+  
+  // Lógica de Inteligência Visual (Gamificação)
+  const valorOfertaNum = Number(valorOferta.replace(/\./g, '').replace(',', '.')) || 0;
+  const isOfertaBoa = valorOfertaNum >= valorSugeridoCalculado;
+  const isOfertaValida = valorOfertaNum > 0;
 
   const pesoValido = useMemo(() => {
     const pesoNum = parseInt(peso.replace(/\D/g, ''), 10);
     return Number.isNaN(pesoNum) || pesoNum <= LIMITES_PESO[vehicle];
   }, [peso, vehicle]);
 
-  const isFormValid = nome.trim() !== '' && whatsapp.length >= 10 && documento.replace(/\D/g, '').length >= 11 && coleta.rua.trim() !== '' && entregas.every(e => e.rua.trim() !== '' && e.cep.replace(/\D/g, '').length === 8) && peso.trim() !== '' && pesoValido && qtdVolumes.trim() !== '' && valorOferta.trim() !== '' && Number(valorOferta.replace(/\D/g, '')) > 0 && (tipoFrete === 'imediato' || (tipoFrete === 'agendado' && dataAgendada.trim() !== ''));
+  const isFormValid = nome.trim() !== '' && whatsapp.length >= 10 && documento.replace(/\D/g, '').length >= 11 && coleta.rua.trim() !== '' && entregas.every(e => e.rua.trim() !== '' && e.cep.replace(/\D/g, '').length === 8) && peso.trim() !== '' && pesoValido && qtdVolumes.trim() !== '' && isOfertaValida && (tipoFrete === 'imediato' || (tipoFrete === 'agendado' && dataAgendada.trim() !== ''));
 
   const showToast = (msg: string, type: 'error' | 'success' | 'warning' = 'error') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 4500);
   };
 
+  // Simulação de Eventos em Tempo Real para a Central da Carga
   useEffect(() => {
     if (step === 'busca' && orderData?.status === TripState.DISPONIVEL) {
+      setSimCompat(Math.floor(Math.random() * 50) + 20); // Simula motoristas compatíveis na área
       const interval = setInterval(() => {
-        setLoadingMessage(prev => {
-          if (prev.includes('Publicando')) return 'Carga ativa no Mural Nacional...';
-          if (prev.includes('Nacional')) return 'Aguardando motoristas analisarem a oferta...';
-          return 'Carga ativa no Mural Nacional...';
-        });
-      }, 10000);
+        setSimViews(prev => prev + Math.floor(Math.random() * 3));
+        if (Math.random() > 0.7) setSimInterest(prev => prev + 1);
+      }, 5000);
       return () => clearInterval(interval);
     }
   }, [step, orderData?.status]);
@@ -363,7 +372,7 @@ export default function Cliente() {
       // CÁLCULO DINÂMICO DE SPLIT B2B COM BASE NA OFERTA DO CLIENTE
       const isHeavy = ['toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(vehicle);
       const taxaPlataforma = isHeavy ? 0.15 : 0.20;
-      const valorFreteBruto = Number(valorOferta.replace(/\./g, '').replace(',', '.')); 
+      const valorFreteBruto = valorOfertaNum; 
       const lucroPlataforma = valorFreteBruto * taxaPlataforma; 
       const valorLiquidoMotorista = valorFreteBruto - lucroPlataforma; 
 
@@ -478,7 +487,7 @@ export default function Cliente() {
 
   const handleRetrySearch = async () => {
     if (!currentOrderId) return;
-    showToast("Reativando radares...", "success");
+    showToast("Reativando postagem no Feed...", "success");
     try {
       await updateDoc(doc(db, 'fretes', currentOrderId), {
         status: 'disponivel',
@@ -512,10 +521,21 @@ export default function Cliente() {
     return numeric;
   };
 
+  const formatTimeAgo = (timestamp: any) => {
+    if (!timestamp) return 'Agora';
+    const seconds = Math.floor((new Date().getTime() - timestamp.toDate().getTime()) / 1000);
+    if (seconds < 60) return `${seconds}s atrás`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m atrás`;
+    return `${Math.floor(seconds / 3600)}h atrás`;
+  };
+
   const podeCancelar = orderData && ['aguardando_pagamento', 'agendado', 'sem_motorista', 'expirado', 'disponivel'].includes(orderData?.status || '');
   const textoCancelar = ((orderData as any)?.pagamentoStatus === 'aprovado' || orderData?.status === 'disponivel') 
     ? 'Cancelar e Estornar Pagamento'
     : 'Cancelar Postagem';
+
+  const inputClass = "w-full rounded-2xl border-2 border-slate-200 bg-white p-5 text-base md:text-lg font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none";
+  const smallInputClass = "w-full rounded-2xl border-2 border-slate-200 bg-white p-4 text-sm font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none";
 
   return (
     <div className="relative min-h-[100dvh] w-full flex flex-col bg-slate-50 text-slate-800 font-sans selection:bg-blue-500/20">
@@ -525,7 +545,7 @@ export default function Cliente() {
       <header className="relative z-50 w-full border-b border-slate-200 bg-white/80 backdrop-blur-xl shadow-sm">
         <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
           <div className="flex items-center gap-4">
-            <button onClick={() => { if (step === 'form') window.location.href = '/'; else resetFlow(); }} className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 transition-all duration-300 hover:bg-slate-100 hover:border-slate-300 hover:scale-105 active:scale-95">
+            <button onClick={() => { if (step === 'form') window.location.href = '/'; else resetFlow(); }} className="flex h-11 w-11 items-center justify-center rounded-2xl border-2 border-slate-200 bg-white transition-all duration-300 hover:bg-slate-100 hover:scale-105 active:scale-95">
               <ArrowLeft size={20} className="text-slate-600" />
             </button>
             <div className="flex items-center gap-3">
@@ -533,9 +553,9 @@ export default function Cliente() {
               <span className="text-2xl font-black italic tracking-tighter text-slate-900">PAINEL EMBARCADOR</span>
             </div>
           </div>
-          <div className="hidden items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-5 py-2 md:flex">
-            <ShieldCheck className="h-4 w-4 text-blue-600" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-800">Pagamento em Escrow</span>
+          <div className="hidden items-center gap-2 rounded-full border-2 border-emerald-100 bg-emerald-50 px-5 py-2 md:flex">
+            <ShieldCheck className="h-4 w-4 text-emerald-600" />
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-800">Pagamento 100% Protegido</span>
           </div>
         </nav>
       </header>
@@ -543,348 +563,361 @@ export default function Cliente() {
       <main className="relative z-10 w-full max-w-6xl mx-auto flex flex-col justify-center px-4 py-8 pb-20 sm:px-6 lg:px-8">
         
         {step === 'form' && (
-          <div className="w-full rounded-[2rem] border border-slate-200 bg-white p-6 shadow-2xl animate-in fade-in slide-in-from-bottom-4 md:p-12">
+          <div className="w-full rounded-[2.5rem] border border-slate-200 bg-white p-6 shadow-xl animate-in fade-in slide-in-from-bottom-4 md:p-12">
             <div className="mb-10 text-center md:text-left">
               <h1 className="text-4xl font-black tracking-tight text-slate-900 md:text-5xl leading-tight">
                 Publicar <span className="italic text-blue-600">Carga</span>
               </h1>
-              <p className="mt-4 text-slate-500 font-medium max-w-2xl">Insira os dados da operação e defina o valor que deseja pagar. A carga irá direto para o Mural de Fretes da FretoGo.</p>
+              <p className="mt-4 text-slate-500 font-medium max-w-2xl text-lg">Insira os dados da operação e defina o valor que deseja pagar. A carga irá direto para o Mural de Fretes da FretoGo.</p>
             </div>
 
-            <div className="mb-8">
-              <h2 className="mb-4 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
-                <Building2 className="h-4 w-4 text-blue-500" /> Dados da Empresa
-              </h2>
-              <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-                <input className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base md:text-lg font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="Nome / Razão Social" value={nome} onChange={(e) => setNome(e.target.value)} />
-                <input className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base md:text-lg font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="WhatsApp Contato" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
-                <input className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base md:text-lg font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="CNPJ / CPF" value={documento} onChange={(e) => setDocumento(e.target.value)} />
-              </div>
-            </div>
-
-            <div className="relative mb-8 grid grid-cols-1 gap-10 lg:grid-cols-2">
-              <div className="absolute bottom-4 left-1/2 top-10 hidden w-px -translate-x-1/2 bg-slate-200 lg:block"></div>
-              
-              <div className="space-y-5">
-                <h2 className="mb-3 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
-                  <MapPin className="h-4 w-4 text-blue-500" /> Endereço de Coleta
+            <div className="space-y-8">
+              {/* DADOS EMPRESA */}
+              <div className="bg-slate-50 p-6 md:p-8 rounded-3xl border border-slate-100">
+                <h2 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
+                  <Building2 className="h-5 w-5 text-blue-500" /> Dados da Empresa
                 </h2>
-                <div className="grid grid-cols-3 gap-4">
-                  <input className="col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="Rua da Retirada" value={coleta.rua} onChange={e => setColeta({...coleta, rua: e.target.value})} />
-                  <input className="col-span-1 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="Nº" value={coleta.num} onChange={e => setColeta({...coleta, num: e.target.value})} />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <input className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="Bairro" value={coleta.bairro} onChange={e => setColeta({...coleta, bairro: e.target.value})} />
-                  <input className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="CEP" value={coleta.cep} onChange={e => setColeta({...coleta, cep: e.target.value})} />
+                <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+                  <input className={inputClass} placeholder="Nome / Razão Social" value={nome} onChange={(e) => setNome(e.target.value)} />
+                  <input className={inputClass} placeholder="WhatsApp Contato" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
+                  <input className={inputClass} placeholder="CNPJ / CPF" value={documento} onChange={(e) => setDocumento(e.target.value)} />
                 </div>
               </div>
 
-              <div className="space-y-5">
-                {entregas.map((entrega, index) => (
-                  <div key={index} className={`relative rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-4 transition-all ${index > 0 ? 'border-blue-200 bg-blue-50/50' : ''}`}>
-                    <div className="flex justify-between items-center mb-4">
-                      <h2 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
-                        <Truck className="h-4 w-4 text-emerald-500" /> Destino {entregas.length > 1 ? index + 1 : ''}
-                      </h2>
-                      {index > 0 && (
-                        <button onClick={() => handleRemoveEntrega(index)} className="text-red-400 hover:text-red-600 transition-colors">
-                          <Trash2 size={16} />
-                        </button>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-3 gap-4 mb-4">
-                      <input className="col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10 outline-none" placeholder="Rua da Entrega" value={entrega.rua} onChange={e => updateEntrega(index, 'rua', e.target.value)} />
-                      <input className="col-span-1 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10 outline-none" placeholder="Nº" value={entrega.num} onChange={e => updateEntrega(index, 'num', e.target.value)} />
+              {/* ENDEREÇOS E ROTAS */}
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                <div className="bg-slate-50 p-6 md:p-8 rounded-3xl border border-slate-100">
+                  <h2 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
+                    <MapPin className="h-5 w-5 text-blue-500" /> Endereço de Coleta
+                  </h2>
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-3 gap-4">
+                      <input className={`col-span-2 ${smallInputClass}`} placeholder="Rua da Retirada" value={coleta.rua} onChange={e => setColeta({...coleta, rua: e.target.value})} />
+                      <input className={`col-span-1 ${smallInputClass}`} placeholder="Nº" value={coleta.num} onChange={e => setColeta({...coleta, num: e.target.value})} />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
-                      <input className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10 outline-none" placeholder="Bairro" value={entrega.bairro} onChange={e => updateEntrega(index, 'bairro', e.target.value)} />
-                      <input className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10 outline-none" placeholder="CEP" value={entrega.cep} onChange={e => updateEntrega(index, 'cep', e.target.value)} />
+                      <input className={smallInputClass} placeholder="Bairro" value={coleta.bairro} onChange={e => setColeta({...coleta, bairro: e.target.value})} />
+                      <input className={smallInputClass} placeholder="CEP" value={coleta.cep} onChange={e => setColeta({...coleta, cep: e.target.value})} />
                     </div>
                   </div>
-                ))}
+                </div>
 
-                {entregas.length < 5 && (
-                  <button onClick={handleAddEntrega} className="flex items-center gap-2 text-sm font-bold text-blue-600 hover:text-blue-800 transition-colors w-full justify-center py-2 border border-dashed border-blue-300 rounded-xl bg-blue-50/50">
-                    <Plus size={16} /> Adicionar Parada Extra
-                  </button>
-                )}
+                <div className="bg-blue-50/50 p-6 md:p-8 rounded-3xl border border-blue-100">
+                  <h2 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-blue-600">
+                    <Truck className="h-5 w-5 text-blue-600" /> Destino(s)
+                  </h2>
+                  <div className="space-y-4">
+                    {entregas.map((entrega, index) => (
+                      <div key={index} className="bg-white p-4 rounded-2xl border border-blue-100 shadow-sm relative">
+                        {index > 0 && (
+                          <button onClick={() => handleRemoveEntrega(index)} className="absolute right-4 top-4 text-red-400 hover:text-red-600 transition-colors">
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                        <p className="text-[10px] font-black uppercase text-blue-400 mb-2">Parada {index + 1}</p>
+                        <div className="grid grid-cols-3 gap-3 mb-3">
+                          <input className={`col-span-2 ${smallInputClass}`} placeholder="Rua da Entrega" value={entrega.rua} onChange={e => updateEntrega(index, 'rua', e.target.value)} />
+                          <input className={`col-span-1 ${smallInputClass}`} placeholder="Nº" value={entrega.num} onChange={e => updateEntrega(index, 'num', e.target.value)} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <input className={smallInputClass} placeholder="Bairro" value={entrega.bairro} onChange={e => updateEntrega(index, 'bairro', e.target.value)} />
+                          <input className={smallInputClass} placeholder="CEP" value={entrega.cep} onChange={e => updateEntrega(index, 'cep', e.target.value)} />
+                        </div>
+                      </div>
+                    ))}
+                    {entregas.length < 5 && (
+                      <button onClick={handleAddEntrega} className="w-full py-3 border-2 border-dashed border-blue-300 text-blue-600 font-bold rounded-2xl hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 text-sm">
+                        <Plus size={18}/> Adicionar Parada Extra
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
 
-            <div className="mb-10 rounded-[2rem] border border-slate-200 bg-slate-50 p-6 md:p-8">
-              <h2 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
-                <Package className="h-4 w-4 text-amber-500" /> Especificações da Carga
-              </h2>
-              <div className="mb-6 grid grid-cols-1 gap-5 md:grid-cols-3">
-                <div className="relative col-span-1 md:col-span-3">
-                  <select className="w-full cursor-pointer rounded-2xl border border-slate-200 bg-white p-5 text-base font-bold text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10" value={vehicle} onChange={e => setVehicle(e.target.value as VehicleType)}>
+              {/* CARGA E INTELIGÊNCIA DE MERCADO */}
+              <div className="bg-slate-50 p-6 md:p-8 rounded-3xl border border-slate-100">
+                <h2 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
+                  <Package className="h-5 w-5 text-amber-500" /> Especificações da Carga
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                  <select className={`col-span-1 md:col-span-2 ${inputClass} cursor-pointer`} value={vehicle} onChange={e => setVehicle(e.target.value as VehicleType)}>
                     {Object.entries(VEHICLE_CONFIG).map(([key, conf]) => (<option key={key} value={key}>{conf.nome}</option>))}
                   </select>
+                  <input className={inputClass} placeholder="Peso (Ex: 25000kg)" value={peso} onChange={e => setPeso(e.target.value)} />
+                  <input className={inputClass} placeholder="Produto / Volume" value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)} />
                 </div>
-                <input className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="Peso (Ex: 25000kg)" value={peso} onChange={e => setPeso(e.target.value)} />
-                <input className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="Qtd Volumes / Pallets" value={qtdVolumes} onChange={e => setQtdVolumes(e.target.value)} />
-                <input className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-bold text-slate-900 transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none" placeholder="O que é? (Ex: Química/MOPP)" value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)} />
-              </div>
 
-              {/* 🔥 CTO FIX: SEÇÃO DE VALOR OFERTADO B2B COM CÁLCULO MÍNIMO SUGERIDO */}
-              <div className="border-t border-slate-200 pt-8 mb-6">
-                <div className="mb-4 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <DollarSign className="h-5 w-5 text-emerald-600" />
-                    <p className="text-xs font-black uppercase tracking-widest text-slate-700">Valor Ofertado pela Carga</p>
+                {/* 🔥 FASE 2: BLOCO DE GAMIFICAÇÃO DA OFERTA */}
+                <div className="bg-white rounded-3xl border-2 border-slate-200 p-6 shadow-sm mb-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <Activity className="h-5 w-5 text-blue-500" />
+                        <p className="text-xs font-black uppercase tracking-widest text-slate-600">Inteligência de Mercado</p>
+                      </div>
+                      <p className="text-sm text-slate-500 mb-6">Nossa IA calcula o valor base (ANTT + Pedágios). Faça sua oferta baseada na sugestão para atrair motoristas mais rápido.</p>
+                      
+                      <div className="flex items-center gap-6 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                        <div>
+                          <p className="text-[10px] uppercase font-bold text-slate-400">Tabela ANTT (Sugerido)</p>
+                          <p className="text-xl font-black text-slate-800">R$ {valorSugeridoCalculado.toFixed(2).replace('.', ',')}</p>
+                        </div>
+                        <div className="h-8 w-px bg-slate-200"></div>
+                        <div>
+                          <p className="text-[10px] uppercase font-bold text-slate-400">Chance de Aceite</p>
+                          {valorOfertaNum === 0 ? (
+                             <span className="text-sm font-bold text-slate-400">Aguardando valor...</span>
+                          ) : isOfertaBoa ? (
+                             <span className="flex items-center gap-1 text-sm font-black text-emerald-600"><Flame size={16}/> Muito Alta</span>
+                          ) : (
+                             <span className="flex items-center gap-1 text-sm font-black text-amber-500"><AlertTriangle size={16}/> Baixa (Demorada)</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="relative">
+                      <p className="text-xs font-black uppercase tracking-widest text-slate-600 mb-3 ml-2 flex items-center gap-2"><DollarSign className="w-4 h-4 text-emerald-600"/> Valor Ofertado pela Carga</p>
+                      <span className="absolute left-6 top-[46px] text-2xl font-black text-emerald-600">R$</span>
+                      <input 
+                        type="text" 
+                        className={`w-full rounded-[2rem] border-4 ${isOfertaValida && isOfertaBoa ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white'} py-8 pl-16 pr-6 text-4xl font-black text-slate-900 transition-all focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/20 outline-none`} 
+                        placeholder="0,00" 
+                        value={valorOferta} 
+                        onChange={e => setValorOferta(formatCurrency(e.target.value))} 
+                      />
+                      <p className="text-[10px] font-bold text-slate-500 mt-3 uppercase tracking-widest text-center">
+                        O valor será mantido em custódia segura.
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-xs text-slate-400">Sugestão Mínima: R$ {valorSugeridoCalculado.toFixed(2).replace('.', ',')}</p>
                 </div>
-                <div className="relative">
-                  <span className="absolute left-6 top-1/2 -translate-y-1/2 text-xl font-black text-slate-400">R$</span>
-                  <input 
-                    type="text" 
-                    className="w-full rounded-2xl border-2 border-emerald-200 bg-emerald-50/30 py-6 pl-16 pr-6 text-3xl font-black text-emerald-900 transition-all placeholder:text-slate-300 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/20 outline-none" 
-                    placeholder="0,00" 
-                    value={valorOferta} 
-                    onChange={e => setValorOferta(formatCurrency(e.target.value))} 
-                  />
+                
+                <div className="border-t border-slate-200 pt-8">
+                  <div className="mb-4 flex items-center gap-2">
+                    <CalendarDays className="h-5 w-5 text-purple-500" />
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-600">Horário da Coleta</p>
+                  </div>
+                  <div className="flex w-full max-w-md bg-slate-100 p-2 rounded-2xl">
+                    <button onClick={() => setTipoFrete('imediato')} className={`flex-1 rounded-xl py-4 text-sm font-black uppercase tracking-wider transition-all ${tipoFrete === 'imediato' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-200'}`}>Imediato</button>
+                    <button onClick={() => setTipoFrete('agendado')} className={`flex-1 rounded-xl py-4 text-sm font-black uppercase tracking-wider transition-all ${tipoFrete === 'agendado' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-200'}`}>Agendar Data</button>
+                  </div>
+                  {tipoFrete === 'agendado' && <input type="datetime-local" className={`mt-4 max-w-md ${inputClass}`} value={dataAgendada} onChange={(e) => setDataAgendada(e.target.value)} />}
                 </div>
-                <p className="text-[10px] font-bold text-slate-500 mt-3 uppercase tracking-widest text-center">
-                  O valor será mantido em custódia segura. O sistema repassará automaticamente a porcentagem do motorista.
-                </p>
-              </div>
-              
-              <div className="border-t border-slate-200 pt-8">
-                <div className="mb-4 flex items-center gap-2">
-                  <CalendarDays className="h-4 w-4 text-purple-500" />
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Horário da Coleta</p>
-                </div>
-                <div className="flex w-full max-w-md rounded-2xl border border-slate-200 bg-slate-100 p-1.5">
-                  <button onClick={() => setTipoFrete('imediato')} className={`flex-1 rounded-xl py-3 text-sm font-black uppercase tracking-wider transition-all ${tipoFrete === 'imediato' ? 'bg-white text-blue-600 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}>Imediato</button>
-                  <button onClick={() => setTipoFrete('agendado')} className={`flex-1 rounded-xl py-3 text-sm font-black uppercase tracking-wider transition-all ${tipoFrete === 'agendado' ? 'bg-white text-purple-600 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}>Agendar</button>
-                </div>
-                {tipoFrete === 'agendado' && <input type="datetime-local" className="mt-5 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 text-base font-bold text-slate-900 outline-none focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 transition-all" value={dataAgendada} onChange={(e) => setDataAgendada(e.target.value)} />}
               </div>
             </div>
 
             {!isFormValid && (
-              <div className="mb-8 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-center">
+              <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-center">
                 <p className="flex items-center justify-center gap-2 text-xs font-black uppercase tracking-widest text-amber-600">
-                  <AlertTriangle size={18}/> Preencha todos os campos e o Valor da Oferta para postar a carga.
+                  <AlertTriangle size={18}/> Preencha todos os campos operacionais e o Valor da Oferta para postar a carga.
                 </p>
               </div>
             )}
 
-            <button onClick={calcularDistanciaReal} disabled={loadingRoute || loadingPayment || !isFormValid} className={`flex w-full min-h-[58px] items-center justify-center gap-3 rounded-[1.5rem] py-4 text-base font-black uppercase italic tracking-[0.2em] transition-all duration-300 ${!isFormValid ? 'cursor-not-allowed bg-slate-200 text-slate-400' : 'bg-blue-600 text-white shadow-xl shadow-blue-600/30 hover:scale-[1.02] hover:bg-blue-700 active:scale-95'}`}>
-              {loadingRoute ? <><Loader2 className="h-6 w-6 animate-spin"/> Validando Informações...</> : <><Zap size={22}/> Continuar para Postagem</>}
-            </button>
+            <div className="mt-8">
+              <button onClick={calcularDistanciaReal} disabled={loadingRoute || loadingPayment || !isFormValid} className={`flex w-full min-h-[72px] items-center justify-center gap-3 rounded-[2rem] text-lg font-black uppercase tracking-[0.2em] transition-all duration-300 ${!isFormValid ? 'cursor-not-allowed bg-slate-200 text-slate-400' : 'bg-blue-600 text-white shadow-2xl shadow-blue-600/40 hover:scale-[1.01] hover:bg-blue-700'}`}>
+                {loadingRoute ? <><Loader2 className="h-6 w-6 animate-spin"/> Validando Informações...</> : <><Zap size={24}/> Validar Postagem e Pagamento</>}
+              </button>
+            </div>
           </div>
         )}
 
         {step === 'preview' && (
-          <div className="w-full grid grid-cols-1 gap-8 animate-in fade-in zoom-in duration-500 lg:grid-cols-[1fr_420px]">
-            <div className="rounded-[2rem] border border-slate-200 bg-white p-6 md:p-10 shadow-2xl">
-              <div className="mb-10 flex items-center justify-between border-b border-slate-100 pb-6">
+          <div className="w-full grid grid-cols-1 gap-8 animate-in fade-in zoom-in duration-500 lg:grid-cols-[1fr_450px]">
+            <div className="rounded-[2.5rem] border border-slate-200 bg-white p-8 shadow-xl">
+              <div className="mb-8 flex items-center justify-between border-b border-slate-100 pb-6">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.25em] text-blue-600 font-bold">Resumo da Postagem</p>
-                  <h2 className="mt-2 text-3xl md:text-4xl font-black italic tracking-tighter text-slate-900">Validar Carga</h2>
+                  <h2 className="text-3xl font-black text-slate-900">Resumo da Rota</h2>
+                  <p className="text-sm text-slate-500 font-medium mt-1">Confira os detalhes antes de postar no Feed.</p>
                 </div>
-                <CheckCircle className="h-12 w-12 text-blue-600" />
+                <div className="h-14 w-14 rounded-full bg-blue-50 flex items-center justify-center"><MapPin className="h-6 w-6 text-blue-600" /></div>
               </div>
         
-              <div className="mb-10 grid grid-cols-1 gap-6 md:grid-cols-2">
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
-                  <MapPin className="mb-4 h-6 w-6 text-blue-500" />
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Local de Coleta</p>
-                  <p className="mt-2 text-base font-bold leading-snug text-slate-900">{coleta.rua}, {coleta.num}</p>
-                  <p className="mt-1 text-sm text-slate-500">{coleta.bairro}</p>
+              <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="rounded-3xl border border-slate-100 bg-slate-50 p-6">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-2">Origem</p>
+                  <p className="text-lg font-bold text-slate-900">{coleta.rua}, {coleta.num}</p>
+                  <p className="text-sm text-slate-500">{coleta.bairro}</p>
                 </div>
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
-                  <Truck className="mb-4 h-6 w-6 text-emerald-500" />
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Destino Final</p>
-                  <p className="mt-2 text-base font-bold uppercase italic text-slate-900">{entregas[entregas.length - 1].rua}, {entregas[entregas.length - 1].num}</p>
-                  <p className="mt-1 text-sm font-bold text-blue-600">{entregas.length > 1 ? `+ ${entregas.length - 1} paradas no trajeto` : entregas[0].bairro}</p>
+                <div className="rounded-3xl border border-slate-100 bg-slate-50 p-6">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500 mb-2">Destino</p>
+                  <p className="text-lg font-bold text-slate-900">{entregas[entregas.length - 1].rua}, {entregas[entregas.length - 1].num}</p>
+                  <p className="text-sm text-slate-500">{entregas.length > 1 ? `+ ${entregas.length - 1} paradas no trajeto` : entregas[0].bairro}</p>
                 </div>
               </div>
 
-              <div className="h-[220px] md:h-[420px] w-full overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-100 shadow-inner relative">
+              <div className="h-[300px] md:h-[450px] w-full overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-100 relative">
                 {mapsReady && origemGPS && destinoGPS ? (
-                  <MapaCliente 
-                    origem={origemGPS} 
-                    destino={destinoGPS} 
-                    paradasExtras={paradasGPS.length > 1 ? paradasGPS.slice(0, -1) : undefined}
-                    vehicleType={vehicle} 
-                    operationalMessage={`Validando trajeto B2B...`} 
-                  />
+                  <MapaCliente origem={origemGPS} destino={destinoGPS} paradasExtras={paradasGPS.length > 1 ? paradasGPS.slice(0, -1) : undefined} vehicleType={vehicle} operationalMessage={`Validando Trajeto B2B...`} />
                 ) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-blue-500">
-                    <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-3"></div>
-                    <p className="text-[10px] font-black uppercase tracking-widest">Carregando Mapa...</p>
-                  </div>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-blue-500"><Loader2 className="w-8 h-8 animate-spin mb-3"/></div>
                 )}
               </div>
             </div>
 
-            <div className="relative flex h-full flex-col overflow-hidden rounded-[2rem] border border-emerald-200 bg-white p-8 lg:p-10 shadow-2xl">
-              <div className="absolute left-0 right-0 top-0 h-[4px] bg-gradient-to-r from-emerald-400 to-teal-400"></div>
-              
-              <div className="mb-8 flex items-center gap-3">
-                <ShieldCheck className="h-6 w-6 text-emerald-600" />
-                <span className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-800">Custódia Segura (Escrow)</span>
-              </div>
-              
-              <div className="mb-10">
-                <p className="text-sm font-bold text-slate-400 mb-1 uppercase tracking-widest">Oferta da Empresa</p>
-                <h2 className="text-5xl md:text-6xl font-black tracking-tighter text-emerald-900">R$ {valorOferta}</h2>
-              </div>
-              
-              <div className="mb-10 space-y-5 rounded-[1.5rem] border border-slate-100 bg-slate-50 p-6 text-sm text-slate-600">
-                <div className="flex items-center justify-between border-b border-slate-200 pb-4">
-                  <span className="font-bold">Distância Estimada</span>
-                  <strong className="rounded-lg bg-blue-100 px-3 py-1.5 text-xs text-blue-800">{validDistancia.toFixed(1)} km</strong>
-                </div>
-                <div className="flex items-center justify-between border-b border-slate-200 pb-4">
-                  <span className="font-bold">Veículo Requisitado</span>
-                  <strong className="max-w-[140px] truncate text-right text-slate-900 font-bold">{VEHICLE_CONFIG[vehicle].nome}</strong>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="font-bold">Paradas</span>
-                  <strong className="text-slate-900 font-bold">{entregas.length} destino(s)</strong>
+            {/* 🔥 FASE 2: BLOCO DE CONFIANÇA (ESCROW) EXPLICADO */}
+            <div className="flex flex-col gap-6">
+              <div className="rounded-[2.5rem] border-2 border-emerald-500 bg-emerald-600 p-8 shadow-2xl text-white relative overflow-hidden">
+                <div className="absolute -right-10 -top-10 opacity-10"><ShieldCheck size={200} /></div>
+                <div className="relative z-10">
+                  <div className="flex items-center gap-2 mb-6">
+                    <ShieldCheck className="h-6 w-6 text-emerald-300" />
+                    <span className="text-xs font-black uppercase tracking-[0.2em] text-emerald-100">Garantia Escrow FretoGo</span>
+                  </div>
+                  <h3 className="text-5xl font-black mb-2">R$ {valorOferta}</h3>
+                  <p className="text-emerald-100 text-sm font-medium border-b border-emerald-500/50 pb-6 mb-6">Sua oferta oficial para a rede de parceiros.</p>
+                  
+                  <ul className="space-y-4 text-sm font-medium text-emerald-50">
+                    <li className="flex items-start gap-3"><CheckCircle className="w-5 h-5 text-emerald-300 shrink-0"/> O motorista NÃO recebe o valor agora.</li>
+                    <li className="flex items-start gap-3"><CheckCircle className="w-5 h-5 text-emerald-300 shrink-0"/> O dinheiro fica 100% blindado na plataforma.</li>
+                    <li className="flex items-start gap-3"><CheckCircle className="w-5 h-5 text-emerald-300 shrink-0"/> Liberado ao motorista APENAS após você informar o PIN de Entrega no destino final.</li>
+                    <li className="flex items-start gap-3"><CheckCircle className="w-5 h-5 text-emerald-300 shrink-0"/> Estorno imediato caso a carga seja cancelada.</li>
+                  </ul>
                 </div>
               </div>
 
-              <div className="mt-auto space-y-4">
-                <button onClick={handleContratar} disabled={loadingPayment || isProcessingPayment.current} className={`flex min-h-[58px] w-full items-center justify-center gap-3 rounded-[1.25rem] px-8 py-4 text-[14px] font-black uppercase tracking-[0.2em] transition-all duration-300 ${loadingPayment ? 'bg-slate-200 text-slate-400' : 'bg-emerald-600 text-white shadow-xl shadow-emerald-600/30 hover:scale-[1.02] hover:bg-emerald-700 active:scale-95'}`}>
-                  {loadingPayment ? <><Loader2 className="h-6 w-6 animate-spin" /> Processando Custódia...</> : <><Lock size={20} /> Depositar e Postar Carga</>}
-                </button>
-                <button onClick={() => setStep('form')} className="flex min-h-[54px] w-full items-center justify-center rounded-[1.25rem] border border-slate-200 bg-white px-8 py-4 text-xs font-black uppercase tracking-[0.2em] text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-800">
-                  Voltar e Editar
-                </button>
-              </div>
+              <button onClick={handleContratar} disabled={loadingPayment || isProcessingPayment.current} className={`flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[2rem] text-[15px] font-black uppercase tracking-[0.2em] transition-all duration-300 ${loadingPayment ? 'bg-slate-200 text-slate-400' : 'bg-slate-900 text-white shadow-xl hover:bg-black hover:scale-[1.02]'}`}>
+                {loadingPayment ? <><Loader2 className="h-6 w-6 animate-spin" /> Processando Escrow...</> : <><Lock size={22} /> Pagar e Ativar no Feed</>}
+              </button>
+              <button onClick={() => setStep('form')} className="flex min-h-[54px] w-full items-center justify-center rounded-[2rem] border-2 border-slate-200 bg-white text-xs font-black uppercase tracking-[0.2em] text-slate-600 hover:bg-slate-50">
+                Voltar e Editar Dados
+              </button>
             </div>
           </div>
         )}
 
+        {/* 🔥 FASE 2: CENTRAL DA CARGA VIVA */}
         {step === 'busca' && orderData && (
-          <div className="mx-auto w-full max-w-4xl animate-in fade-in slide-in-from-bottom-8 duration-700">
-            <div className="overflow-hidden rounded-[3rem] border border-slate-200 bg-white shadow-2xl relative">
-              <ClientStatusCard orderData={orderData} />
-
-              <div className="h-[400px] md:h-[500px] w-full border-t border-slate-100 bg-slate-50 relative">
-                {!mapsReady ? (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+          <div className="mx-auto w-full animate-in fade-in slide-in-from-bottom-8 duration-700">
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-8">
+              
+              <div className="flex flex-col gap-8">
+                {/* Cabeçalho da Central (Dark Mode Dashboard) */}
+                <div className="bg-slate-900 rounded-[2.5rem] p-8 md:p-10 shadow-2xl text-white relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-8 opacity-5"><Activity size={150} /></div>
+                  <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-slate-800 pb-8 mb-8">
+                    <div>
+                      <div className="flex items-center gap-3 mb-3">
+                        <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-500"></span></span>
+                        <p className="text-cyan-400 font-bold tracking-widest uppercase text-xs">Carga Ativa no Feed</p>
+                      </div>
+                      <h2 className="text-3xl md:text-4xl font-black">ID: #{currentOrderId?.slice(0,8).toUpperCase()}</h2>
+                    </div>
+                    <div className="md:text-right bg-slate-800/50 p-4 rounded-2xl border border-slate-700/50">
+                      <p className="text-slate-400 text-[10px] uppercase font-bold tracking-widest mb-1">Valor Protegido (Escrow)</p>
+                      <p className="text-2xl font-black text-emerald-400 flex items-center gap-2"><ShieldCheck size={20}/> R$ {orderData?.valorFreteBruto?.toFixed(2).replace('.', ',')}</p>
+                    </div>
                   </div>
-                ) : (
-                  <MapaCliente 
-                    origem={origemGPS} 
-                    destino={destinoGPS} 
-                    motoristaId={orderData?.motoristaId} 
-                    paradasExtras={paradasGPS}
-                  />
-                )}
+
+                  {/* Estatísticas Vivas (Simuladores UX) */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-slate-800/40 rounded-2xl p-4 border border-slate-700/30">
+                      <Eye className="w-5 h-5 text-blue-400 mb-2"/>
+                      <p className="text-3xl font-black text-white">{simViews}</p>
+                      <p className="text-[10px] text-slate-400 uppercase font-bold mt-1">Visualizações</p>
+                    </div>
+                    <div className="bg-slate-800/40 rounded-2xl p-4 border border-slate-700/30">
+                      <Truck className="w-5 h-5 text-emerald-400 mb-2"/>
+                      <p className="text-3xl font-black text-white">{simCompat}</p>
+                      <p className="text-[10px] text-slate-400 uppercase font-bold mt-1">Compatíveis</p>
+                    </div>
+                    <div className="bg-slate-800/40 rounded-2xl p-4 border border-slate-700/30">
+                      <Users className="w-5 h-5 text-purple-400 mb-2"/>
+                      <p className="text-3xl font-black text-white">{simInterest}</p>
+                      <p className="text-[10px] text-slate-400 uppercase font-bold mt-1">Interessados</p>
+                    </div>
+                    <div className="bg-slate-800/40 rounded-2xl p-4 border border-slate-700/30">
+                      <CalendarDays className="w-5 h-5 text-amber-400 mb-2"/>
+                      <p className="text-xl font-black text-white mt-2">{formatTimeAgo(orderData.createdAt)}</p>
+                      <p className="text-[10px] text-slate-400 uppercase font-bold mt-1">No ar</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Mapa Live */}
+                <div className="h-[400px] w-full rounded-[2.5rem] overflow-hidden border border-slate-200 shadow-xl relative">
+                  {mapsReady ? (
+                    <MapaCliente origem={origemGPS} destino={destinoGPS} motoristaId={orderData?.motoristaId} paradasExtras={paradasGPS} />
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-center bg-slate-100"><Loader2 className="h-8 w-8 animate-spin text-blue-500" /></div>
+                  )}
+                  {['aguardando_pagamento', 'disponivel', 'buscando_motorista'].includes(orderData?.status || '') && (
+                    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-900/60 backdrop-blur-sm">
+                      <div className="relative z-10 flex h-20 w-20 items-center justify-center rounded-full bg-cyan-500 shadow-[0_0_40px_rgba(6,182,212,0.5)] mb-6">
+                        <Activity className="h-10 w-10 text-white animate-pulse" />
+                      </div>
+                      <h3 className="text-2xl font-black text-white tracking-tighter text-center">Transmitindo no Feed...</h3>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Sidebar de Ações e Status */}
+              <div className="flex flex-col gap-6">
                 
                 {['sem_motorista', 'expirado'].includes(orderData?.status || '') && (
-                  <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-white/90 backdrop-blur-xl p-6 text-center animate-in fade-in zoom-in duration-300">
-                    <div className="bg-amber-100 p-4 rounded-full mb-6 border border-amber-200 shadow-inner">
-                      <AlertTriangle className="h-12 w-12 text-amber-500" />
-                    </div>
-                    <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-2">Mural Vazio / Tempo Esgotado</h3>
-                    <p className="text-sm font-bold text-slate-500 max-w-md mb-8">
-                      A sua oferta expirou no mural ou não houve parceiros compatíveis na região.
-                    </p>
-                    <div className="flex flex-col gap-4 w-full max-w-sm">
-                      <button onClick={handleRetrySearch} className="w-full flex items-center justify-center gap-2 py-4 bg-blue-600 text-white rounded-[1.25rem] font-black uppercase tracking-widest text-xs shadow-lg hover:bg-blue-700 hover:scale-[1.02] transition-all">
-                        <RefreshCw size={18} /> Republicar Carga
-                      </button>
-                      <button onClick={() => setShowCancelModal(true)} className="w-full flex items-center justify-center gap-2 py-4 bg-red-50 text-red-600 border border-red-200 rounded-[1.25rem] font-black uppercase tracking-widest text-xs hover:bg-red-100 transition-all">
-                        <XCircle size={18} /> Cancelar e Reembolsar PIX
-                      </button>
-                    </div>
+                  <div className="bg-white/90 p-6 rounded-[2rem] border border-amber-200 text-center shadow-xl">
+                    <div className="bg-amber-100 p-4 rounded-full mb-4 inline-block"><AlertTriangle className="h-8 w-8 text-amber-500" /></div>
+                    <h3 className="text-xl font-black text-slate-900 mb-2">Nenhum Aceite</h3>
+                    <p className="text-xs font-bold text-slate-500 mb-6">A oferta expirou no Feed.</p>
+                    <button onClick={handleRetrySearch} className="w-full flex items-center justify-center gap-2 py-4 bg-blue-600 text-white rounded-xl font-black uppercase text-xs mb-3 shadow-lg"><RefreshCw size={16} /> Republicar Carga</button>
+                    <button onClick={() => setShowCancelModal(true)} className="w-full flex items-center justify-center gap-2 py-4 bg-red-50 text-red-600 border border-red-200 rounded-xl font-black uppercase text-xs hover:bg-red-100"><XCircle size={16} /> Cancelar e Reembolsar PIX</button>
                   </div>
                 )}
 
-                {/* Loading Padrão da Postagem (Fim do Radar) */}
-                {['aguardando_pagamento', 'disponivel', 'buscando_motorista'].includes(orderData?.status || '') && (
-                  <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-white/80 backdrop-blur-md">
-                    <div className="relative mb-8">
-                      <div className="absolute -inset-4 animate-pulse rounded-full bg-emerald-500/20 blur-xl"></div>
-                      <div className="relative z-10 flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-teal-400 shadow-2xl">
-                        <CheckCircle className="h-10 w-10 text-white" />
+                <ClientStatusCard orderData={orderData} />
+                
+                {orderData?.motoristaNome && (
+                  <div className="bg-white rounded-[2rem] p-6 shadow-xl border border-slate-100">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Motorista Designado</p>
+                    <div className="flex items-center gap-4 mb-6">
+                      <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center"><User className="w-7 h-7 text-blue-600" /></div>
+                      <div>
+                        <p className="text-lg font-black text-slate-900 leading-none">{orderData?.motoristaNome}</p>
+                        <p className="text-xs font-bold text-slate-500 mt-1 uppercase">{orderData?.veiculo?.replace('_', ' ') || 'Veículo'}</p>
                       </div>
                     </div>
-                    <h3 className="text-2xl font-black text-slate-900 tracking-tighter text-center">
-                      {orderData?.status === 'aguardando_pagamento' ? 'Confirmando Custódia...' : 'Carga no Mural Nacional'}
-                    </h3>
-                    <p className="mt-3 text-sm font-bold text-slate-500 uppercase tracking-widest text-center max-w-xs">
-                      {orderData?.status === 'aguardando_pagamento' ? 'Aguardando o retorno do banco.' : 'Aguardando motoristas analisarem sua oferta e aceitarem o frete.'}
+                    {orderData?.motoristaZap && (
+                      <button onClick={handleWhatsAppClick} className="w-full flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white py-4 rounded-2xl font-black uppercase text-xs tracking-widest transition-all">
+                        <MessageCircle size={18} /> Falar no WhatsApp
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Bloco de PIN de Segurança */}
+                {['aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 'em_transporte', 'finalizando'].includes(orderData?.status || '') && (
+                  <div className="bg-slate-900 rounded-[2rem] p-6 shadow-xl text-center text-white border border-slate-800">
+                    <p className="text-xs font-black uppercase tracking-widest text-cyan-400 mb-3 flex items-center justify-center gap-2"><Lock size={14}/> Seu PIN de Segurança</p>
+                    <p className="text-5xl font-mono font-black tracking-[0.2em]">
+                      {['em_transporte', 'finalizando'].includes(orderData?.status) 
+                        ? (orderData?.multiplasEntregas && orderData?.pinEntregas ? orderData?.pinEntregas[orderData?.paradaAtualIndex || 0] : (orderData?.pinEntregas ? orderData?.pinEntregas[0] : '---')) 
+                        : orderData?.pinColeta}
+                    </p>
+                    <p className="text-[10px] font-medium text-slate-400 mt-4 leading-relaxed">
+                      {['em_transporte', 'finalizando'].includes(orderData?.status) 
+                        ? 'Informe na ENTREGA para liberar o pagamento.' 
+                        : 'Informe na COLETA para iniciar o trajeto coberto.'}
                     </p>
                   </div>
                 )}
+
+                <div className="bg-white rounded-[2rem] p-4 shadow-xl border border-slate-100 flex flex-col gap-3">
+                  {podeCancelar ? (
+                    <button onClick={() => setShowCancelModal(true)} className="w-full flex items-center justify-center gap-2 bg-red-50 text-red-600 py-4 rounded-xl font-black uppercase text-xs tracking-widest hover:bg-red-100 transition-all">
+                      <XCircle size={18} /> {textoCancelar}
+                    </button>
+                  ) : (
+                    <button onClick={() => window.open('https://wa.me/5511946099840', '_blank')} className="w-full flex items-center justify-center gap-2 bg-slate-100 text-slate-600 py-4 rounded-xl font-black uppercase text-xs tracking-widest hover:bg-slate-200 transition-all">
+                      <HeadphonesIcon size={18} /> Suporte B2B
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <div className="bg-white border-t border-slate-100 p-4 md:p-6 flex flex-col gap-3">
-                {podeCancelar ? (
-                  <button 
-                    onClick={() => setShowCancelModal(true)}
-                    className="w-full flex items-center justify-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 py-4 rounded-xl font-black uppercase text-xs tracking-widest transition-all"
-                  >
-                    <XCircle size={18} /> {textoCancelar}
-                  </button>
-                ) : (
-                  <button 
-                    onClick={() => window.open('https://wa.me/5511946099840', '_blank')} 
-                    className="w-full flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 py-4 rounded-xl font-black uppercase text-xs tracking-widest transition-all"
-                  >
-                    <HeadphonesIcon size={18} /> Falar com o Suporte B2B
-                  </button>
-                )}
-              </div>
-
-              {orderData?.motoristaNome && (
-                <div className="border-t border-slate-100 bg-slate-50/50 p-6 md:p-8">
-                   <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-                      <div className="flex items-center gap-4 w-full md:w-auto">
-                        <div className="w-16 h-16 rounded-2xl bg-blue-100 border border-blue-200 flex items-center justify-center">
-                           <User className="w-8 h-8 text-blue-600" />
-                        </div>
-                        <div>
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Carga Aceita por</p>
-                          <p className="text-xl font-black text-slate-900 leading-none">{orderData?.motoristaNome}</p>
-                          <p className="text-xs font-bold text-slate-500 mt-2 uppercase">{orderData?.veiculo?.replace('_', ' ') || 'Veículo Padrão'}</p>
-                        </div>
-                      </div>
-                      
-                      {orderData?.motoristaZap && (
-                        <div className="flex w-full md:w-auto gap-3">
-                          <button onClick={handleWhatsAppClick} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white px-6 py-4 rounded-xl font-black uppercase text-xs tracking-widest transition-all shadow-lg shadow-green-500/30">
-                             <MessageCircle size={18} /> Contatar Transportador
-                          </button>
-                        </div>
-                      )}
-                   </div>
-                </div>
-              )}
-
-              {['aceito', 'indo_coleta', 'chegou_coleta', 'coletando'].includes(orderData?.status || '') && (
-                <div className="border-t border-slate-100 bg-white p-6 md:p-8 text-center">
-                   <p className="text-xs font-black uppercase tracking-widest text-slate-400 mb-3 flex items-center justify-center gap-2"><Lock size={14}/> PIN de Segurança - Coleta</p>
-                   <p className="text-4xl md:text-5xl font-mono font-black text-slate-900 tracking-[0.2em]">{orderData?.pinColeta}</p>
-                   <p className="text-[10px] font-bold text-slate-500 uppercase mt-3">Passe este PIN ao motorista na retirada para iniciar o trajeto coberto.</p>
-                </div>
-              )}
-
-              {['em_transporte', 'finalizando'].includes(orderData?.status || '') && (
-                <div className="border-t border-slate-100 bg-white p-6 md:p-8 text-center relative overflow-hidden">
-                   <div className="absolute inset-0 bg-blue-50/50"></div>
-                   <div className="relative z-10">
-                     <p className="text-xs font-black uppercase tracking-widest text-blue-500 mb-3 flex items-center justify-center gap-2"><Lock size={14}/> PIN de Segurança - Entrega {orderData?.multiplasEntregas ? `${(orderData?.paradaAtualIndex || 0) + 1} de ${(orderData?.paradas?.length || 1)}` : 'Final'}</p>
-                     <p className="text-4xl md:text-5xl font-mono font-black text-blue-900 tracking-[0.2em]">
-                       {orderData?.multiplasEntregas && orderData?.pinEntregas ? orderData?.pinEntregas[orderData?.paradaAtualIndex || 0] : (orderData?.pinEntregas ? orderData?.pinEntregas[0] : '---')}
-                     </p>
-                     <p className="text-[10px] font-bold text-slate-500 uppercase mt-3">Ao receber este PIN, o motorista fará o saque automático do valor da carga.</p>
-                   </div>
-                </div>
-              )}
             </div>
-
-            {currentOrderId && <ChatFrete freteId={currentOrderId} isCliente={true} nome={nome || "Empresa Embarcadora"} />}
+            {currentOrderId && <div className="mt-8"><ChatFrete freteId={currentOrderId} isCliente={true} nome={nome || "Empresa"} /></div>}
           </div>
         )}
 
@@ -898,13 +931,7 @@ export default function Cliente() {
         </div>
       )}
 
-      <ClientCancelModal 
-        open={showCancelModal} 
-        isCancelling={isCancelling} 
-        onClose={() => setShowCancelModal(false)} 
-        onConfirm={handleCancelarPedido} 
-      />
-
+      <ClientCancelModal open={showCancelModal} isCancelling={isCancelling} onClose={() => setShowCancelModal(false)} onConfirm={handleCancelarPedido} />
     </div>
   );
 }
