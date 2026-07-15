@@ -104,12 +104,12 @@ export default function DriverRadar({
 
         <div className="mt-8 text-center">
           <h3 className={`text-xl md:text-2xl font-black uppercase italic tracking-tighter ${isOnline ? 'text-white' : 'text-slate-600'}`}>
-            {isOnline ? 'Buscando Fretes Próximos...' : 'Radar Desligado'}
+            {isOnline ? 'Buscando cargas em tempo real...' : 'Você está Offline.'}
           </h3>
           <p className="mt-2 text-xs md:text-sm font-medium text-slate-500 max-w-xs mx-auto leading-relaxed">
             {isOnline 
-              ? 'Mantenha o app aberto para receber ofertas em tempo real.' 
-              : 'Toque no botão para entrar na pista e receber cargas.'}
+              ? 'O Feed será atualizado automaticamente com novas ofertas.' 
+              : 'Entre Online para começar a receber oportunidades e aceitar cargas.'}
           </p>
         </div>
       </div>
@@ -203,9 +203,9 @@ export default function DriverRadar({
         </div>
       )}
 
-      {/* MODAL RETORNO */}
+      {/* MODAL RETORNO - OPACIDADE AJUSTADA */}
       {isRetornoModalOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="w-full max-w-sm rounded-[2.5rem] border border-blue-500/30 bg-slate-900 p-8 shadow-2xl relative">
             <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-500/10 border border-blue-500/20">
               <MapPin className="h-8 w-8 text-blue-400" />
