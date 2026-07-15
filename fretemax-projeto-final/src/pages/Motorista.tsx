@@ -1,11 +1,11 @@
 // =========================================================
 // NOME DO ARQUIVO: src/pages/Motorista.tsx
 // CTO-Log: Refatoração Sprint 2 - Transição para Mural B2B (Pull Model)
-// CTO-Log 2: Implementação de Filtros de Busca Client-side (Origem/Destino)
 // CTO-Log 3: Gatilho automático de Prioridade (FOMO) para cargas paradas > 24h
 // CTO-Log 4: FASE 3 - Transição de Radar Passivo para Feed Inteligente (Social/Gamificado)
 // CTO-Log 5: FASE 3.1 - Feed "Always-On" (Visível Offline) e Aceite Inteligente
 // CTO-Log 6: FASE 3.2 - Refinamento de UX (Empty States) e Estabilização B2B
+// CTO-Log 7: FASE 3.3 - Ocultação definitiva do Layout Legado (Ghost UI)
 // =========================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -372,7 +372,7 @@ export default function Motorista() {
         </div>
       ) : (
         <>
-          {/* DriverRadar gerencia Fila de Retorno e Status Global (UI visual será polida nele depois) */}
+          {/* DriverRadar mantém o controle de status e fila de retorno */}
           <DriverRadar isOnline={isOnline} setIsOnline={handleToggleOnline} user={user} driver={driverData} />
           
           <div className="mx-auto max-w-4xl px-4 mt-8 animate-in fade-in slide-in-from-bottom-4 relative z-20">
@@ -507,7 +507,8 @@ export default function Motorista() {
             </div>
           </div>
 
-          <div className="relative z-10 opacity-30 pointer-events-none pb-20">
+          {/* 🔥 GHOST UI FIX: Renderiza o componente antigo estritamente invisível APENAS para segurar a lógica de rotas do Modal */}
+          <div className={selectedFreight ? "block" : "hidden"}>
             <DriverApp 
               freights={[]} 
               selectedFreight={selectedFreight} 
