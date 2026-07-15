@@ -1,5 +1,7 @@
-// src/context/DriverContext.tsx
-// CTO-Log: Arquivo higienizado. Ciclo de dependências do useMemo otimizado e try-catch do LocalStorage reforçado para evitar travamentos em celulares com pouca memória.
+// =========================================================
+// NOME DO ARQUIVO: src/context/DriverContext.tsx
+// CTO-Log: Arquivo higienizado. Storage atualizado para Fretogo V2. Prevenção de quebras de cache.
+// =========================================================
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
 
@@ -34,7 +36,8 @@ interface DriverProviderProps {
   children: ReactNode;
 }
 
-const DRIVER_RUNTIME_STORAGE = 'fretmax_driver_runtime';
+// ATUALIZADO: Rebranding para FretoGo e versão V2
+const DRIVER_RUNTIME_STORAGE = 'fretogo_driver_runtime_v2';
 
 export function DriverProvider({ children }: DriverProviderProps) {
   const [isOnline, setIsOnlineState] = useState(false);
