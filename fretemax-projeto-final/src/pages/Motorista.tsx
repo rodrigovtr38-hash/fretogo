@@ -5,6 +5,7 @@
 // CTO-Log 3: Gatilho automático de Prioridade (FOMO) para cargas paradas > 24h
 // CTO-Log 4: FASE 3 - Transição de Radar Passivo para Feed Inteligente (Social/Gamificado)
 // CTO-Log 5: FASE 3.1 - Feed "Always-On" (Visível Offline) e Aceite Inteligente
+// CTO-Log 6: FASE 3.2 - Refinamento de UX (Empty States) e Estabilização B2B
 // =========================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -62,6 +63,7 @@ export default function Motorista() {
   const [filtroOrigem, setFiltroOrigem] = useState('');
   const [filtroDestino, setFiltroDestino] = useState('');
 
+  // Identificação arquitetural baseada no Cadastro (Preparação para Módulo Cadastro)
   const operationalCategory = useMemo(() => {
     if (!driverData?.categoria) return 'carro';
     return driverData.categoria.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -195,7 +197,7 @@ export default function Motorista() {
     };
   }, []);
 
-  // 🔥 FEED LISTENER ALWAYS-ON: Agora escuta os fretes mesmo com o motorista Offline
+  // FEED LISTENER ALWAYS-ON: Consulta Realtime B2B
   useEffect(() => {
     if (!runtimeReady || !user?.uid || !driverData) {
       setAvailableFreights([]); return;
@@ -370,10 +372,9 @@ export default function Motorista() {
         </div>
       ) : (
         <>
-          {/* DriverRadar mantém o controle de status e fila de retorno */}
+          {/* DriverRadar gerencia Fila de Retorno e Status Global (UI visual será polida nele depois) */}
           <DriverRadar isOnline={isOnline} setIsOnline={handleToggleOnline} user={user} driver={driverData} />
           
-          {/* 🔥 FEED INTELIGENTE AGORA É SEMPRE VISÍVEL (Mesmo Offline) */}
           <div className="mx-auto max-w-4xl px-4 mt-8 animate-in fade-in slide-in-from-bottom-4 relative z-20">
             
             {/* FILTROS DO FEED */}
@@ -404,8 +405,8 @@ export default function Motorista() {
               {fretesFiltradosOrdenados.length === 0 && !radarLoading ? (
                 <div className="text-center py-20 bg-slate-900/30 rounded-[2rem] border border-slate-800 border-dashed">
                   <Truck className="w-12 h-12 text-slate-700 mx-auto mb-4" />
-                  <p className="text-slate-500 font-medium">Nenhum frete compatível na sua região agora.</p>
-                  <p className="text-xs text-slate-600 mt-2">O Feed atualiza automaticamente quando surgirem cargas.</p>
+                  <p className="text-slate-500 font-medium text-lg">Nenhuma carga compatível encontrada no momento.</p>
+                  <p className="text-sm text-slate-600 mt-2">O Feed será atualizado automaticamente quando novas cargas forem publicadas.</p>
                 </div>
               ) : (
                 fretesFiltradosOrdenados.map((freight) => (
@@ -488,11 +489,10 @@ export default function Motorista() {
                         </button>
                     </div>
 
-                    {/* 🔥 INTEGRIDADE B2B: Botão de Aceite condicionado ao status Online */}
                     {!isOnline ? (
                       <button onClick={() => {
                         handleToggleOnline(true);
-                        showToast('Você está online! O sistema autorizou o aceite. Confirme o frete.', 'success');
+                        showToast('Você está online! Confirme os detalhes e aceite o frete.', 'success');
                       }} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-[0.2em] py-4 rounded-xl shadow-lg shadow-blue-900/50 transition-all active:scale-95 flex items-center justify-center gap-2 border border-blue-500">
                           <Power size={18} /> Ficar Online para Aceitar
                       </button>
@@ -507,8 +507,6 @@ export default function Motorista() {
             </div>
           </div>
 
-          {/* Ocultamos a interface visual antiga do DriverApp (passando array vazio), mas 
-              o mantemos vivo nesta Sprint apenas para segurar a lógica dos fluxos legados e modais */}
           <div className="relative z-10 opacity-30 pointer-events-none pb-20">
             <DriverApp 
               freights={[]} 
@@ -529,12 +527,12 @@ export default function Motorista() {
       )}
 
       {toast && (
-        <div className="fixed bottom-10 left-1/2 z-[120] -translate-x-1/2 animate-in slide-in-from-bottom-5">
+        <div className="fixed bottom-10 left-1/2 z-[120] -translate-x-1/2 animate-in slide-in-from-bottom-5 w-[90%] max-w-sm">
           <div className={`rounded-[1.5rem] border px-6 py-4 text-xs font-black uppercase tracking-widest shadow-2xl flex items-center gap-2 ${
             toast.type === 'success' ? 'border-emerald-500/30 bg-emerald-900/90 text-emerald-400' : 
             toast.type === 'warning' ? 'border-amber-500/30 bg-amber-900/90 text-amber-400' : 
             'border-blue-500/30 bg-blue-900/90 text-blue-400'
-          } backdrop-blur-md`}>
+          } backdrop-blur-md text-center justify-center`}>
             {toast.msg}
           </div>
         </div>
