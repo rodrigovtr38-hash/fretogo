@@ -2,6 +2,7 @@
 // NOME DO ARQUIVO: src/pages/Home.tsx (PORTAL FRETOGO NETWORK B2B/B2C)
 // CTO-Log: Refatoração Visual Sprint 1. Separação de funis (Embarcador vs Transportador).
 // CTO-Log 2: Correção de importação do lucide-react (CheckCircle adicionado).
+// CTO-Log 3: Refinamento de UX (Adição da seção "Como Funciona" e destaque no CTA de Login).
 // =========================================================
 import { Zap, Truck, ShieldCheck, ArrowRight, Smartphone, Building2, MapPin, UserCircle, CheckCircle } from 'lucide-react';
 
@@ -41,7 +42,7 @@ export default function Home() {
           <div className="flex items-center gap-4">
             <button 
               onClick={() => alert("Login Unificado em Construção (Sprint 2)")} 
-              className="hidden sm:flex h-11 items-center justify-center gap-2 rounded-xl border-2 border-slate-200 bg-transparent px-6 text-sm font-bold text-slate-600 transition-all hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 active:scale-95"
+              className="hidden sm:flex h-11 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-6 text-sm font-bold text-blue-700 transition-all hover:border-blue-300 hover:bg-blue-100 active:scale-95 shadow-sm"
             >
               <UserCircle size={18} /> Entrar na Conta
             </button>
@@ -121,6 +122,39 @@ export default function Home() {
           </div>
 
         </div>
+
+        {/* NOVA SEÇÃO: COMO FUNCIONA */}
+        <div className="mt-24 w-full max-w-4xl mx-auto text-center animate-in fade-in duration-1000 delay-300">
+          <h3 className="text-2xl font-black text-slate-900 tracking-tight mb-12">Como funciona a blindagem FretoGo?</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            
+            <div className="flex flex-col items-center">
+              <div className="h-16 w-16 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mb-6 shadow-sm border border-blue-100">
+                <MapPin size={28} />
+              </div>
+              <h4 className="text-lg font-bold text-slate-900">1. Conexão Exata</h4>
+              <p className="text-sm text-slate-600 mt-2 font-medium">A empresa posta a carga. Motoristas da região visualizam e aceitam no mural.</p>
+            </div>
+
+            <div className="flex flex-col items-center">
+              <div className="h-16 w-16 rounded-2xl bg-slate-100 text-slate-600 flex items-center justify-center mb-6 shadow-sm border border-slate-200">
+                <ShieldCheck size={28} />
+              </div>
+              <h4 className="text-lg font-bold text-slate-900">2. Custódia Segura</h4>
+              <p className="text-sm text-slate-600 mt-2 font-medium">O valor do frete fica retido e garantido na plataforma até a conclusão da viagem.</p>
+            </div>
+
+            <div className="flex flex-col items-center">
+              <div className="h-16 w-16 rounded-2xl bg-cyan-50 text-cyan-600 flex items-center justify-center mb-6 shadow-sm border border-cyan-100">
+                <Smartphone size={28} />
+              </div>
+              <h4 className="text-lg font-bold text-slate-900">3. Liberação por PIN</h4>
+              <p className="text-sm text-slate-600 mt-2 font-medium">Na entrega, o recebedor informa um código PIN e o dinheiro é liberado ao motorista.</p>
+            </div>
+
+          </div>
+        </div>
+
       </main>
 
       {/* FOOTER */}
