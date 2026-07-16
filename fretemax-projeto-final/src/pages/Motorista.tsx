@@ -1,16 +1,17 @@
 // =========================================================
 // NOME DO ARQUIVO: src/pages/Motorista.tsx
-// CTO-Log: Refatoração Sprint 2 - Transição para Mural B2B (Pull Model)
-// CTO-Log 3: Gatilho automático de Prioridade (FOMO) para cargas paradas > 24h
-// CTO-Log 4: FASE 3 - Transição de Radar Passivo para Feed Inteligente (Social/Gamificado)
-// CTO-Log 5: FASE 3.1 - Feed "Always-On" (Visível Offline) e Aceite Inteligente
-// CTO-Log 6: FASE 3.2 - Refinamento de UX (Empty States) e Estabilização B2B
-// CTO-Log 7: FASE 3.3 - Ocultação definitiva do Layout Legado (Ghost UI)
+// CTO-Log: Lapidação de Produto (Product Polish) - Sprint Final
+// Ajustes:
+// 1. Injeção de Skeleton Loaders para UX de Busca.
+// 2. Animação de Saída (Framer Motion) para cargas reservadas.
+// 3. Cruzamento Inteligente: O "Modo Retorno" agora filtra o Feed B2B em tempo real.
+// 4. Detecção de Perda de Conexão (Offline Banner).
 // =========================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { auth, db } from '../firebase';
 import { collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, runTransaction, updateDoc, where } from 'firebase/firestore'; 
+import { motion, AnimatePresence } from 'framer-motion';
 import DriverApp from '../components/DriverApp';
 import ChatFrete from '../components/ChatFrete';
 import DriverHeader from '../components/motorista/DriverHeader';
@@ -20,7 +21,7 @@ import DriverRadar from '../components/motorista/DriverRadar';
 import DriverActiveTrip from '../components/motorista/DriverActiveTrip';
 import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
 import type { OperationalFreight } from '../components/driver/dashboard/DriverDashboardLayout';
-import { Download, Search, MapPin, Flame, Clock, Sparkles, ThumbsUp, Star, Share2, Info, Truck, Power } from 'lucide-react'; 
+import { Download, Search, MapPin, Flame, Clock, Sparkles, ThumbsUp, Star, Share2, Info, Truck, Power, WifiOff } from 'lucide-react'; 
 import { NotificationService } from '../services/notificationService';
 
 interface DriverData { 
@@ -30,11 +31,31 @@ interface DriverData {
   categoria?: string; 
   status?: 'pendente' | 'aprovado' | 'rejeitado';
   modoRetorno?: boolean;
+  destinoRetorno?: string;
   retornosUsadosHoje?: number; 
 }
 
 const CATEGORY_FEES: Record<string, number> = { moto: 0.2, carro: 0.2, utilitario: 0.2, toco: 0.15, truck: 0.15, carreta: 0.15, bitrem: 0.15 };
 const ACTIVE_STATUSES = ['aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 'em_transporte', 'em_entrega', 'returning'];
+
+// 💀 COMPONENTE DE SKELETON (UX de Busca)
+const FeedSkeleton = () => (
+  <div className="bg-slate-900/40 border border-slate-800 rounded-[2rem] p-6 shadow-2xl animate-pulse mb-6">
+    <div className="flex justify-between items-start mb-6">
+      <div>
+        <div className="h-3 w-24 bg-slate-800 rounded-full mb-2"></div>
+        <div className="h-10 w-40 bg-slate-800 rounded-full"></div>
+      </div>
+      <div className="h-8 w-20 bg-slate-800 rounded-xl"></div>
+    </div>
+    <div className="h-28 w-full bg-slate-800/50 rounded-2xl mb-6"></div>
+    <div className="grid grid-cols-3 gap-2">
+      <div className="h-14 bg-slate-800 rounded-xl"></div>
+      <div className="h-14 bg-slate-800 rounded-xl"></div>
+      <div className="h-14 bg-slate-800 rounded-xl"></div>
+    </div>
+  </div>
+);
 
 export default function Motorista() {
   const mountedRef = useRef(false);
@@ -53,21 +74,28 @@ export default function Motorista() {
   const [isOnline, setIsOnline] = useState(false);
   const [radarLoading, setRadarLoading] = useState(false);
   
+  const [hasInternet, setHasInternet] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'info' | 'warning' } | null>(null);
 
-  // Instalação PWA
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
 
-  // Filtros do Feed Inteligente
   const [filtroOrigem, setFiltroOrigem] = useState('');
   const [filtroDestino, setFiltroDestino] = useState('');
 
-  // Identificação arquitetural baseada no Cadastro (Preparação para Módulo Cadastro)
   const operationalCategory = useMemo(() => {
     if (!driverData?.categoria) return 'carro';
     return driverData.categoria.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   }, [driverData]);
+
+  // Detector de Conexão Realtime
+  useEffect(() => {
+    const handleOnline = () => setHasInternet(true);
+    const handleOffline = () => setHasInternet(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => { window.removeEventListener('online', handleOnline); window.removeEventListener('offline', handleOffline); };
+  }, []);
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: any) => {
@@ -197,7 +225,7 @@ export default function Motorista() {
     };
   }, []);
 
-  // FEED LISTENER ALWAYS-ON: Consulta Realtime B2B
+  // FEED LISTENER ALWAYS-ON
   useEffect(() => {
     if (!runtimeReady || !user?.uid || !driverData) {
       setAvailableFreights([]); return;
@@ -218,7 +246,8 @@ export default function Motorista() {
         .filter(freight => !freight.motoristaId || freight.motoristaId === user.uid || snapshot.docs.find(d => d.id === freight.id)?.data().motoristaAtualDestaque === user.uid); 
 
       setAvailableFreights(next); 
-      setRadarLoading(false);
+      // Simula o tempo de "Scanner" da IA para o Skeleton aparecer por um segundo
+      setTimeout(() => { if (mountedRef.current) setRadarLoading(false); }, 1500);
     }, error => {
       console.error('FREIGHTS REALTIME ERROR:', error); setRadarLoading(false);
     });
@@ -265,9 +294,6 @@ export default function Motorista() {
         if (data.motoristaId || !['disponivel', 'buscando_motorista', 'aguardando_aceite'].includes(data.status)) {
           throw new Error('FRETE_JA_ATRIBUIDO');
         }
-        if (data.motoristaAtualDestaque && data.motoristaAtualDestaque !== user.uid) {
-          throw new Error('FRETE_JA_ATRIBUIDO');
-        }
 
         transaction.update(freteRef, {
           status: 'aceito', 
@@ -300,13 +326,22 @@ export default function Motorista() {
     if (action === 'share') showToast('Link da oportunidade copiado!', 'info');
   };
 
-  // ENGINE DE ORDENAÇÃO DO FEED INTELIGENTE
+  // 🔥 CTO FIX: ENGINE DE ORDENAÇÃO + INTELIGÊNCIA DE RETORNO CRUZADA
   const fretesFiltradosOrdenados = useMemo(() => {
-    const filtrados = availableFreights.filter(freight => {
+    let filtrados = availableFreights.filter(freight => {
       const origemMatch = filtroOrigem === '' || freight.enderecoColetaTexto.toLowerCase().includes(filtroOrigem.toLowerCase());
       const destinoMatch = filtroDestino === '' || freight.enderecoEntregaTexto.toLowerCase().includes(filtroDestino.toLowerCase());
       return origemMatch && destinoMatch;
     });
+
+    // Cruzamento Inteligente: Se o Modo Retorno estiver ativo, o Feed mostra SÓ as cargas para aquela cidade
+    if (driverData?.modoRetorno && driverData?.destinoRetorno) {
+      const destinoAlvo = driverData.destinoRetorno.toLowerCase();
+      filtrados = filtrados.filter(freight => 
+        freight.enderecoEntregaTexto.toLowerCase().includes(destinoAlvo) || 
+        (freight as any).cidadeDestino?.toLowerCase().includes(destinoAlvo)
+      );
+    }
 
     return filtrados.sort((a, b) => {
       if (a.prioridade !== b.prioridade) return a.prioridade ? -1 : 1;
@@ -317,7 +352,7 @@ export default function Motorista() {
       const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
       return timeB - timeA;
     });
-  }, [availableFreights, filtroOrigem, filtroDestino]);
+  }, [availableFreights, filtroOrigem, filtroDestino, driverData?.modoRetorno, driverData?.destinoRetorno]);
 
   if (!runtimeReady || loading || checkingDriver) {
     return (
@@ -349,6 +384,16 @@ export default function Motorista() {
       
       <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#020617] to-[#020617] -z-10" />
 
+      {/* 🔴 ALERTA DE CONEXÃO OFFLINE */}
+      <AnimatePresence>
+        {!hasInternet && (
+          <motion.div initial={{ y: -50 }} animate={{ y: 0 }} exit={{ y: -50 }} className="sticky top-0 z-[200] w-full bg-red-600 px-4 py-2 flex items-center justify-center gap-2 shadow-[0_4px_20px_rgba(220,38,38,0.5)]">
+            <WifiOff size={16} className="text-white" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-white">Sem conexão. Aguardando sinal...</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {isInstallable && (
         <div className="sticky top-0 z-[100] w-full bg-cyan-600 px-4 py-3 flex items-center justify-between shadow-[0_4px_20px_rgba(8,145,178,0.3)]">
           <div>
@@ -372,7 +417,6 @@ export default function Motorista() {
         </div>
       ) : (
         <>
-          {/* DriverRadar mantém o controle de status e fila de retorno */}
           <DriverRadar isOnline={isOnline} setIsOnline={handleToggleOnline} user={user} driver={driverData} />
           
           <div className="mx-auto max-w-4xl px-4 mt-8 animate-in fade-in slide-in-from-bottom-4 relative z-20">
@@ -388,121 +432,141 @@ export default function Motorista() {
                    {fretesFiltradosOrdenados.length} Oportunidades
                  </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="relative">
-                  <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                  <input type="text" placeholder="Origem da Carga" value={filtroOrigem} onChange={e => setFiltroOrigem(e.target.value)} className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-4 pl-12 pr-4 text-sm font-bold text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all" />
+              
+              {/* Oculta os inputs manuais se o Modo Retorno estiver ativado (A IA já faz o filtro) */}
+              {!driverData?.modoRetorno && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="relative">
+                    <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    <input type="text" placeholder="Origem da Carga" value={filtroOrigem} onChange={e => setFiltroOrigem(e.target.value)} className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-4 pl-12 pr-4 text-sm font-bold text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all" />
+                  </div>
+                  <div className="relative">
+                    <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />
+                    <input type="text" placeholder="Destino da Carga" value={filtroDestino} onChange={e => setFiltroDestino(e.target.value)} className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-4 pl-12 pr-4 text-sm font-bold text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all" />
+                  </div>
                 </div>
-                <div className="relative">
-                  <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />
-                  <input type="text" placeholder="Destino da Carga" value={filtroDestino} onChange={e => setFiltroDestino(e.target.value)} className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-4 pl-12 pr-4 text-sm font-bold text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all" />
-                </div>
-              </div>
+              )}
             </div>
 
             {/* LISTAGEM GAMIFICADA DO FEED */}
             <div className="space-y-6">
-              {fretesFiltradosOrdenados.length === 0 && !radarLoading ? (
+              
+              {/* SKELETON LOADER ENQUANTO BUSCA */}
+              {isOnline && radarLoading && fretesFiltradosOrdenados.length === 0 ? (
+                <>
+                   <FeedSkeleton />
+                   <FeedSkeleton />
+                </>
+              ) : fretesFiltradosOrdenados.length === 0 ? (
                 <div className="text-center py-20 bg-slate-900/30 rounded-[2rem] border border-slate-800 border-dashed">
                   <Truck className="w-12 h-12 text-slate-700 mx-auto mb-4" />
                   <p className="text-slate-500 font-medium text-lg">Nenhuma carga compatível encontrada no momento.</p>
                   <p className="text-sm text-slate-600 mt-2">O Feed será atualizado automaticamente quando novas cargas forem publicadas.</p>
                 </div>
               ) : (
-                fretesFiltradosOrdenados.map((freight) => (
-                  <div key={freight.id} className="bg-slate-900/80 backdrop-blur-sm border border-slate-800 rounded-[2rem] p-6 shadow-2xl relative overflow-hidden transition-all hover:border-slate-700">
-                    
-                    {freight.prioridade ? (
-                       <div className="absolute top-0 right-0 bg-gradient-to-r from-red-600 to-orange-500 px-4 py-1.5 rounded-bl-2xl font-black text-[10px] uppercase tracking-widest text-white flex items-center gap-1.5 shadow-lg">
-                          <Flame size={12} className="animate-pulse"/> Urgente
-                       </div>
-                    ) : freight.agendado ? (
-                       <div className="absolute top-0 right-0 bg-purple-600 px-4 py-1.5 rounded-bl-2xl font-black text-[10px] uppercase tracking-widest text-white flex items-center gap-1.5">
-                          <Clock size={12}/> Agendado
-                       </div>
-                    ) : (
-                       <div className="absolute top-0 right-0 bg-cyan-600 px-4 py-1.5 rounded-bl-2xl font-black text-[10px] uppercase tracking-widest text-white flex items-center gap-1.5">
-                          <Sparkles size={12}/> Nova
-                       </div>
-                    )}
+                <AnimatePresence>
+                  {fretesFiltradosOrdenados.map((freight) => (
+                    <motion.div 
+                      key={freight.id} 
+                      layout
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.9, height: 0, overflow: 'hidden' }} // Animação Suave se outro Motorista aceitar
+                      transition={{ duration: 0.3 }}
+                      className="bg-slate-900/80 backdrop-blur-sm border border-slate-800 rounded-[2rem] p-6 shadow-2xl relative overflow-hidden transition-all hover:border-slate-700 mb-6"
+                    >
+                      {freight.prioridade ? (
+                         <div className="absolute top-0 right-0 bg-gradient-to-r from-red-600 to-orange-500 px-4 py-1.5 rounded-bl-2xl font-black text-[10px] uppercase tracking-widest text-white flex items-center gap-1.5 shadow-lg">
+                            <Flame size={12} className="animate-pulse"/> Urgente
+                         </div>
+                      ) : freight.agendado ? (
+                         <div className="absolute top-0 right-0 bg-purple-600 px-4 py-1.5 rounded-bl-2xl font-black text-[10px] uppercase tracking-widest text-white flex items-center gap-1.5">
+                            <Clock size={12}/> Agendado
+                         </div>
+                      ) : (
+                         <div className="absolute top-0 right-0 bg-cyan-600 px-4 py-1.5 rounded-bl-2xl font-black text-[10px] uppercase tracking-widest text-white flex items-center gap-1.5">
+                            <Sparkles size={12}/> Nova
+                         </div>
+                      )}
 
-                    <div className="flex justify-between items-start mb-6 pt-2">
-                       <div>
-                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex items-center gap-1.5"><Star size={10} className="text-amber-500"/> Ganho Líquido</p>
-                          <h3 className="text-4xl font-black text-emerald-400 tracking-tighter">R$ {freight.valorMotorista.toFixed(2).replace('.', ',')}</h3>
-                       </div>
-                       <div className="text-right">
-                          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Publicado</p>
-                          <span className="bg-slate-950 text-slate-400 text-[10px] px-3 py-1.5 rounded-lg font-bold uppercase tracking-widest border border-slate-800">{formatTimeAgo(freight.createdAt)}</span>
-                       </div>
-                    </div>
-
-                    <div className="bg-slate-950 rounded-2xl p-5 border border-slate-800/50 mb-6 relative">
-                       <div className="absolute left-[31px] top-10 bottom-10 w-px bg-slate-800"></div>
-                       <div className="flex items-start gap-4 mb-6 relative z-10">
-                          <div className="w-6 h-6 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center shrink-0 mt-1"><div className="w-2 h-2 rounded-full bg-slate-400"></div></div>
-                          <div>
-                             <p className="text-[10px] uppercase tracking-widest font-black text-slate-500 mb-1">Coleta</p>
-                             <p className="text-sm font-bold text-white leading-snug">{freight.enderecoColetaTexto}</p>
-                          </div>
-                       </div>
-                       <div className="flex items-start gap-4 relative z-10">
-                          <div className="w-6 h-6 rounded-full bg-emerald-900/50 border-2 border-emerald-500 flex items-center justify-center shrink-0 mt-1"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div></div>
-                          <div>
-                             <p className="text-[10px] uppercase tracking-widest font-black text-emerald-500 mb-1">Destino {freight.multiplasEntregas && "(Múltiplas)"}</p>
-                             <p className="text-sm font-bold text-white leading-snug">{freight.enderecoEntregaTexto}</p>
-                          </div>
-                       </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2 mb-6">
-                      <div className="bg-slate-900 rounded-xl p-3 text-center border border-slate-800">
-                        <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Categoria</p>
-                        <p className="text-xs font-bold text-slate-300 capitalize">{freight.categoria.replace('_', ' ')}</p>
+                      <div className="flex justify-between items-start mb-6 pt-2">
+                         <div>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex items-center gap-1.5"><Star size={10} className="text-amber-500"/> Ganho Líquido</p>
+                            <h3 className="text-4xl font-black text-emerald-400 tracking-tighter">R$ {freight.valorMotorista?.toFixed(2).replace('.', ',')}</h3>
+                         </div>
+                         <div className="text-right">
+                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Publicado</p>
+                            <span className="bg-slate-950 text-slate-400 text-[10px] px-3 py-1.5 rounded-lg font-bold uppercase tracking-widest border border-slate-800">{formatTimeAgo(freight.createdAt)}</span>
+                         </div>
                       </div>
-                      <div className="bg-slate-900 rounded-xl p-3 text-center border border-slate-800">
-                        <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Distância</p>
-                        <p className="text-xs font-bold text-slate-300">{freight.distanciaTotalKm.toFixed(1)} km</p>
-                      </div>
-                      <div className="bg-slate-900 rounded-xl p-3 text-center border border-slate-800">
-                        <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Peso/Vol</p>
-                        <p className="text-xs font-bold text-slate-300">{freight.pesoKg ? `${freight.pesoKg}kg` : freight.volumes}</p>
-                      </div>
-                    </div>
 
-                    <div className="grid grid-cols-4 gap-2 mb-5 border-t border-slate-800 pt-5">
-                        <button onClick={() => handleSocialAction('interesse')} className="flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-blue-400 transition-colors">
-                           <ThumbsUp size={20}/>
-                           <span className="text-[9px] font-black uppercase tracking-widest">Interesse</span>
-                        </button>
-                        <button onClick={() => handleSocialAction('favorito')} className="flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-amber-400 transition-colors">
-                           <Star size={20}/>
-                           <span className="text-[9px] font-black uppercase tracking-widest">Salvar</span>
-                        </button>
-                        <button onClick={() => handleSocialAction('share')} className="flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-cyan-400 transition-colors">
-                           <Share2 size={20}/>
-                           <span className="text-[9px] font-black uppercase tracking-widest">Enviar</span>
-                        </button>
-                        <button onClick={() => setSelectedFreight(freight)} className="flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-white transition-colors">
-                           <Info size={20}/>
-                           <span className="text-[9px] font-bold uppercase tracking-widest">Ver Rota</span>
-                        </button>
-                    </div>
+                      <div className="bg-slate-950 rounded-2xl p-5 border border-slate-800/50 mb-6 relative">
+                         <div className="absolute left-[31px] top-10 bottom-10 w-px bg-slate-800"></div>
+                         <div className="flex items-start gap-4 mb-6 relative z-10">
+                            <div className="w-6 h-6 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center shrink-0 mt-1"><div className="w-2 h-2 rounded-full bg-slate-400"></div></div>
+                            <div>
+                               <p className="text-[10px] uppercase tracking-widest font-black text-slate-500 mb-1">Coleta</p>
+                               <p className="text-sm font-bold text-white leading-snug">{freight.enderecoColetaTexto}</p>
+                            </div>
+                         </div>
+                         <div className="flex items-start gap-4 relative z-10">
+                            <div className="w-6 h-6 rounded-full bg-emerald-900/50 border-2 border-emerald-500 flex items-center justify-center shrink-0 mt-1"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div></div>
+                            <div>
+                               <p className="text-[10px] uppercase tracking-widest font-black text-emerald-500 mb-1">Destino {freight.multiplasEntregas && "(Múltiplas)"}</p>
+                               <p className="text-sm font-bold text-white leading-snug">{freight.enderecoEntregaTexto}</p>
+                            </div>
+                         </div>
+                      </div>
 
-                    {!isOnline ? (
-                      <button onClick={() => {
-                        handleToggleOnline(true);
-                        showToast('Você está online! Confirme os detalhes e aceite o frete.', 'success');
-                      }} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-[0.2em] py-4 rounded-xl shadow-lg shadow-blue-900/50 transition-all active:scale-95 flex items-center justify-center gap-2 border border-blue-500">
-                          <Power size={18} /> Ficar Online para Aceitar
-                      </button>
-                    ) : (
-                      <button onClick={() => handleAcceptFreight(freight)} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase tracking-[0.2em] py-4 rounded-xl shadow-lg shadow-emerald-900/50 transition-all active:scale-95 flex items-center justify-center gap-2 border border-emerald-500">
-                          <Truck size={18} /> Aceitar e Viajar
-                      </button>
-                    )}
-                  </div>
-                ))
+                      <div className="grid grid-cols-3 gap-2 mb-6">
+                        <div className="bg-slate-900 rounded-xl p-3 text-center border border-slate-800">
+                          <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Categoria</p>
+                          <p className="text-xs font-bold text-slate-300 capitalize">{freight.categoria?.replace('_', ' ')}</p>
+                        </div>
+                        <div className="bg-slate-900 rounded-xl p-3 text-center border border-slate-800">
+                          <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Distância</p>
+                          <p className="text-xs font-bold text-slate-300">{freight.distanciaTotalKm?.toFixed(1)} km</p>
+                        </div>
+                        <div className="bg-slate-900 rounded-xl p-3 text-center border border-slate-800">
+                          <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Peso/Vol</p>
+                          <p className="text-xs font-bold text-slate-300">{freight.pesoKg ? `${freight.pesoKg}kg` : freight.volumes}</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-2 mb-5 border-t border-slate-800 pt-5">
+                          <button onClick={() => handleSocialAction('interesse')} className="flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-blue-400 transition-colors">
+                             <ThumbsUp size={20}/>
+                             <span className="text-[9px] font-black uppercase tracking-widest">Interesse</span>
+                          </button>
+                          <button onClick={() => handleSocialAction('favorito')} className="flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-amber-400 transition-colors">
+                             <Star size={20}/>
+                             <span className="text-[9px] font-black uppercase tracking-widest">Salvar</span>
+                          </button>
+                          <button onClick={() => handleSocialAction('share')} className="flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-cyan-400 transition-colors">
+                             <Share2 size={20}/>
+                             <span className="text-[9px] font-black uppercase tracking-widest">Enviar</span>
+                          </button>
+                          <button onClick={() => setSelectedFreight(freight)} className="flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-white transition-colors">
+                             <Info size={20}/>
+                             <span className="text-[9px] font-bold uppercase tracking-widest">Ver Rota</span>
+                          </button>
+                      </div>
+
+                      {!isOnline ? (
+                        <button onClick={() => {
+                          handleToggleOnline(true);
+                          showToast('Você está online! Confirme os detalhes e aceite o frete.', 'success');
+                        }} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-[0.2em] py-4 rounded-xl shadow-lg shadow-blue-900/50 transition-all active:scale-95 flex items-center justify-center gap-2 border border-blue-500">
+                            <Power size={18} /> Ficar Online para Aceitar
+                        </button>
+                      ) : (
+                        <button onClick={() => handleAcceptFreight(freight)} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase tracking-[0.2em] py-4 rounded-xl shadow-lg shadow-emerald-900/50 transition-all active:scale-95 flex items-center justify-center gap-2 border border-emerald-500">
+                            <Truck size={18} /> Aceitar e Viajar
+                        </button>
+                      )}
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
               )}
             </div>
           </div>
