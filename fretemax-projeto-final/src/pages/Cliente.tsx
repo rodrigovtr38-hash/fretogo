@@ -4,13 +4,14 @@
 // CTO-Log 2: Injeção de Input de "Valor da Oferta Livre". Cálculo de Split Dinâmico automatizado.
 // CTO-Log 3: Restauração da Engine Original de Precificação (ANTT, MOPP, Pedágio) como âncora/sugestão.
 // CTO-Log 4: Injeção da Fase 2 (Gamificação de Oferta, Contraste UI, Central da Carga Viva).
+// CTO-Log 5: Auditoria Financeira Concluída. Split 20% (Leves) e 15% (Pesados) confirmado. PIN ativado.
 // =========================================================
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore'; 
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Building2, User, Package, CalendarDays, Plus, Trash2, Flame, Search, Lock, HeadphonesIcon, RefreshCw, DollarSign, Activity, Eye, Users } from 'lucide-react';
+import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Building2, User, Package, CalendarDays, Plus, Trash2, Flame, DollarSign, Activity, Eye, Users, HeadphonesIcon, RefreshCw, Lock } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import ChatFrete from '../components/ChatFrete';
 import ClientStatusCard from '../components/client/ClientStatusCard';
