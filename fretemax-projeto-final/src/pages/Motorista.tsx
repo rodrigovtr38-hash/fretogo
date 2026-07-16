@@ -6,6 +6,7 @@
 // 2. Animação de Saída (Framer Motion) para cargas reservadas.
 // 3. Cruzamento Inteligente: O "Modo Retorno" agora filtra o Feed B2B em tempo real.
 // 4. Detecção de Perda de Conexão (Offline Banner).
+// 5. Product Polish: Injeção do Sistema Vivo (Mensagens Dinâmicas de Radar) no Estado Vazio.
 // =========================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -21,7 +22,7 @@ import DriverRadar from '../components/motorista/DriverRadar';
 import DriverActiveTrip from '../components/motorista/DriverActiveTrip';
 import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
 import type { OperationalFreight } from '../components/driver/dashboard/DriverDashboardLayout';
-import { Download, Search, MapPin, Flame, Clock, Sparkles, ThumbsUp, Star, Share2, Info, Truck, Power, WifiOff } from 'lucide-react'; 
+import { Download, Search, MapPin, Flame, Clock, Sparkles, ThumbsUp, Star, Share2, Info, Truck, Power, WifiOff, Activity } from 'lucide-react'; 
 import { NotificationService } from '../services/notificationService';
 
 interface DriverData { 
@@ -82,6 +83,14 @@ export default function Motorista() {
 
   const [filtroOrigem, setFiltroOrigem] = useState('');
   const [filtroDestino, setFiltroDestino] = useState('');
+
+  const [emptyMessageIndex, setEmptyMessageIndex] = useState(0);
+  const emptyMessages = [
+    "Radar monitorando oportunidades na região...",
+    "Central Operacional escaneando a malha logística...",
+    "Aguardando publicação de empresas embarcadoras...",
+    "Filtros ativos. Pronto para interceptar cargas..."
+  ];
 
   const operationalCategory = useMemo(() => {
     if (!driverData?.categoria) return 'carro';
@@ -224,6 +233,16 @@ export default function Motorista() {
       });
     };
   }, []);
+
+  // Sistema Vivo: Temporizador para as mensagens vazias
+  useEffect(() => {
+    if (isOnline && availableFreights.length === 0) {
+      const interval = setInterval(() => {
+        setEmptyMessageIndex((prev) => (prev + 1) % emptyMessages.length);
+      }, 3500);
+      return () => clearInterval(interval);
+    }
+  }, [isOnline, availableFreights.length]);
 
   // FEED LISTENER ALWAYS-ON
   useEffect(() => {
@@ -458,11 +477,28 @@ export default function Motorista() {
                    <FeedSkeleton />
                 </>
               ) : fretesFiltradosOrdenados.length === 0 ? (
-                <div className="text-center py-20 bg-slate-900/30 rounded-[2rem] border border-slate-800 border-dashed">
-                  <Truck className="w-12 h-12 text-slate-700 mx-auto mb-4" />
-                  <p className="text-slate-500 font-medium text-lg">Nenhuma carga compatível encontrada no momento.</p>
-                  <p className="text-sm text-slate-600 mt-2">O Feed será atualizado automaticamente quando novas cargas forem publicadas.</p>
-                </div>
+                
+                // 🔥 FASE 2: SISTEMA VIVO NO FEED VAZIO
+                isOnline ? (
+                  <div className="text-center py-24 bg-slate-900/40 rounded-[2rem] border border-cyan-500/20 shadow-[0_0_30px_rgba(6,182,212,0.05)] relative overflow-hidden">
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(6,182,212,0.1),transparent_50%)] animate-pulse" style={{ animationDuration: '4s' }}></div>
+                    <div className="relative z-10 flex flex-col items-center justify-center">
+                      <div className="w-16 h-16 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center mb-6 relative">
+                         <div className="absolute inset-0 rounded-full border border-cyan-400 animate-ping opacity-20"></div>
+                         <Activity className="w-8 h-8 text-cyan-400" />
+                      </div>
+                      <p className="text-cyan-400 font-black uppercase tracking-widest text-lg mb-2">Radar Operacional Ativo</p>
+                      <p className="text-sm font-bold text-slate-400 transition-all duration-500 max-w-sm mx-auto leading-relaxed">{emptyMessages[emptyMessageIndex]}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-20 bg-slate-900/30 rounded-[2rem] border border-slate-800 border-dashed">
+                    <Power className="w-12 h-12 text-slate-700 mx-auto mb-4" />
+                    <p className="text-slate-500 font-medium text-lg">Sinal da Central Desligado.</p>
+                    <p className="text-sm text-slate-600 mt-2">Fique online para receber ofertas no mural.</p>
+                  </div>
+                )
+
               ) : (
                 <AnimatePresence>
                   {fretesFiltradosOrdenados.map((freight) => (
@@ -510,7 +546,7 @@ export default function Motorista() {
                             </div>
                          </div>
                          <div className="flex items-start gap-4 relative z-10">
-                            <div className="w-6 h-6 rounded-full bg-emerald-900/50 border-2 border-emerald-500 flex items-center justify-center shrink-0 mt-1"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div></div>
+                            <div className="w-6 h-6 rounded-full bg-emerald-900/50 border-2 border-emerald-50 flex items-center justify-center shrink-0 mt-1"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div></div>
                             <div>
                                <p className="text-[10px] uppercase tracking-widest font-black text-emerald-500 mb-1">Destino {freight.multiplasEntregas && "(Múltiplas)"}</p>
                                <p className="text-sm font-bold text-white leading-snug">{freight.enderecoEntregaTexto}</p>
