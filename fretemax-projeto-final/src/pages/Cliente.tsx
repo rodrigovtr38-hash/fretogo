@@ -5,6 +5,7 @@
 // CTO-Log 3: Restauração da Engine Original de Precificação (ANTT, MOPP, Pedágio) como âncora/sugestão.
 // CTO-Log 4: Injeção da Fase 2 (Gamificação de Oferta, Contraste UI, Central da Carga Viva).
 // CTO-Log 5: Auditoria Financeira Concluída. Split 20% (Leves) e 15% (Pesados) confirmado. PIN ativado.
+// CTO-Log 6: Correção de Bug (Validação do Botão de Postagem) - Variável tipoMaterial exigida corretamente.
 // =========================================================
 
 import { useState, useEffect, useRef, useMemo } from 'react';
@@ -168,7 +169,24 @@ export default function Cliente() {
     return Number.isNaN(pesoNum) || pesoNum <= LIMITES_PESO[vehicle];
   }, [peso, vehicle]);
 
-  const isFormValid = nome.trim() !== '' && whatsapp.length >= 10 && documento.replace(/\D/g, '').length >= 11 && coleta.rua.trim() !== '' && entregas.every(e => e.rua.trim() !== '' && e.cep.replace(/\D/g, '').length === 8) && peso.trim() !== '' && pesoValido && qtdVolumes.trim() !== '' && isOfertaValida && (tipoFrete === 'imediato' || (tipoFrete === 'agendado' && dataAgendada.trim() !== ''));
+  // 🔥 VALIDAÇÃO CORRIGIDA COM USEMEMO E CHECAGEM ROBUSTA
+  const isFormValid = useMemo(() => {
+    return (
+      nome.trim() !== '' &&
+      whatsapp.replace(/\D/g, '').length >= 10 &&
+      documento.replace(/\D/g, '').length >= 11 &&
+      coleta.rua.trim() !== '' &&
+      coleta.num.trim() !== '' &&
+      coleta.bairro.trim() !== '' &&
+      coleta.cep.replace(/\D/g, '').length === 8 &&
+      entregas.every(e => e.rua.trim() !== '' && e.num.trim() !== '' && e.bairro.trim() !== '' && e.cep.replace(/\D/g, '').length === 8) &&
+      peso.trim() !== '' &&
+      pesoValido &&
+      tipoMaterial.trim() !== '' && 
+      isOfertaValida &&
+      (tipoFrete === 'imediato' || (tipoFrete === 'agendado' && dataAgendada.trim() !== ''))
+    );
+  }, [nome, whatsapp, documento, coleta, entregas, peso, pesoValido, tipoMaterial, isOfertaValida, tipoFrete, dataAgendada]);
 
   const showToast = (msg: string, type: 'error' | 'success' | 'warning' = 'error') => {
     setToast({ msg, type });
@@ -644,7 +662,7 @@ export default function Cliente() {
                   <select className={`col-span-1 md:col-span-2 ${inputClass} cursor-pointer`} value={vehicle} onChange={e => setVehicle(e.target.value as VehicleType)}>
                     {Object.entries(VEHICLE_CONFIG).map(([key, conf]) => (<option key={key} value={key}>{conf.nome}</option>))}
                   </select>
-                  <input className={inputClass} placeholder="Peso (Ex: 25000kg)" value={peso} onChange={e => setPeso(e.target.value)} />
+                  <input className={inputClass} placeholder="Peso (Ex: 2500kg)" value={peso} onChange={e => setPeso(e.target.value)} />
                   <input className={inputClass} placeholder="Produto / Volume" value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)} />
                 </div>
 
@@ -752,7 +770,7 @@ export default function Cliente() {
                 {mapsReady && origemGPS && destinoGPS ? (
                   <MapaCliente origem={origemGPS} destino={destinoGPS} paradasExtras={paradasGPS.length > 1 ? paradasGPS.slice(0, -1) : undefined} vehicleType={vehicle} operationalMessage={`Validando Trajeto B2B...`} />
                 ) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-blue-500"><Loader2 className="w-8 h-8 animate-spin mb-3"/></div>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-blue-500"><Loader2 className="h-8 w-8 animate-spin mb-3"/></div>
                 )}
               </div>
             </div>
