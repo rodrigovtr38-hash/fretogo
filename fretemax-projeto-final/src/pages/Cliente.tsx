@@ -6,6 +6,7 @@
 // CTO-Log 4: Injeção da Fase 2 (Gamificação de Oferta, Contraste UI, Central da Carga Viva).
 // CTO-Log 5: Auditoria Financeira Concluída. Split 20% (Leves) e 15% (Pesados) confirmado. PIN ativado.
 // CTO-Log 6: Correção de Bug (Validação do Botão de Postagem) - Variável tipoMaterial exigida corretamente.
+// CTO-Log 7: Product Polish - Inteligência Invisível no botão e Auto-Fill Feedback.
 // =========================================================
 
 import { useState, useEffect, useRef, useMemo } from 'react';
@@ -66,9 +67,11 @@ export default function Cliente() {
   const [step, setStep] = useState<'form' | 'preview' | 'busca'>('form');
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [loadingPayment, setLoadingPayment] = useState(false);
+  const [loadingStep, setLoadingStep] = useState(0); // UX: Inteligência Invisível
   const [isCancelling, setIsCancelling] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'error' | 'success' | 'warning'; } | null>(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [isAutoFilled, setIsAutoFilled] = useState(false); // UX: Auto-Fill Feedback
 
   const [nome, setNome] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
@@ -104,6 +107,13 @@ export default function Cliente() {
   const coordsCache = useRef<Record<string, Coords>>({});
   const isProcessingPayment = useRef(false);
 
+  // Mensagens da Inteligência Invisível
+  const loadingMessages = [
+    "Calculando melhor rota...",
+    "Aplicando inteligência de mercado...",
+    "Conectando Central FretoGo..."
+  ];
+
   useEffect(() => {
     mapsLoader.load().then(() => setMapsReady(true)).catch(console.error);
   }, []);
@@ -117,6 +127,18 @@ export default function Cliente() {
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, []);
+
+  // Temporizador para a Inteligência Invisível (Feedback no Botão)
+  useEffect(() => {
+    if (loadingPayment || loadingRoute) {
+      const interval = setInterval(() => {
+        setLoadingStep((prev) => (prev < 2 ? prev + 1 : 2));
+      }, 1200);
+      return () => clearInterval(interval);
+    } else {
+      setLoadingStep(0);
+    }
+  }, [loadingPayment, loadingRoute]);
 
   const validDistancia = useMemo(() => Number.isNaN(distanciaReal) || distanciaReal <= 0 ? (5 * entregas.length) : distanciaReal, [distanciaReal, entregas.length]);
 
@@ -224,6 +246,9 @@ export default function Cliente() {
     if (savedForm) {
       try {
         const data = JSON.parse(savedForm);
+        // Feedback visual de Auto-Fill se tiver nome ou documento salvo
+        if (data.nome || data.documento) setIsAutoFilled(true);
+
         setNome(data.nome || ''); setColeta(data.coleta || coleta); 
         setEntregas(data.entregas || (data.entrega ? [data.entrega] : [{ cep: '', bairro: '', rua: '', num: '' }]));
         setPeso(data.peso || ''); setQtdVolumes(data.qtdVolumes || ''); setTipoMaterial(data.tipoMaterial || '');
@@ -308,7 +333,7 @@ export default function Cliente() {
     }
 
     setLoadingRoute(true);
-    if (entregas.length > 1) showToast('Mapeando múltiplas rotas...', 'warning');
+    setLoadingStep(0); // Inicia animação invisível
     
     try {
       const origStr = `${coleta.rua}, ${coleta.num}, ${coleta.bairro}, Brazil`;
@@ -354,6 +379,7 @@ export default function Cliente() {
     if (loadingRoute || loadingPayment || isProcessingPayment.current) return;
     isProcessingPayment.current = true;
     setLoadingPayment(true);
+    setLoadingStep(0);
     await new Promise(resolve => setTimeout(resolve, 50));
     
     if (tipoFrete === 'agendado' && dataAgendada) {
@@ -593,9 +619,16 @@ export default function Cliente() {
             <div className="space-y-8">
               {/* DADOS EMPRESA */}
               <div className="bg-slate-50 p-6 md:p-8 rounded-3xl border border-slate-100">
-                <h2 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
-                  <Building2 className="h-5 w-5 text-blue-500" /> Dados da Empresa
-                </h2>
+                <div className="flex items-center justify-between mb-6">
+                   <h2 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
+                     <Building2 className="h-5 w-5 text-blue-500" /> Dados da Empresa
+                   </h2>
+                   {isAutoFilled && (
+                     <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-500 bg-emerald-50 px-2 py-1 rounded-md flex items-center gap-1">
+                       <CheckCircle size={10}/> Preenchimento Automático
+                     </span>
+                   )}
+                </div>
                 <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
                   <input className={inputClass} placeholder="Nome / Razão Social" value={nome} onChange={(e) => setNome(e.target.value)} />
                   <input className={inputClass} placeholder="WhatsApp Contato" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
@@ -736,7 +769,7 @@ export default function Cliente() {
 
             <div className="mt-8">
               <button onClick={calcularDistanciaReal} disabled={loadingRoute || loadingPayment || !isFormValid} className={`flex w-full min-h-[72px] items-center justify-center gap-3 rounded-[2rem] text-lg font-black uppercase tracking-[0.2em] transition-all duration-300 ${!isFormValid ? 'cursor-not-allowed bg-slate-200 text-slate-400' : 'bg-blue-600 text-white shadow-2xl shadow-blue-600/40 hover:scale-[1.01] hover:bg-blue-700'}`}>
-                {loadingRoute ? <><Loader2 className="h-6 w-6 animate-spin"/> Validando Informações...</> : <><Zap size={24}/> Validar Postagem e Pagamento</>}
+                {loadingRoute ? <><Loader2 className="h-6 w-6 animate-spin"/> {loadingMessages[loadingStep]}</> : <><Zap size={24}/> Validar Postagem e Pagamento</>}
               </button>
             </div>
           </div>
@@ -797,7 +830,7 @@ export default function Cliente() {
               </div>
 
               <button onClick={handleContratar} disabled={loadingPayment || isProcessingPayment.current} className={`flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[2rem] text-[15px] font-black uppercase tracking-[0.2em] transition-all duration-300 ${loadingPayment ? 'bg-slate-200 text-slate-400' : 'bg-slate-900 text-white shadow-xl hover:bg-black hover:scale-[1.02]'}`}>
-                {loadingPayment ? <><Loader2 className="h-6 w-6 animate-spin" /> Processando Escrow...</> : <><Lock size={22} /> Pagar e Ativar no Feed</>}
+                {loadingPayment ? <><Loader2 className="h-6 w-6 animate-spin" /> {loadingMessages[loadingStep]}</> : <><Lock size={22} /> Pagar e Ativar no Feed</>}
               </button>
               <button onClick={() => setStep('form')} className="flex min-h-[54px] w-full items-center justify-center rounded-[2rem] border-2 border-slate-200 bg-white text-xs font-black uppercase tracking-[0.2em] text-slate-600 hover:bg-slate-50">
                 Voltar e Editar Dados
