@@ -1,19 +1,7 @@
 import { useState } from 'react';
 import { db } from '../../firebase';
 import { doc, updateDoc } from 'firebase/firestore';
-import {
-  Radar,
-  Truck,
-  MapPin,
-  ShieldCheck,
-  CheckCircle2,
-  RotateCcw,
-  Banknote,
-  Clock,
-  MessageCircle,
-  Zap,
-  Power
-} from 'lucide-react';
+import { RotateCcw, MapPin, CheckCircle2, MessageCircle, Clock, Zap, Truck, Power } from 'lucide-react';
 
 interface DriverRadarProps {
   isOnline: boolean;
@@ -32,7 +20,7 @@ export default function DriverRadar({
   const [destinoRetorno, setDestinoRetorno] = useState('');
   const [loadingRetorno, setLoadingRetorno] = useState(false);
 
-  const retornosUsadosHoje = driver?.retornosUsados || 0;
+  const retornosUsadosHoje = driver?.retornosUsadosHoje || 0;
   const retornosRestantes = Math.max(0, 2 - retornosUsadosHoje);
   const modoRetornoAtivo = driver?.modoRetorno || false;
 
@@ -41,10 +29,10 @@ export default function DriverRadar({
     setLoadingRetorno(true);
     try {
       if (user?.uid) {
-        await updateDoc(doc(db, 'motoristas_online', user.uid), {
+        await updateDoc(doc(db, 'motoristas_cadastros', user.uid), {
           modoRetorno: true,
           destinoRetorno: destinoRetorno.trim().toLowerCase(),
-          retornosUsados: retornosUsadosHoje + 1,
+          retornosUsadosHoje: retornosUsadosHoje + 1,
         });
         setIsRetornoModalOpen(false);
       }
@@ -59,7 +47,7 @@ export default function DriverRadar({
     setLoadingRetorno(true);
     try {
       if (user?.uid) {
-        await updateDoc(doc(db, 'motoristas_online', user.uid), {
+        await updateDoc(doc(db, 'motoristas_cadastros', user.uid), {
           modoRetorno: false,
           destinoRetorno: null,
         });
@@ -129,7 +117,7 @@ export default function DriverRadar({
                 </p>
               ) : (
                 <p className="text-xs text-slate-400 mt-1 max-w-md">
-                  Ganhe prioridade máxima para sua cidade. Restam <span className="font-bold text-blue-400">{retornosRestantes} usos</span> hoje.
+                  A IA filtrará apenas cargas para a sua cidade. <span className="font-bold text-blue-400">Resta(m) {retornosRestantes} uso(s) hoje.</span>
                 </p>
               )}
             </div>
@@ -162,7 +150,7 @@ export default function DriverRadar({
         <div className="mt-4 rounded-[2.5rem] border border-slate-800 bg-slate-950/50 p-6 md:p-10">
           <div className="flex items-center justify-between mb-8">
             <h2 className="text-xl font-black text-white italic tracking-tighter uppercase">
-              Padrão <span className="text-blue-500">Fretogo</span>
+              Padrão <span className="text-blue-500">FretoGo</span>
             </h2>
             <button onClick={openWhatsAppSupport} className="hidden md:flex items-center gap-2 bg-[#25D366]/10 text-[#25D366] px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[#25D366] hover:text-slate-950 transition-colors border border-[#25D366]/30">
               <MessageCircle size={14} /> Suporte Operacional
@@ -230,7 +218,7 @@ export default function DriverRadar({
                 disabled={!destinoRetorno.trim() || loadingRetorno} 
                 className="flex-[2] rounded-xl bg-blue-600 py-4 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-600/30 transition-all hover:bg-blue-500 active:scale-95 disabled:opacity-50"
               >
-                {loadingRetorno ? 'Buscando...' : 'Ativar Retorno'}
+                {loadingRetorno ? 'Salvando...' : 'Ativar Retorno'}
               </button>
             </div>
           </div>
