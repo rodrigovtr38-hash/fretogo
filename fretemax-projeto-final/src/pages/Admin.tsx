@@ -2,6 +2,7 @@
 // NOME DO ARQUIVO: src/pages/Admin.tsx
 // CTO-Log: Auditoria Concluída - FASE 5
 // Status: Sincronizado com nova arquitetura B2B. Lógica Preservada.
+// CTO-Log 2: Product Polish - Implementação da Identidade "Torre de Controle" e Sistema Vivo.
 // =========================================================
 
 import { useState, useEffect, useMemo } from 'react';
@@ -12,7 +13,7 @@ import { AppTripState } from '../state/tripStateMachine';
 import { 
   Loader2, CheckCircle, XCircle, Search, ShieldAlert, Truck, Users, 
   Calendar, DollarSign, Activity, Clock, AlertTriangle, Eye, 
-  Map as MapIcon, Wallet, Zap, MessageCircle, ShieldCheck, RefreshCcw, Lock, Target, Key
+  Map as MapIcon, Wallet, Zap, MessageCircle, ShieldCheck, RefreshCcw, Lock, Target, Key, Radio
 } from 'lucide-react';
 
 const ADMIN_UIDS = ['uV1yeZoGfhZTRWDVL1CnMW6b6NY2']; 
@@ -292,7 +293,7 @@ export default function Admin() {
   if (loading) return (
     <div className="h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
       <Loader2 className="animate-spin text-cyan-500 w-12 h-12" />
-      <p className="text-cyan-500 font-black animate-pulse uppercase tracking-widest text-xs">Descriptografando Terminal de Comando...</p>
+      <p className="text-cyan-500 font-black animate-pulse uppercase tracking-widest text-xs">Sincronizando satélites e telemetria da malha...</p>
     </div>
   );
 
@@ -304,7 +305,7 @@ export default function Admin() {
           <ShieldAlert className="text-red-500 w-12 h-12" />
         </div>
         <h2 className="text-white font-black text-4xl uppercase italic tracking-tighter">Acesso Negado</h2>
-        <p className="text-slate-500 mt-3 max-w-sm font-medium leading-relaxed">Você está em uma área restrita. O seu UID não tem as credenciais da diretoria logística para visualizar o FRETOGO HQ.</p>
+        <p className="text-slate-500 mt-3 max-w-sm font-medium leading-relaxed">Você está em uma área restrita. O seu UID não possui as credenciais da diretoria logística para visualizar a Central Operacional FRETOGO.</p>
         <p className="text-slate-700 mt-8 text-[10px] uppercase tracking-widest">Sua credencial atual: {authUser?.uid || 'Não autenticado'}</p>
       </div>
     );
@@ -319,7 +320,7 @@ export default function Admin() {
           <div className="w-20 h-20 bg-cyan-500/10 rounded-full flex items-center justify-center mb-6 border border-cyan-500/20">
             <Lock className="w-10 h-10 text-cyan-500" />
           </div>
-          <h2 className="text-white font-black text-2xl uppercase tracking-widest mb-2 text-center">Terminal Fechado</h2>
+          <h2 className="text-white font-black text-2xl uppercase tracking-widest mb-2 text-center">Acesso à Torre de Controle</h2>
           <p className="text-slate-400 text-xs text-center mb-8">Insira a chave criptográfica para liberar a central de operações.</p>
           
           <div className="w-full relative mb-6">
@@ -346,7 +347,7 @@ export default function Admin() {
             }}
             className="w-full bg-cyan-600 hover:bg-cyan-500 text-white py-4 rounded-xl font-black uppercase tracking-widest shadow-[0_0_20px_rgba(8,145,178,0.4)] transition-all"
           >
-            Desbloquear
+            Desbloquear Terminal
           </button>
         </div>
       </div>
@@ -361,21 +362,21 @@ export default function Admin() {
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-3">
              <div className="w-12 h-12 bg-cyan-600 rounded-xl flex items-center justify-center shadow-[0_0_20px_rgba(8,145,178,0.4)]">
-                <Zap className="text-white fill-white w-7 h-7 animate-pulse" />
+                <Radio className="text-white w-7 h-7 animate-pulse" />
              </div>
              <div>
-               <h1 className="text-2xl font-black text-white italic leading-none uppercase tracking-tighter">FRETOGO <span className="text-cyan-500">HQ</span></h1>
+               <h1 className="text-2xl font-black text-white italic leading-none uppercase tracking-tighter">TORRE DE CONTROLE <span className="text-cyan-500">FRETOGO</span></h1>
                <p className="text-[10px] font-bold text-cyan-500/70 uppercase tracking-[0.2em] flex items-center gap-1">
-                 <Activity size={10}/> Central Logística
+                 <Activity size={10}/> Central Operacional B2B
                </p>
              </div>
           </div>
 
           <nav className="flex flex-wrap bg-slate-900/50 p-1.5 rounded-2xl border border-white/5 gap-1">
             {[
-              { id: 'dashboard', label: 'Overview', icon: Activity },
-              { id: 'motoristas', label: 'Frota & Metas', icon: Users, badge: motoristasPendentes.length },
-              { id: 'corridas', label: 'Live Radar', icon: MapIcon }
+              { id: 'dashboard', label: 'Visão Operacional', icon: Activity },
+              { id: 'motoristas', label: 'Homologação de Frota', icon: Users, badge: motoristasPendentes.length },
+              { id: 'corridas', label: 'Malha Logística Live', icon: MapIcon }
             ].map(item => (
               <button
                 key={item.id}
@@ -423,8 +424,8 @@ export default function Admin() {
                 <div className="flex items-center gap-3">
                   <AlertTriangle className="text-amber-500" size={20} />
                   <div>
-                    <p className="text-sm font-black text-amber-400 uppercase">Atenção: {stats.alertas24h} pagamento(s) vencendo em 24h</p>
-                    <p className="text-[10px] text-amber-300/70">Fretes entregues aguardando repasse ao motorista</p>
+                    <p className="text-sm font-black text-amber-400 uppercase">Atenção Operacional: {stats.alertas24h} pagamento(s) vencendo em 24h</p>
+                    <p className="text-[10px] text-amber-300/70">Fretes entregues aguardando repasse ao motorista parceiro</p>
                   </div>
                 </div>
               </div>
@@ -522,14 +523,14 @@ export default function Admin() {
                     <thead>
                       <tr className="border-b border-white/10">
                         <th className="text-left py-3 px-4 text-[10px] font-black uppercase text-slate-500">Data</th>
-                        <th className="text-left py-3 px-4 text-[10px] font-black uppercase text-slate-500">Frete ID</th>
-                        <th className="text-left py-3 px-4 text-[10px] font-black uppercase text-slate-500">Motorista</th>
-                        <th className="text-right py-3 px-4 text-[10px] font-black uppercase text-slate-500">Valor Pago</th>
+                        <th className="text-left py-3 px-4 text-[10px] font-black uppercase text-slate-500">ID da Operação</th>
+                        <th className="text-left py-3 px-4 text-[10px] font-black uppercase text-slate-500">Motorista Parceiro</th>
+                        <th className="text-right py-3 px-4 text-[10px] font-black uppercase text-slate-500">Valor Liquidado</th>
                       </tr>
                     </thead>
                     <tbody>
                       {historicoPagamentos.length === 0 ? (
-                        <tr><td colSpan={4} className="text-center py-8 text-slate-600">Nenhum pagamento registrado ainda</td></tr>
+                        <tr><td colSpan={4} className="text-center py-8 text-slate-600">Nenhum pagamento registrado na base de dados</td></tr>
                       ) : historicoPagamentos.slice(0, 10).map(p => (
                         <tr key={p.id} className="border-b border-white/5 hover:bg-white/5">
                           <td className="py-3 px-4 text-slate-300">
@@ -554,10 +555,10 @@ export default function Admin() {
         {tab === 'motoristas' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
-               <h2 className="text-2xl font-black italic uppercase text-white tracking-tighter">Onboarding & <span className="text-cyan-500">Validação</span></h2>
+               <h2 className="text-2xl font-black italic uppercase text-white tracking-tighter">Homologação & <span className="text-cyan-500">Auditoria de Frota</span></h2>
                <div className="flex gap-2">
                  <span className="bg-slate-900 text-slate-400 px-4 py-2 rounded-xl text-[10px] font-black uppercase border border-white/10 tracking-widest shadow-inner flex items-center gap-2">
-                   <Clock size={12} className="text-amber-500"/> {motoristasPendentes.length} Pendentes
+                   <Clock size={12} className="text-amber-500"/> {motoristasPendentes.length} Na Fila
                  </span>
                  <span className="bg-slate-900 text-slate-400 px-4 py-2 rounded-xl text-[10px] font-black uppercase border border-white/10 tracking-widest shadow-inner flex items-center gap-2">
                    <ShieldCheck size={12} className="text-green-500"/> {aptosPix} Aptos PIX
@@ -569,7 +570,7 @@ export default function Admin() {
               <div className="text-center py-32 bg-slate-900/30 rounded-[3rem] border-2 border-dashed border-white/10 backdrop-blur-sm">
                  <CheckCircle className="w-20 h-20 text-slate-700 mx-auto mb-6" />
                  <p className="text-slate-400 font-black uppercase italic tracking-widest text-lg">Muralha Limpa</p>
-                 <p className="text-slate-500 text-sm mt-2">Não há novos cadastros aguardando verificação no momento.</p>
+                 <p className="text-slate-500 text-sm mt-2">Não há novos cadastros aguardando auditoria na Torre de Controle.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -639,7 +640,7 @@ export default function Admin() {
                 <div className="flex-1 relative">
                    <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-cyan-500 w-5 h-5" />
                    <input 
-                    placeholder="Buscar por ID ou Nome..." 
+                    placeholder="Buscar por ID ou Nome na malha..." 
                     onChange={e => setSearchTerm(e.target.value)} 
                     className="w-full bg-slate-950 border border-white/10 rounded-2xl py-4 pl-14 pr-4 text-white font-bold focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none transition-all placeholder:text-slate-600" 
                    />
@@ -651,13 +652,13 @@ export default function Admin() {
                     className="bg-slate-950 border border-white/10 rounded-2xl px-6 py-4 text-slate-300 font-black uppercase text-[10px] tracking-widest outline-none cursor-pointer hover:border-cyan-500 transition-all"
                   >
                     <option value="todos">Status Global</option>
-                    <option value={AppTripState.DISPONIVEL}>Radar Activo</option>
-                    <option value={AppTripState.ACEITO}>Motorista a Caminho</option>
-                    <option value={AppTripState.INDO_COLETA}>Indo p/ Coleta</option>
-                    <option value={AppTripState.EM_TRANSPORTE}>Em Transporte</option>
-                    <option value={AppTripState.ENTREGUE}>Aguardando Repasse</option>
-                    <option value="finalizado">Finalizados</option>
-                    <option value={AppTripState.CANCELADO}>Cancelados</option>
+                    <option value={AppTripState.DISPONIVEL}>Radar Ativo</option>
+                    <option value={AppTripState.ACEITO}>Motorista Acionado</option>
+                    <option value={AppTripState.INDO_COLETA}>Em Deslocamento</option>
+                    <option value={AppTripState.EM_TRANSPORTE}>Em Rota Escolta</option>
+                    <option value={AppTripState.ENTREGUE}>Aguardando Liquidação</option>
+                    <option value="finalizado">Concluídos</option>
+                    <option value={AppTripState.CANCELADO}>Operação Abortada</option>
                   </select>
                 </div>
              </div>
@@ -666,8 +667,8 @@ export default function Admin() {
                 {fretesFiltrados.length === 0 ? (
                   <div className="text-center py-24 bg-slate-900/30 rounded-[3rem] border border-dashed border-white/5 backdrop-blur-sm">
                     <MapIcon size={48} className="mx-auto mb-6 text-slate-700" />
-                    <p className="text-slate-400 font-black uppercase italic tracking-widest text-lg">Radar Limpo</p>
-                    <p className="text-slate-600 text-sm mt-2">Nenhuma corrida encontrada para os filtros selecionados.</p>
+                    <p className="text-slate-400 font-black uppercase italic tracking-widest text-lg">Malha Logística Estável</p>
+                    <p className="text-slate-600 text-sm mt-2">Nenhuma carga transitando nos filtros selecionados.</p>
                   </div>
                 ) : (
                   fretesFiltrados.map(f => (
@@ -680,7 +681,7 @@ export default function Admin() {
                             <span className="px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border bg-cyan-500/10 text-cyan-400 border-cyan-500/20">
                               {f.status.replace('_', ' ')}
                             </span>
-                            <span className="text-[10px] font-mono text-slate-500 font-bold">#{f.id.slice(0,8).toUpperCase()}</span>
+                            <span className="text-[10px] font-mono text-slate-500 font-bold">OP_ID: #{f.id.slice(0,8).toUpperCase()}</span>
                           </div>
 
                           <div className="flex items-start gap-5">
@@ -691,11 +692,11 @@ export default function Admin() {
                              </div>
                              <div className="space-y-6 flex-1">
                                 <div>
-                                   <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Retirada</p>
+                                   <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Origem / Coleta</p>
                                    <p className="text-sm font-bold text-white leading-tight">{f.origem?.endereco || f.cidadeOrigem || 'Endereço Indisponível'}</p>
                                 </div>
                                 <div>
-                                   <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Destino</p>
+                                   <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Destino Final</p>
                                    <p className="text-sm font-bold text-white leading-tight">{f.destino?.endereco || f.cidadeDestino || 'Endereço Indisponível'}</p>
                                 </div>
                              </div>
@@ -749,11 +750,11 @@ export default function Admin() {
             <div className="flex items-center gap-8">
                <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(34,197,94,1)]"></div>
-                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Firestore Subsystem <span className="text-green-500">Live</span></span>
+                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Conexão Firebase <span className="text-green-500">Live</span></span>
                </div>
             </div>
             <div className="flex items-center gap-4">
-               <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Terminal Logado:</p>
+               <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Credencial Operacional:</p>
                <p className="text-[10px] font-black text-cyan-400 uppercase italic tracking-widest px-3 py-1 rounded bg-cyan-500/10 border border-cyan-500/20">{authUser?.email}</p>
             </div>
          </div>
