@@ -1,6 +1,5 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { DollarSign, Truck, Star, Award, MessageCircle } from 'lucide-react';
-import AvailableFreights from './AvailableFreights';
 import FreightRequestModal from './FreightRequestModal';
 
 export type DriverCategory =
@@ -47,18 +46,11 @@ interface DriverDashboardLayoutProps {
   onCloseFreight: () => void;
   onAcceptFreight: (freight: OperationalFreight) => Promise<void> | void;
   onRejectFreight: (freight: OperationalFreight) => Promise<void> | void;
-  driver?: any;
+  driver?: any; // CTO FIX: Mantido para não quebrar a compilação
 }
 
 export default function DriverDashboardLayout({
-  freights,
   selectedFreight,
-  activeFreight,
-  isOnline,
-  loading = false,
-  driverCategory,
-  onToggleOnline,
-  onSelectFreight,
   onCloseFreight,
   onAcceptFreight,
   onRejectFreight,
@@ -95,7 +87,7 @@ export default function DriverDashboardLayout({
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6">
       
-      {/* STATUS GRID OPERACIONAL (UBER STYLE) */}
+      {/* STATUS GRID OPERACIONAL (UBER STYLE) - MANTIDO */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mb-10">
         <div className="rounded-3xl border border-emerald-500/10 bg-slate-900/50 p-5 flex flex-col justify-between group hover:border-emerald-500/30 transition-colors">
           <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500 flex items-center gap-1.5">
@@ -130,15 +122,9 @@ export default function DriverDashboardLayout({
         </div>
       </div>
 
-      {/* RADAR DE OFERTAS */}
-      <AvailableFreights
-        freights={freights}
-        isOnline={isOnline}
-        loading={loading}
-        onSelectFreight={onSelectFreight}
-      />
+      {/* O RADAR FOI REMOVIDO DAQUI. ELE AGORA VIVE DIRETAMENTE NO Motorista.tsx (Feed Inteligente) */}
 
-      {/* SUPORTE RÁPIDO */}
+      {/* SUPORTE RÁPIDO - MANTIDO */}
       <div className="mt-12 flex flex-col md:flex-row items-center justify-between rounded-3xl border border-white/5 bg-slate-900/30 p-6 gap-4">
         <div className="flex items-center gap-4">
           <div className="h-10 w-10 rounded-xl bg-[#25D366]/10 flex items-center justify-center text-[#25D366]">
@@ -157,7 +143,7 @@ export default function DriverDashboardLayout({
         </button>
       </div>
 
-      {/* MODAL DE DETALHES DA OFERTA */}
+      {/* MODAL DE DETALHES DA OFERTA - ORIGINAL RESTAURADO PARA NÃO QUEBRAR O DETALHAMENTO */}
       <FreightRequestModal
         freight={selectedFreight}
         visible={Boolean(selectedFreight)}
