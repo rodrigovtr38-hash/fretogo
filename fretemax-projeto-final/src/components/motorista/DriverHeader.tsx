@@ -1,5 +1,12 @@
+// =========================================================
+// NOME DO ARQUIVO: src/components/motorista/DriverHeader.tsx
+// CTO-Log: Auditoria Etapa 2.
+// Status: Arquitetura validada. 
+// Ajustes UX: Otimização de renderização da Logo e refinamento da responsividade mobile.
+// =========================================================
+
 import { signOut } from 'firebase/auth';
-import { Truck, Zap, Star, Download, LogOut } from 'lucide-react';
+import { Truck, Star, Download, LogOut } from 'lucide-react';
 import { auth } from '../../firebase';
 import { useState, useEffect } from 'react';
 
@@ -35,29 +42,34 @@ export default function DriverHeader({ user, driverData }: DriverHeaderProps) {
     setDeferredPrompt(null);
   };
 
+  const handleLogout = async () => {
+    if (!window.confirm("Deseja desconectar sua conta?")) return;
+    await signOut(auth);
+  };
+
   const score = driverData?.score ? Number(driverData.score).toFixed(1) : '5.0';
 
   return (
     // 🔥 CTO FIX: Adicionado h-20 para dar altura padrão e z-50 para ficar sempre no topo
-    <header className="relative z-50 w-full h-20 border-b border-white/5 bg-slate-950/80 backdrop-blur-xl">
-      <nav className="mx-auto flex w-full h-full max-w-[1400px] items-center justify-between px-4 lg:px-8 relative">
+    <header className="relative z-50 w-full h-20 border-b border-white/5 bg-slate-950/80 backdrop-blur-xl shadow-sm">
+      <nav className="mx-auto flex w-full h-full max-w-[1440px] items-center justify-between px-4 lg:px-8 relative">
         
         {/* LADO ESQUERDO: PERFIL DO MOTORISTA */}
         <div className="flex items-center gap-3 z-10">
-          <div className="flex h-11 w-11 items-center justify-center rounded-full border border-cyan-500/30 bg-slate-900 shadow-[0_0_15px_rgba(6,182,212,0.1)]">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-cyan-500/30 bg-slate-900 shadow-[0_0_15px_rgba(6,182,212,0.1)]">
             <Truck className="h-5 w-5 text-cyan-400" />
           </div>
-          <div className="flex flex-col hidden sm:flex"> {/* Esconde os dados em telas muito pequenas para não espremer a logo */}
+          <div className="hidden sm:flex flex-col"> {/* Esconde os dados em telas muito pequenas para não espremer a logo central */}
             <span className="text-sm font-black uppercase tracking-tight text-white truncate max-w-[120px] md:max-w-[200px]">
-              {driverData?.nome || 'Motorista'}
+              {driverData?.nome || 'Motorista Parceiro'}
             </span>
             <div className="flex items-center gap-1.5 mt-0.5">
               <div className="flex items-center gap-0.5">
-                <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
                 <span className="text-xs font-bold text-slate-300">{score}</span>
               </div>
               <span className="h-3 w-px bg-white/10" />
-              <span className="text-[10px] font-bold text-cyan-500 uppercase tracking-widest">
+              <span className="text-[10px] font-bold text-cyan-500 uppercase tracking-widest truncate max-w-[100px]">
                 {driverData?.categoria?.replace('_', ' ') || 'Veículo'}
               </span>
             </div>
@@ -66,14 +78,17 @@ export default function DriverHeader({ user, driverData }: DriverHeaderProps) {
 
         {/* 🔥 O CENTRO: A MARCA FRETOGO NÍTIDA E ABSOLUTA */}
         {/* A marca agora flutua exatamente no meio da tela do celular */}
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center gap-2">
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center gap-2 pointer-events-none">
            <img 
-              src="/icon-192.png" 
-              alt="Logo" 
-              className="w-10 h-10 object-contain rounded-md shadow-lg"
+             src="/icon-192.png" 
+             alt="Logo" 
+             width="40"
+             height="40"
+             loading="eager"
+             className="w-10 h-10 object-contain rounded-md shadow-lg"
            />
            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tighter uppercase italic drop-shadow-md">
-             Freto<span className="text-yellow-400">Go</span>
+             Freto<span className="text-amber-400">Go</span>
            </h1>
         </div>
 
@@ -82,18 +97,18 @@ export default function DriverHeader({ user, driverData }: DriverHeaderProps) {
           {isInstallable && (
             <button
               onClick={handleInstallClick}
-              className="flex items-center gap-1.5 rounded-xl bg-cyan-500 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-black transition-all hover:bg-cyan-400 active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.3)]"
+              className="flex items-center gap-1.5 rounded-xl bg-cyan-500 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-black transition-all hover:bg-cyan-400 active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.3)] shrink-0"
             >
               <Download size={14} />
-              <span className="hidden sm:inline">Instalar</span>
+              <span className="hidden sm:inline">Instalar App</span>
             </button>
           )}
 
           {user && (
             <button
-              onClick={() => signOut(auth)}
-              className="flex items-center justify-center h-10 w-10 rounded-xl border border-white/10 bg-white/5 text-slate-400 transition-all hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/20 active:scale-95"
-              title="Sair"
+              onClick={handleLogout}
+              className="flex items-center justify-center h-10 w-10 shrink-0 rounded-xl border border-white/10 bg-white/5 text-slate-400 transition-all hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/20 active:scale-95"
+              title="Desconectar do Radar"
             >
               <LogOut size={18} />
             </button>
