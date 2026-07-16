@@ -92,12 +92,12 @@ export default function DriverRadar({
 
         <div className="mt-8 text-center">
           <h3 className={`text-xl md:text-2xl font-black uppercase italic tracking-tighter ${isOnline ? 'text-white' : 'text-slate-600'}`}>
-            {isOnline ? 'Buscando cargas em tempo real...' : 'Você está Offline.'}
+            {isOnline ? 'Conectado à Torre de Controle' : 'Seu Radar está Desligado'}
           </h3>
           <p className="mt-2 text-xs md:text-sm font-medium text-slate-500 max-w-xs mx-auto leading-relaxed">
             {isOnline 
-              ? 'O Feed será atualizado automaticamente com novas ofertas.' 
-              : 'Entre Online para começar a receber oportunidades e aceitar cargas.'}
+              ? `Seu radar de ${driver?.categoria ? driver.categoria.replace('_', ' ') : 'veículo'} está operando e interceptando novas postagens.` 
+              : 'Entre Online para se conectar à malha e receber oportunidades.'}
           </p>
         </div>
       </div>
@@ -113,11 +113,11 @@ export default function DriverRadar({
               <h3 className="text-lg font-black text-white italic uppercase tracking-tighter">Fila de Retorno</h3>
               {modoRetornoAtivo ? (
                 <p className="text-xs font-bold text-cyan-400 mt-1 flex items-center gap-1.5">
-                  <CheckCircle2 size={14} /> Destino: {driver?.destinoRetorno?.toUpperCase()}
+                  <CheckCircle2 size={14} /> Destino Interceptado: {driver?.destinoRetorno?.toUpperCase()}
                 </p>
               ) : (
                 <p className="text-xs text-slate-400 mt-1 max-w-md">
-                  A IA filtrará apenas cargas para a sua cidade. <span className="font-bold text-blue-400">Resta(m) {retornosRestantes} uso(s) hoje.</span>
+                  A Inteligência Artificial filtrará apenas cargas para a sua cidade. <span className="font-bold text-blue-400">Resta(m) {retornosRestantes} uso(s) hoje.</span>
                 </p>
               )}
             </div>
