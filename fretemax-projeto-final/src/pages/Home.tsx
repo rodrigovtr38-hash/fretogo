@@ -3,6 +3,7 @@
 // CTO-Log: Refatoração Visual Sprint 1. Separação de funis (Embarcador vs Transportador).
 // CTO-Log 2: Correção de importação do lucide-react (CheckCircle adicionado).
 // CTO-Log 3: Refinamento de UX (Adição da seção "Como Funciona" e destaque no CTA de Login).
+// CTO-Log 4: Product Polish - Textos simplificados com gatilhos de conversão rápidos e diretos.
 // =========================================================
 import { Zap, Truck, ShieldCheck, ArrowRight, Smartphone, Building2, MapPin, UserCircle, CheckCircle } from 'lucide-react';
 
@@ -82,8 +83,8 @@ export default function Home() {
                 <PackageIcon />
               </div>
               <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Sou Empresa / Embarcador</h2>
-              <p className="mt-4 text-slate-600 font-medium">
-                Poste suas cargas no mural da FretoGo. De fiorinos a carretas LS. Pague apenas quando o motorista aceitar, com dinheiro blindado até a entrega.
+              <p className="mt-4 text-slate-600 font-medium leading-relaxed">
+                Bem-vindo. Em poucos minutos sua carga estará disponível para milhares de motoristas. Pague apenas quando aceitarem, com dinheiro blindado até a entrega.
               </p>
               <ul className="mt-6 space-y-3">
                 <li className="flex items-center gap-3 text-sm font-bold text-slate-700"><CheckCircle size={18} className="text-emerald-500" /> Acesso a +5.000 Motoristas</li>
@@ -107,8 +108,8 @@ export default function Home() {
                 <MapPin size={32} />
               </div>
               <h2 className="text-2xl font-black text-white uppercase tracking-tight">Sou Motorista / Agregado</h2>
-              <p className="mt-4 text-slate-400 font-medium">
-                Pare de bater lata. Acesse o mural nacional de fretes em tempo real. Escolha as cargas que pagam melhor para o seu veículo e garanta seu retorno.
+              <p className="mt-4 text-slate-400 font-medium leading-relaxed">
+                Bem-vindo. Ative seu Radar para começar a receber oportunidades automaticamente. Escolha as melhores cargas e garanta seu retorno.
               </p>
               <ul className="mt-6 space-y-3">
                 <li className="flex items-center gap-3 text-sm font-bold text-slate-300"><CheckCircle size={18} className="text-cyan-500" /> Pagamento Garantido por Escrow</li>
