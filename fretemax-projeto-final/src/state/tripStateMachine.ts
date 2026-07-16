@@ -4,6 +4,8 @@
 =====================================================
 TRIP STATE MACHINE
 ENTERPRISE OPERATIONAL FLOW
+CTO-Log: Auditoria Etapa 5 (Ciclo de Vida)
+Ajuste: Injeção de Transições Diretas (Pull Model / Feed B2B).
 =====================================================
 */
 
@@ -187,6 +189,7 @@ export const VALID_TRANSITIONS:
 
   [AppTripState.AGENDADO]: [
     AppTripState.DISPONIVEL,
+    AppTripState.ACEITO, // CTO FIX: Permite que agendamentos sejam aceitos diretamente no Feed
     AppTripState.CANCELADO,
   ],
 
@@ -197,6 +200,7 @@ export const VALID_TRANSITIONS:
   */
 
   [AppTripState.DISPONIVEL]: [
+    AppTripState.ACEITO, // 🔥 CTO FIX: Transição OBRIGATÓRIA para o modelo Pull (Marketplace B2B)
     AppTripState.BUSCANDO_MOTORISTA,
     AppTripState.CANCELADO,
   ],
@@ -216,6 +220,7 @@ export const VALID_TRANSITIONS:
 
   [AppTripState.SEM_MOTORISTA]: [
     AppTripState.CANCELADO,
+    AppTripState.DISPONIVEL, // CTO FIX: Permitir reciclar
   ],
 
   /*
@@ -248,9 +253,11 @@ export const VALID_TRANSITIONS:
   [AppTripState.TIMEOUT]: [
     AppTripState.REDISPATCH,
     AppTripState.SEM_MOTORISTA,
+    AppTripState.DISPONIVEL, // CTO FIX: Voltar pro feed se houver timeout
   ],
 
   [AppTripState.REDISPATCH]: [
+    AppTripState.DISPONIVEL, // 🔥 CTO FIX: Devolve pro Feed se o motorista abortar
     AppTripState.BUSCANDO_MOTORISTA,
     AppTripState.OFERTANDO,
     AppTripState.SEM_MOTORISTA,
@@ -271,7 +278,7 @@ export const VALID_TRANSITIONS:
     AppTripState.INDO_COLETA,
     AppTripState.CANCELADO_MOTORISTA,
     AppTripState.CANCELADO_CLIENTE,
-    AppTripState.REDISPATCH, // Adicionado
+    AppTripState.REDISPATCH, 
   ],
 
   /*
@@ -289,13 +296,13 @@ export const VALID_TRANSITIONS:
   [AppTripState.CHEGOU_COLETA]: [
     AppTripState.COLETANDO,
     AppTripState.CANCELADO,
-    AppTripState.REDISPATCH, // Adicionado
+    AppTripState.REDISPATCH, 
   ],
 
   [AppTripState.COLETANDO]: [
     AppTripState.EM_TRANSPORTE,
     AppTripState.CANCELADO,
-    AppTripState.REDISPATCH, // Adicionado
+    AppTripState.REDISPATCH, 
   ],
 
   /*
@@ -308,7 +315,7 @@ export const VALID_TRANSITIONS:
     AppTripState.PARADO_OPERACIONAL,
     AppTripState.FINALIZANDO,
     AppTripState.ERRO,
-    AppTripState.REDISPATCH, // Adicionado caso abandone a carga
+    AppTripState.REDISPATCH, 
   ],
 
   [AppTripState.PARADO_OPERACIONAL]: [
@@ -348,6 +355,7 @@ export const VALID_TRANSITIONS:
   [AppTripState.CANCELADO_MOTORISTA]: [
     AppTripState.REDISPATCH,
     AppTripState.CANCELADO,
+    AppTripState.DISPONIVEL, // CTO FIX
   ],
 
   /*
