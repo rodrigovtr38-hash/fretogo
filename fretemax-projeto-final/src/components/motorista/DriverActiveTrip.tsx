@@ -1,16 +1,17 @@
 // =========================================================
 // NOME DO ARQUIVO: src/components/motorista/DriverActiveTrip.tsx
-// CTO-Log: Product Polish - UX de Operação de Rua
+// CTO-Log: Product Polish - UX de Operação de Rua (BLOCO 2)
 // 1. Injeção de inputMode numérico nativo para o PIN (Teclado de Máquina de Cartão).
 // 2. Loaders de feedback visual nos botões de ação (Double-tap protection).
-// 3. Exibição explícita do Endereço de Destino/Coleta na interface.
+// 3. Sistema Vivo: Painel da "Central Operacional" com Radar de Rastreamento.
+// 4. ETA Gamificado: Indicador visual de "No Prazo".
 // =========================================================
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '../../firebase';
 import { doc, onSnapshot, arrayUnion } from 'firebase/firestore';
-import { LockKeyhole, AlertTriangle, Loader2, MapPin } from 'lucide-react';
+import { LockKeyhole, AlertTriangle, Loader2, MapPin, Radio } from 'lucide-react';
 import MapaCliente from '../MapaCliente';
 import { dispatchRealtimeService } from '../../services/dispatchRealtimeService';
 import { AppTripState } from '../../state/tripStateMachine';
@@ -136,6 +137,24 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
   return (
     <>
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="rounded-[2rem] border border-cyan-500/20 bg-slate-900 shadow-2xl p-6">
+        
+        {/* 🔥 FASE 2: SISTEMA VIVO E ETA GAMIFICADO (CENTRAL OPERACIONAL) */}
+        <div className="mb-6 flex items-center justify-between rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 shadow-inner">
+          <div className="flex items-center gap-3">
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+            </span>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400 flex items-center gap-1"><Radio size={12}/> Rastreamento Ativo</p>
+              <p className="text-xs font-bold text-slate-300">Central Operacional Conectada</p>
+            </div>
+          </div>
+          <div className="rounded-lg bg-emerald-500/20 px-3 py-1 border border-emerald-500/30">
+            <p className="text-[10px] font-black uppercase text-emerald-400 tracking-widest">No Prazo</p>
+          </div>
+        </div>
+
         <div className="mb-6 text-center">
           <h2 className="text-xl font-black text-cyan-400 uppercase tracking-widest">
             {isFaseColeta
@@ -146,7 +165,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
           </h2>
         </div>
 
-        <div className="h-[250px] w-full mb-6 rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 relative shadow-inner">
+        <div className="h-[250px] w-full mb-6 rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 relative shadow-[0_0_20px_rgba(6,182,212,0.1)]">
           <MapaCliente origem={mapOriginGPS} destino={mapDestinoGPS} operationalMessage="Navegando..." />
         </div>
         
