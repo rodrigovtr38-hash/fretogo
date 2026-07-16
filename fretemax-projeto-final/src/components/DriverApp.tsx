@@ -1,3 +1,10 @@
+// =========================================================
+// NOME DO ARQUIVO: src/components/DriverApp.tsx
+// CTO-Log: Auditoria Sprint Final (Product Polish).
+// Status: Arquivo validado como Logical Wrapper (Ponte Fantasma). 
+// Nenhuma alteração estrutural necessária. Mantido para sustentar o Modal legado.
+// =========================================================
+
 import {
   useCallback,
   useEffect,
