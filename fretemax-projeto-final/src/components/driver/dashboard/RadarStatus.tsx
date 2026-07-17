@@ -1,234 +1,160 @@
+// =========================================================
+// NOME DO ARQUIVO: src/components/driver/dashboard/RadarStatus.tsx
+// CTO-Log: Product Polish - UX Comportamental (Radar Vazio)
+// Injeção de Gatilhos de Retenção:
+// 1. Mensagens dinâmicas de escaneamento ativo (Caça-Níqueis).
+// 2. Cronômetro de tempo de tela gerando "Status de Prioridade" (Sunk Cost Fallacy).
+// =========================================================
+
 import { useEffect, useState } from 'react';
-import {
-  Power,
-  Radar,
-  MapPinned,
-  Truck,
-  Search,
-} from 'lucide-react';
+import { Power, Radar, MapPinned, Truck, Search, ShieldCheck, Clock } from 'lucide-react';
 
 export default function RadarStatus() {
   const [online, setOnline] = useState(false);
+  const [tempoOnline, setTempoOnline] = useState(0); // Cronômetro de retenção
 
   const [statusText, setStatusText] = useState(
-    'Você está invisível. Ligue o radar para receber fretes inteligentes.'
+    'Você está invisível. Ligue o radar para interceptar fretes.'
   );
 
+  // Mensagens agressivas de "Sistema Vivo"
   const searchingMessages = [
-    'Analisando motoristas próximos...',
-    'Escaneando cargas em tempo real...',
-    'Detectando regiões com alta demanda...',
-    'Buscando fretes compatíveis...',
-    'Conectando com clientes próximos...',
+    'Analisando motoristas concorrentes próximos...',
+    'Escaneando notas fiscais emitidas na região...',
+    'Aguardando disparo de empresas parceiras...',
+    'Filtrando cargas compatíveis com seu veículo...',
+    'Calculando rotas de alta lucratividade...',
+    'Sincronizando com a Torre de Controle Fretogo...',
   ];
 
+  // Motor do Caça-Níqueis
   useEffect(() => {
-    if (!online) return;
+    if (!online) {
+      setTempoOnline(0);
+      setStatusText('Você está invisível. Ligue o radar para interceptar fretes.');
+      return;
+    }
 
     let index = 0;
-
     const interval = setInterval(() => {
       setStatusText(searchingMessages[index]);
+      index = (index + 1) % searchingMessages.length;
+    }, 3500);
 
-      index =
-        (index + 1) %
-        searchingMessages.length;
-    }, 3000);
+    // Motor do Sunk Cost (Tempo na Fila)
+    const timeInterval = setInterval(() => {
+      setTempoOnline((prev) => prev + 1);
+    }, 60000); // Atualiza a cada 1 minuto
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      clearInterval(timeInterval);
+    };
   }, [online]);
 
   return (
     <section className="relative flex min-h-screen items-center justify-center overflow-hidden">
+      {/* GRID CORPORATIVO */}
+      <div className="absolute inset-0 opacity-[0.03] [background-image:linear-gradient(rgba(255,255,255,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:60px_60px]" />
 
-      {/* GRID */}
-      <div
-        className="
-          absolute
-          inset-0
-          opacity-[0.03]
-          [background-image:linear-gradient(rgba(255,255,255,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px)]
-          [background-size:60px_60px]
-        "
-      />
+      {/* GLOW DE FUNDO */}
+      <div className={`absolute left-1/2 top-1/2 h-[40rem] w-[40rem] -translate-x-1/2 -translate-y-1/2 rounded-full transition-colors duration-1000 blur-[180px] ${online ? 'bg-cyan-500/10' : 'bg-slate-800/20'}`} />
 
-      {/* GLOW */}
-      <div className="absolute left-1/2 top-1/2 h-[40rem] w-[40rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-500/10 blur-[180px]" />
-
-      {/* CONTAINER */}
-      <div className="relative z-10 flex flex-col items-center justify-center px-6 text-center">
-
-        {/* RADAR */}
-        <div className="relative flex items-center justify-center">
-
-          {/* PULSE */}
+      <div className="relative z-10 flex flex-col items-center justify-center px-6 text-center w-full max-w-5xl">
+        
+        {/* RADAR VISUAL */}
+        <div className="relative flex items-center justify-center mb-10">
           {online && (
             <>
-              <div className="absolute h-[260px] w-[260px] animate-ping rounded-full border border-cyan-400/20" />
-
-              <div className="absolute h-[360px] w-[360px] animate-pulse rounded-full border border-cyan-400/10" />
-
-              <div className="absolute h-[520px] w-[520px] rounded-full border border-cyan-400/5" />
+              <div className="absolute h-[260px] w-[260px] animate-ping rounded-full border border-cyan-400/30" style={{ animationDuration: '3s' }} />
+              <div className="absolute h-[360px] w-[360px] animate-pulse rounded-full border border-cyan-400/20" style={{ animationDuration: '4s' }} />
+              <div className="absolute h-[520px] w-[520px] rounded-full border border-cyan-400/5 rotate-180" />
             </>
           )}
 
-          {/* BOTÃO CENTRAL */}
+          {/* BOTÃO POWER CENTRAL */}
           <button
             onClick={() => setOnline(!online)}
-            className={`
-              relative
-              flex
-              h-40
-              w-40
-              items-center
-              justify-center
-              rounded-full
-              border
-              transition-all
-              duration-500
-              ${
-                online
-                  ? 'border-cyan-400 bg-cyan-500/10 shadow-[0_0_80px_rgba(6,182,212,0.35)]'
-                  : 'border-slate-700 bg-slate-900/80'
-              }
-            `}
+            className={`relative flex h-40 w-40 z-20 items-center justify-center rounded-full border-4 transition-all duration-500 ${
+              online
+                ? 'border-cyan-400 bg-cyan-500/10 shadow-[0_0_80px_rgba(6,182,212,0.4)] scale-105'
+                : 'border-slate-700 bg-slate-900/80 hover:border-slate-500'
+            }`}
           >
             <div className="flex flex-col items-center gap-2">
-
-              <Power
-                size={52}
-                className={
-                  online
-                    ? 'text-cyan-300'
-                    : 'text-slate-500'
-                }
-              />
-
-              <span
-                className={`
-                  text-[10px]
-                  font-black
-                  uppercase
-                  tracking-[0.35em]
-                  ${
-                    online
-                      ? 'text-cyan-300'
-                      : 'text-slate-500'
-                  }
-                `}
-              >
+              <Power size={52} className={online ? 'text-cyan-300 animate-pulse' : 'text-slate-500'} />
+              <span className={`text-[10px] font-black uppercase tracking-[0.35em] ${online ? 'text-cyan-300' : 'text-slate-500'}`}>
                 {online ? 'ONLINE' : 'OFFLINE'}
               </span>
             </div>
           </button>
         </div>
 
-        {/* STATUS */}
-        <div className="mt-14 max-w-[520px]">
-
-          <div className="flex items-center justify-center gap-2">
-            <Radar className="text-cyan-400" size={18} />
-
-            <span className="text-xs font-black uppercase tracking-[0.3em] text-cyan-300">
-              Radar operacional
+        {/* STATUS DINÂMICO DA TELA */}
+        <div className="mt-8 w-full max-w-[520px] animate-in fade-in slide-in-from-bottom-4">
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <Radar className={online ? 'text-cyan-400 animate-spin-slow' : 'text-slate-600'} size={18} />
+            <span className={`text-xs font-black uppercase tracking-[0.3em] ${online ? 'text-cyan-300' : 'text-slate-600'}`}>
+              Radar Operacional
             </span>
           </div>
 
-          <h2 className="mt-5 text-4xl font-black uppercase italic text-white md:text-5xl">
-            {online
-              ? 'RADAR ATIVO'
-              : 'RADAR DESLIGADO'}
-          </h2>
-
-          <p className="mt-4 text-sm leading-relaxed text-slate-400 md:text-base">
-            {online
-              ? statusText
-              : 'Ative o radar operacional para receber cargas inteligentes automaticamente na sua região.'}
-          </p>
+          <div className="h-[80px] flex items-center justify-center flex-col">
+             <h2 className={`text-3xl font-black uppercase italic md:text-4xl transition-colors duration-500 ${online ? 'text-white' : 'text-slate-500'}`}>
+               {online ? 'MALHA ATIVA' : 'SINAL DESLIGADO'}
+             </h2>
+             <p className={`mt-3 text-sm leading-relaxed transition-opacity duration-300 ${online ? 'text-cyan-100/70' : 'text-slate-500'} h-6`}>
+               {statusText}
+             </p>
+          </div>
         </div>
 
-        {/* STATS */}
+        {/* ESTATÍSTICAS E GATILHOS DE FILA (SUNK COST) */}
         {online && (
-          <div className="mt-12 grid w-full max-w-4xl grid-cols-1 gap-4 md:grid-cols-3">
-
-            <div className="rounded-3xl border border-cyan-500/10 bg-slate-900/70 p-5 backdrop-blur-xl">
-              <MapPinned
-                size={22}
-                className="text-cyan-400"
-              />
-
-              <div className="mt-4 text-left">
-                <p className="text-xs uppercase tracking-widest text-slate-500">
-                  Região
-                </p>
-
-                <h3 className="mt-1 text-xl font-black text-white">
-                  Zona Sul
-                </h3>
+          <div className="mt-12 grid w-full grid-cols-1 gap-4 md:grid-cols-3 animate-in zoom-in-95 duration-700">
+            
+            <div className="rounded-3xl border border-cyan-500/20 bg-slate-900/80 p-6 backdrop-blur-xl shadow-lg relative overflow-hidden group">
+              <div className="absolute top-0 left-0 w-1 h-full bg-cyan-500"></div>
+              <div className="flex items-center justify-between mb-4">
+                 <p className="text-[10px] uppercase font-black tracking-widest text-slate-500">Status na Fila</p>
+                 <Clock size={16} className="text-cyan-400" />
               </div>
+              <h3 className="text-2xl font-black text-white tracking-tighter">
+                {tempoOnline > 5 ? 'PRIORIDADE MÁXIMA' : 'NA FILA'}
+              </h3>
+              <p className="text-[10px] text-cyan-400/70 font-bold mt-2 uppercase tracking-widest">
+                {tempoOnline} MINUTOS AGUARDANDO
+              </p>
             </div>
 
-            <div className="rounded-3xl border border-cyan-500/10 bg-slate-900/70 p-5 backdrop-blur-xl">
-              <Truck
-                size={22}
-                className="text-emerald-400"
-              />
-
-              <div className="mt-4 text-left">
-                <p className="text-xs uppercase tracking-widest text-slate-500">
-                  Categoria
-                </p>
-
-                <h3 className="mt-1 text-xl font-black text-white">
-                  Carro Pequeno
-                </h3>
+            <div className="rounded-3xl border border-emerald-500/20 bg-slate-900/80 p-6 backdrop-blur-xl shadow-lg relative overflow-hidden group">
+              <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500"></div>
+              <div className="flex items-center justify-between mb-4">
+                 <p className="text-[10px] uppercase font-black tracking-widest text-slate-500">Escrow Fretogo</p>
+                 <ShieldCheck size={16} className="text-emerald-400" />
               </div>
+              <h3 className="text-2xl font-black text-white tracking-tighter">
+                SISTEMA BLINDADO
+              </h3>
+              <p className="text-[10px] text-emerald-400/70 font-bold mt-2 uppercase tracking-widest">
+                PAGAMENTO GARANTIDO
+              </p>
             </div>
 
-            <div className="rounded-3xl border border-cyan-500/10 bg-slate-900/70 p-5 backdrop-blur-xl">
-              <Search
-                size={22}
-                className="text-yellow-400"
-              />
-
-              <div className="mt-4 text-left">
-                <p className="text-xs uppercase tracking-widest text-slate-500">
-                  Sistema
-                </p>
-
-                <h3 className="mt-1 text-xl font-black text-white">
-                  Buscando cargas...
-                </h3>
+            <div className="rounded-3xl border border-amber-500/20 bg-slate-900/80 p-6 backdrop-blur-xl shadow-lg relative overflow-hidden group">
+              <div className="absolute top-0 left-0 w-1 h-full bg-amber-500"></div>
+              <div className="flex items-center justify-between mb-4">
+                 <p className="text-[10px] uppercase font-black tracking-widest text-slate-500">Inteligência</p>
+                 <Search size={16} className="text-amber-400 animate-pulse" />
               </div>
+              <h3 className="text-2xl font-black text-white tracking-tighter">
+                BUSCANDO...
+              </h3>
+              <p className="text-[10px] text-amber-400/70 font-bold mt-2 uppercase tracking-widest">
+                NÃO FECHE O APLICATIVO
+              </p>
             </div>
           </div>
-        )}
-
-        {/* CTA */}
-        {online && (
-          <button
-            className="
-              mt-12
-              rounded-full
-              border
-              border-cyan-500/30
-              bg-cyan-500/10
-              px-8
-              py-4
-              text-xs
-              font-black
-              uppercase
-              tracking-[0.25em]
-              text-cyan-300
-              transition-all
-              duration-300
-              hover:scale-[1.03]
-              hover:border-cyan-400
-              hover:bg-cyan-500/20
-            "
-          >
-            Definir rota de retorno
-          </button>
         )}
       </div>
     </section>
