@@ -36,5 +36,21 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "Ativar Radar",
+      "short_name": "Radar",
+      "description": "Fique online e receba cargas",
+      "url": "/motorista?action=online",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Meus Ganhos",
+      "short_name": "Ganhos",
+      "description": "Ver faturamento da semana",
+      "url": "/motorista/painel",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
   ]
 }
