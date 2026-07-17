@@ -1,81 +1,42 @@
-// src/state/driverStateMachine.ts
-
 export enum DriverState {
-  /*
-  =====================================================
-  BASE
-  =====================================================
-  */
+  /* BASE */
   OFFLINE = 'offline',
   ONLINE = 'online',
   INDISPONIVEL = 'indisponivel',
 
-  /*
-  =====================================================
-  OFERTA
-  =====================================================
-  */
+  /* OFERTA */
   RECEBENDO_OFERTA = 'recebendo_oferta',
   ANALISANDO_OFERTA = 'analisando_oferta',
   OFERTA_EXPIRADA = 'oferta_expirada',
   REJEITOU_OFERTA = 'rejeitou_oferta',
 
-  /*
-  =====================================================
-  ACEITE
-  =====================================================
-  */
+  /* ACEITE */
   ACEITOU = 'aceitou',
   RESERVADO = 'reservado',
 
-  /*
-  =====================================================
-  COLETA
-  =====================================================
-  */
+  /* COLETA */
   INDO_COLETA = 'indo_coleta',
   CHEGOU_COLETA = 'chegou_coleta',
   COLETANDO = 'coletando',
 
-  /*
-  =====================================================
-  TRANSPORTE
-  =====================================================
-  */
+  /* TRANSPORTE */
   EM_TRANSPORTE = 'em_transporte',
   PARADO_OPERACIONAL = 'parado_operacional',
 
-  /*
-  =====================================================
-  ENTREGA
-  =====================================================
-  */
+  /* ENTREGA */
   FINALIZANDO = 'finalizando',
   ENTREGUE = 'entregue',
 
-  /*
-  =====================================================
-  SISTEMA
-  =====================================================
-  */
+  /* SISTEMA */
   REDISPATCH = 'redispatch',
   TIMEOUT = 'timeout',
   CANCELADO = 'cancelado',
   ERRO = 'erro',
 
-  /*
-  =====================================================
-  LOCK
-  =====================================================
-  */
+  /* LOCK */
   OCUPADO = 'ocupado',
 }
 
-/*
-=====================================================
-TRANSITIONS
-=====================================================
-*/
 export const DRIVER_ALLOWED_TRANSITIONS: Record<string, string[]> = {
   [DriverState.OFFLINE]: [
     DriverState.ONLINE,
@@ -111,10 +72,12 @@ export const DRIVER_ALLOWED_TRANSITIONS: Record<string, string[]> = {
 
   [DriverState.REJEITOU_OFERTA]: [
     DriverState.ONLINE,
+    DriverState.OFFLINE, // CTO Fix: Motorista pode desligar após rejeitar
   ],
 
   [DriverState.OFERTA_EXPIRADA]: [
     DriverState.ONLINE,
+    DriverState.OFFLINE, // CTO Fix
   ],
 
   [DriverState.ACEITOU]: [
@@ -162,6 +125,7 @@ export const DRIVER_ALLOWED_TRANSITIONS: Record<string, string[]> = {
 
   [DriverState.ENTREGUE]: [
     DriverState.ONLINE,
+    DriverState.OFFLINE, // CTO Fix: Pode encerrar o dia após entregar
   ],
 
   [DriverState.REDISPATCH]: [
@@ -174,6 +138,7 @@ export const DRIVER_ALLOWED_TRANSITIONS: Record<string, string[]> = {
 
   [DriverState.CANCELADO]: [
     DriverState.ONLINE,
+    DriverState.OFFLINE, // CTO Fix: Evita que o app trave se o motorista se irritar com o cancelamento
   ],
 
   [DriverState.ERRO]: [
