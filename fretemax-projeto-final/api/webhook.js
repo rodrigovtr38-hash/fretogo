@@ -1,7 +1,9 @@
 // api/webhook.js
-// CTO-Log: CORREÇÃO CRÍTICA DO BURACO NEGRO DE PAGAMENTO MANTIDA.
-// CTO-Log 2: Injeção do Link de Rastreamento Automático (Link Recovery) via WhatsApp.
-// CTO-Log 3: 🛡️ BLINDAGEM DE ASSINATURA DUPLA (KEY ROTATION BUG FIX). Suporte a múltiplas chaves (v1) pós-redefinição no Mercado Pago.
+// CTO-Log: Auditoria Etapa 5 (Escrow e Pagamentos).
+// 1. CORREÇÃO CRÍTICA DO BURACO NEGRO DE PAGAMENTO MANTIDA.
+// 2. Injeção do Link de Rastreamento Automático (Link Recovery) via WhatsApp.
+// 3. 🛡️ BLINDAGEM DE ASSINATURA DUPLA (KEY ROTATION BUG FIX). Suporte a múltiplas chaves (v1) pós-redefinição no Mercado Pago.
+// 4. 🔥 CTO FIX: Refatoração Serverless. WhatsApp agora é aguardado com AbortController para não ser "morto" pela Vercel antes do envio.
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
@@ -19,11 +21,18 @@ if (!getApps().length) {
 
 const db = getFirestore();
 
-// Disparo de WhatsApp sem travar a thread do Webhook
-async function dispararWhatsAppAsync(telefone, mensagem, tentativa = 1) {
+// 🔥 CTO FIX: Função otimizada para Serverless sem retentativas baseadas em setTimeout
+async function dispararWhatsAppSeguro(telefone, mensagem) {
   try {
     const apiUrl = process.env.WHATSAPP_API_URL; 
-    if (!apiUrl) return;
+    if (!apiUrl) {
+      console.warn("[WHATSAPP ALERTA] WHATSAPP_API_URL não configurada no ambiente.");
+      return;
+    }
+
+    // AbortController impede que um atraso na API do WhatsApp faça o Mercado Pago achar que o Webhook falhou
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000); // 4 segundos de limite
 
     await fetch(apiUrl, {
       method: 'POST',
@@ -31,12 +40,14 @@ async function dispararWhatsAppAsync(telefone, mensagem, tentativa = 1) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}`
       },
-      body: JSON.stringify({ phone: telefone, message: mensagem })
+      body: JSON.stringify({ phone: telefone, message: mensagem }),
+      signal: controller.signal
     });
+
+    clearTimeout(timeoutId);
   } catch (e) {
-    if (tentativa < 3) {
-      setTimeout(() => dispararWhatsAppAsync(telefone, mensagem, tentativa + 1), 5000 * tentativa);
-    }
+    console.error("[WHATSAPP ERRO CRÍTICO] Falha ao enviar notificação para o cliente:", e.message);
+    // Em arquiteturas serverless, não fazemos retry interno. Registramos o erro no log e seguimos o fluxo crítico de pagamento.
   }
 }
 
@@ -96,7 +107,7 @@ export default async function handler(req, res) {
           if (freteData.pagamentoStatus !== 'aprovado') {
             
             await freteRef.update({
-              status: 'disponivel', 
+              status: 'disponivel', // OBRIGATÓRIO: Move a carga para o Radar B2B (Pull Model)
               pagamentoStatus: 'aprovado',
               dispatchStatus: 'em_andamento',
               pagoEm: FieldValue.serverTimestamp(),
@@ -112,13 +123,15 @@ export default async function handler(req, res) {
                const linkRastreio = `https://app.fretogo.com.br/cliente?order=${pedidoId}`;
                const mensagemZap = `✅ *FretoGo*: Pagamento confirmado!\n\nSua carga já está no Radar dos nossos motoristas.\n\n📍 *Acompanhe em tempo real e pegue seus PINs de Segurança no link abaixo:*\n${linkRastreio}`;
                
-               dispararWhatsAppAsync(zapCliente, mensagemZap);
+               // 🔥 CTO FIX: Agora o Vercel VAI AGUARDAR o envio antes de matar a thread, com trava de 4s
+               await dispararWhatsAppSeguro(zapCliente, mensagemZap);
             }
           }
         }
       }
     }
     
+    // Libera o Mercado Pago APÓS concluir todo o fluxo de negócios atômico
     res.status(200).send('OK');
   } catch (err) {
     console.error(`[WEBHOOK ERRO CRÍTICO]:`, err);
