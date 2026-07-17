@@ -1,12 +1,16 @@
+// =========================================================
+// NOME DO ARQUIVO: src/components/motorista/DriverDashboard.tsx
+// CTO-Log: Painel de Controle (Resumo Executivo).
+// Status: KPIs financeiros estáticos renderizados corretamente.
+// =========================================================
+
 import { DollarSign, Truck, Star, Award, MessageCircle } from 'lucide-react'; 
 
 interface DriverDashboardProps {
-  driver?: any;
+  driver?: any; // Mantido para flexibilidade na injeção de dados via Props
 }
 
-export default function DriverDashboard({
-  driver,
-}: DriverDashboardProps) {
+export default function DriverDashboard({ driver }: DriverDashboardProps) {
   
   const isPremium = driver?.score >= 4.8 || driver?.categoria === 'carreta';
 
@@ -21,7 +25,7 @@ export default function DriverDashboard({
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between mb-8">
         <div className="flex items-center gap-4 rounded-[2rem] border border-white/10 bg-slate-900/60 p-4 md:p-5 backdrop-blur-xl w-full lg:w-auto">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-500/10 text-xl font-black text-cyan-400 shrink-0 border border-cyan-500/20">
-            {driver?.nome?.charAt(0) || 'M'}
+            {driver?.nome?.charAt(0).toUpperCase() || 'M'}
           </div>
           <div>
             <h2 className="text-lg md:text-xl font-black text-white truncate max-w-[200px]">
