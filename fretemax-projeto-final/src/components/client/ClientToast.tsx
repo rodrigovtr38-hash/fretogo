@@ -1,11 +1,13 @@
-// src/components/client/ClientToast.tsx
-// CTO-Log: Ajuste na lógica de Early Return para mitigar falhas de inferência no modo estrito do TypeScript.
+// =========================================================
+// NOME DO ARQUIVO: src/components/client/ClientToast.tsx
+// CTO-Log: Formatação limpa e tipagem estrita respeitada.
+// =========================================================
 
-import { AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle, XCircle, Info } from 'lucide-react';
 
 export interface ClientToastData {
   msg: string;
-  type?: 'error' | 'success' | 'warning';
+  type?: 'error' | 'success' | 'warning' | 'info';
 }
 
 interface ClientToastProps {
@@ -13,30 +15,29 @@ interface ClientToastProps {
 }
 
 export default function ClientToast({ toast }: ClientToastProps) {
-  // 🔥 CTO FIX: Checagem estrita para garantir que 'toast' não seja nulo na continuidade
-  if (!toast || !toast.msg) {
-    return null;
-  }
+  if (!toast || !toast.msg) return null;
 
   const type = toast.type || 'error';
 
   const styles = {
-    success: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300',
-    warning: 'border-amber-500/20 bg-amber-500/10 text-amber-300',
-    error: 'border-red-500/20 bg-red-500/10 text-red-300',
+    success: 'border-emerald-500/30 bg-emerald-950/80 text-emerald-400 shadow-[0_10px_30px_rgba(16,185,129,0.2)]',
+    warning: 'border-amber-500/30 bg-amber-950/80 text-amber-400 shadow-[0_10px_30px_rgba(245,158,11,0.2)]',
+    error: 'border-red-500/30 bg-red-950/80 text-red-400 shadow-[0_10px_30px_rgba(239,68,68,0.2)]',
+    info: 'border-cyan-500/30 bg-cyan-950/80 text-cyan-400 shadow-[0_10px_30px_rgba(6,182,212,0.2)]',
+  };
+
+  const IconMap = {
+    success: <CheckCircle size={20} className="shrink-0" />,
+    warning: <AlertTriangle size={20} className="shrink-0" />,
+    error: <XCircle size={20} className="shrink-0" />,
+    info: <Info size={20} className="shrink-0" />
   };
 
   return (
-    <div className="fixed right-6 top-6 z-[9999] animate-in slide-in-from-top-5 fade-in duration-300">
-      <div className={`flex items-center gap-3 rounded-2xl border px-5 py-4 shadow-2xl backdrop-blur-xl ${styles[type]}`}>
-        {type === 'success' ? (
-          <CheckCircle size={18} />
-        ) : type === 'warning' ? (
-          <AlertTriangle size={18} />
-        ) : (
-          <XCircle size={18} />
-        )}
-        <span className="text-sm font-bold">
+    <div className="fixed right-4 top-4 md:right-8 md:top-8 z-[9999] animate-in slide-in-from-top-8 fade-in duration-400">
+      <div className={`flex items-center gap-3.5 rounded-2xl border px-5 py-4 backdrop-blur-xl ${styles[type]}`}>
+        {IconMap[type]}
+        <span className="text-sm font-bold tracking-wide">
           {toast.msg}
         </span>
       </div>
