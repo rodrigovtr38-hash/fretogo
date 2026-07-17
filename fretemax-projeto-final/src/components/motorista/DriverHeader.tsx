@@ -1,8 +1,6 @@
 // =========================================================
 // NOME DO ARQUIVO: src/components/motorista/DriverHeader.tsx
-// CTO-Log: Auditoria Etapa 2.
-// Status: Arquitetura validada. 
-// Ajustes UX: Otimização de renderização da Logo e refinamento da responsividade mobile.
+// CTO-Log: Resolução do X Vermelho (CI/CD). Tipagem customizada para PWA adicionada.
 // =========================================================
 
 import { signOut } from 'firebase/auth';
@@ -10,24 +8,35 @@ import { Truck, Star, Download, LogOut } from 'lucide-react';
 import { auth } from '../../firebase';
 import { useState, useEffect } from 'react';
 
+// 🔥 CTO FIX: Criando a interface que o TypeScript não tem por padrão para evitar o X Vermelho
+interface BeforeInstallPromptEvent extends Event {
+  readonly platforms: Array<string>;
+  readonly userChoice: Promise<{
+    outcome: 'accepted' | 'dismissed';
+    platform: string;
+  }>;
+  prompt(): Promise<void>;
+}
+
 interface DriverHeaderProps {
   user: {
     uid: string;
     email: string | null;
   } | null;
-  driverData?: any;
+  driverData?: Record<string, unknown> | any;
 }
 
 export default function DriverHeader({ user, driverData }: DriverHeaderProps) {
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstallable, setIsInstallable] = useState(false);
 
   useEffect(() => {
-    const handleBeforeInstallPrompt = (e: any) => {
+    const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
-      setDeferredPrompt(e);
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
       setIsInstallable(true);
     };
+    
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, []);
@@ -50,16 +59,15 @@ export default function DriverHeader({ user, driverData }: DriverHeaderProps) {
   const score = driverData?.score ? Number(driverData.score).toFixed(1) : '5.0';
 
   return (
-    // 🔥 CTO FIX: Adicionado h-20 para dar altura padrão e z-50 para ficar sempre no topo
     <header className="relative z-50 w-full h-20 border-b border-white/5 bg-slate-950/80 backdrop-blur-xl shadow-sm">
       <nav className="mx-auto flex w-full h-full max-w-[1440px] items-center justify-between px-4 lg:px-8 relative">
         
-        {/* LADO ESQUERDO: PERFIL DO MOTORISTA */}
+        {/* PERFIL DO MOTORISTA */}
         <div className="flex items-center gap-3 z-10">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-cyan-500/30 bg-slate-900 shadow-[0_0_15px_rgba(6,182,212,0.1)]">
             <Truck className="h-5 w-5 text-cyan-400" />
           </div>
-          <div className="hidden sm:flex flex-col"> {/* Esconde os dados em telas muito pequenas para não espremer a logo central */}
+          <div className="hidden sm:flex flex-col">
             <span className="text-sm font-black uppercase tracking-tight text-white truncate max-w-[120px] md:max-w-[200px]">
               {driverData?.nome || 'Motorista Parceiro'}
             </span>
@@ -76,8 +84,7 @@ export default function DriverHeader({ user, driverData }: DriverHeaderProps) {
           </div>
         </div>
 
-        {/* 🔥 O CENTRO: A MARCA FRETOGO NÍTIDA E ABSOLUTA */}
-        {/* A marca agora flutua exatamente no meio da tela do celular */}
+        {/* CENTRO: MARCA FRETOGO */}
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center gap-2 pointer-events-none">
            <img 
              src="/icon-192.png" 
@@ -92,7 +99,7 @@ export default function DriverHeader({ user, driverData }: DriverHeaderProps) {
            </h1>
         </div>
 
-        {/* LADO DIREITO: AÇÕES PWA E SAIR */}
+        {/* LADO DIREITO: PWA E LOGOUT */}
         <div className="flex items-center gap-2 z-10">
           {isInstallable && (
             <button
@@ -108,13 +115,12 @@ export default function DriverHeader({ user, driverData }: DriverHeaderProps) {
             <button
               onClick={handleLogout}
               className="flex items-center justify-center h-10 w-10 shrink-0 rounded-xl border border-white/10 bg-white/5 text-slate-400 transition-all hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/20 active:scale-95"
-              title="Desconectar do Radar"
+              title="Desconectar"
             >
               <LogOut size={18} />
             </button>
           )}
         </div>
-
       </nav>
     </header>
   );
