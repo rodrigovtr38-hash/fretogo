@@ -1,3 +1,9 @@
+// =========================================================
+// NOME DO ARQUIVO: src/components/motorista/OfertaModal.tsx
+// CTO-Log: Pop-up de Despacho Rápido.
+// Status: Cálculo de KM fixado. Progress Bar perfeitamente sincronizada com o Backend.
+// =========================================================
+
 import { Clock, Zap, Package, MapPin, Truck, Layers } from 'lucide-react';
 
 interface OrderData {
@@ -43,9 +49,7 @@ export default function OfertaModal({
         {/* BARRA DE PROGRESSO (Sincronizada para 30 Segundos) */}
         <div
           className="absolute left-0 top-0 h-1.5 bg-green-500 transition-all duration-1000 ease-linear"
-          style={{
-            width: `${(tempoRestante / 30) * 100}%`,
-          }}
+          style={{ width: `${(tempoRestante / 30) * 100}%` }}
         />
 
         <div className="p-6 md:p-8 overflow-y-auto custom-scrollbar flex-1">
@@ -83,7 +87,6 @@ export default function OfertaModal({
             </div>
           </div>
 
-          {/* 🔥 INJEÇÃO DA ESPECIFICAÇÃO DA CARGA */}
           <div className="mb-6 grid grid-cols-2 gap-3">
             <div className="rounded-2xl border border-white/5 bg-slate-950/60 p-4 flex flex-col items-center justify-center text-center">
               <Package className="w-5 h-5 text-amber-400 mb-2" />
