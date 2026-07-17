@@ -1,4 +1,8 @@
-// src/services/dispatchQueueService.ts
+// =========================================================
+// NOME DO ARQUIVO: src/services/dispatchQueueService.ts
+// CTO-Log: Auditoria de Despacho Distribuído
+// =========================================================
+
 import { doc, getDoc, serverTimestamp, updateDoc, runTransaction } from 'firebase/firestore';
 import { db } from '../firebase';
 import { 
@@ -11,7 +15,7 @@ import { AppTripState } from '../state/tripStateMachine';
 
 const DRIVER_RESPONSE_TIMEOUT = 30000; 
 const MAX_REDISPATCH_ATTEMPTS = 10;
-const GLOBAL_TIMEOUT_MS = 15 * 60 * 1000; // 🔥 CTO FIX: 15 minutos de tolerância máxima (O Zumbi Killer)
+const GLOBAL_TIMEOUT_MS = 15 * 60 * 1000; // Tolerância máxima: 15 minutos (Zumbi Killer)
 
 interface QueueState {
   index: number;
@@ -24,9 +28,11 @@ export class DispatchQueueService {
       const motoristas = await buscarMotoristasCompativeis(frete);
 
       if (!motoristas || motoristas.length === 0) {
+        console.warn(`[DISPATCH] Sem motoristas para a carga ${frete.id}`);
         await updateDoc(doc(db, 'fretes', frete.id), {
           status: AppTripState.SEM_MOTORISTA,
           dispatchStatus: 'encerrado',
+          motivoEncerramento: 'Nenhum motorista no raio operacional',
           updatedAt: serverTimestamp(),
         });
         return;
@@ -39,6 +45,7 @@ export class DispatchQueueService {
         updatedAt: serverTimestamp(),
       });
 
+      console.log(`[DISPATCH] Iniciando fila para ${motoristas.length} motoristas. Carga: ${frete.id}`);
       await DispatchQueueService.processarFila(frete, motoristas, { index: 0, tentativa: 1 });
     } catch (error) {
       console.error('[DISPATCH_QUEUE_ERROR]', error);
@@ -53,12 +60,12 @@ export class DispatchQueueService {
       
       const data = freteSnap.data();
 
-      // Verifica se o frete ainda está apto para despacho
+      // Blindagem: Se alguém já aceitou ou a carga foi cancelada, encerra o ciclo.
       if (data.status !== AppTripState.DISPONIVEL && data.status !== AppTripState.AGUARDANDO_ACEITE) {
         return;
       }
 
-      // 🔥 CTO FIX: Guilhotina Global de 15 Minutos para evitar Frete Zumbi
+      // Guilhotina Global de 15 Minutos (Previne Frete Zumbi)
       let tempoDecorrido = 0;
       if (data.createdAt && typeof data.createdAt.toMillis === 'function') {
         tempoDecorrido = Date.now() - data.createdAt.toMillis();
@@ -68,18 +75,19 @@ export class DispatchQueueService {
         await updateDoc(doc(db, 'fretes', frete.id), {
           status: AppTripState.SEM_MOTORISTA,
           dispatchStatus: 'timeout_global',
-          alertaInsucesso: true, // Aciona a luz vermelha no seu painel Admin
+          alertaInsucesso: true, 
           updatedAt: serverTimestamp(),
         });
-        console.warn(`[DISPATCH] Carga ${frete.id} abortada por Timeout Global (15 min).`);
+        console.warn(`[DISPATCH] Carga ${frete.id} abortada. Timeout Global de 15 min excedido.`);
         return;
       }
 
-      // Limite de fila ou de tentativas excedido
+      // Limite de motoristas ou fila esgotada
       if (state.index >= motoristas.length || state.tentativa > MAX_REDISPATCH_ATTEMPTS) {
         await updateDoc(doc(db, 'fretes', frete.id), {
           status: AppTripState.SEM_MOTORISTA,
           dispatchStatus: 'encerrado',
+          motivoEncerramento: 'Fila de motoristas esgotada',
           updatedAt: serverTimestamp(),
         });
         return;
@@ -89,7 +97,7 @@ export class DispatchQueueService {
       const enviado = await enviarOfertaMotorista(motorista.id, frete);
 
       if (!enviado) {
-        // Motorista offline ou falha no envio, pula rápido para o próximo
+        // Se a notificação falhou (ex: motorista perdeu sinal 4G), repassa imediatamente
         await DispatchQueueService.processarFila(frete, motoristas, { index: state.index + 1, tentativa: state.tentativa + 1 });
         return;
       }
@@ -103,7 +111,7 @@ export class DispatchQueueService {
         updatedAt: serverTimestamp(),
       });
 
-      // Watchdog de 30s blindado com Transação Atômica para Race Condition
+      // Transação Atômica: Garante que o motorista não seja penalizado se aceitar no último segundo
       setTimeout(async () => {
         try {
           const freteRef = doc(db, 'fretes', frete.id);
@@ -115,6 +123,7 @@ export class DispatchQueueService {
             
             const freteDados = snapshot.data();
             
+            // Só tira a carga se AINDA estiver aguardando o exato mesmo motorista
             if (freteDados.status === AppTripState.AGUARDANDO_ACEITE && freteDados.motoristaAtualDestaque === motorista.id) {
               transaction.update(freteRef, {
                 status: AppTripState.DISPONIVEL,
@@ -132,7 +141,7 @@ export class DispatchQueueService {
           }
 
         } catch (error) {
-          console.error('[DISPATCH_WATCHDOG_ERROR]', error);
+          console.error('[DISPATCH_WATCHDOG_RACE_ERROR]', error);
           await DispatchQueueService.processarFila(frete, motoristas, { index: state.index + 1, tentativa: state.tentativa + 1 });
         }
       }, DRIVER_RESPONSE_TIMEOUT);
