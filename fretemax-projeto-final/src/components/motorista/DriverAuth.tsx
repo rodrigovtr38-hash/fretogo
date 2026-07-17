@@ -1,9 +1,7 @@
 // =========================================================
 // NOME DO ARQUIVO: src/components/motorista/DriverAuth.tsx
-// CTO-Log: Auditoria Etapa 2 (Portas de Entrada)
-// Status: Autenticação Google mantida. Injeção de UX Enterprise.
-// 1. Substituição do alert() nativo por Feedback Visual Corporativo.
-// 2. Animações de "Sistema Vivo" durante a resolução do Pop-Up do Google.
+// CTO-Log: Porta de Entrada (Onboarding). 
+// Status: Autenticação Google blindada. Feedback visual anti-ansiedade implementado.
 // =========================================================
 
 import { useState, useEffect } from 'react';
@@ -17,7 +15,6 @@ export default function DriverAuth() {
   const [loadingMessage, setLoadingMessage] = useState('Entrar com Google');
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Troca as mensagens para o motorista não achar que travou
   useEffect(() => {
     let timeoutId: ReturnType<typeof setTimeout>;
     if (isLoading) {
@@ -29,7 +26,6 @@ export default function DriverAuth() {
     return () => clearTimeout(timeoutId);
   }, [isLoading]);
 
-  // 🔥 LÓGICA DE LOGIN INJETADA DIRETAMENTE NO COMPONENTE
   const handleGoogleLogin = async () => {
     if (isLoading) return;
     setIsLoading(true);
@@ -39,10 +35,8 @@ export default function DriverAuth() {
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' }); 
       await signInWithPopup(auth, provider);
-      // Se der certo, o listener do Firebase no Motorista.tsx assume o roteamento.
     } catch (error: any) {
       console.error("ERRO AUTH GOOGLE:", error);
-      // Tratamento específico se o usuário fechar a aba do Google
       if (error.code === 'auth/popup-closed-by-user') {
         setErrorMsg('Você fechou a janela de autenticação. Tente novamente.');
       } else {
@@ -54,7 +48,6 @@ export default function DriverAuth() {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#020617] px-6 font-sans selection:bg-cyan-500/30">
-      {/* BACKGROUND BLINDADO */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(6,182,212,0.18),transparent_35%)]" />
       <div className="pointer-events-none absolute left-[-120px] top-[-120px] h-[300px] w-[300px] rounded-full bg-cyan-500/10 blur-[120px]" />
       <div className="pointer-events-none absolute bottom-[-120px] right-[-120px] h-[300px] w-[300px] rounded-full bg-blue-500/10 blur-[120px]" />
