@@ -1,15 +1,14 @@
-import { useCallback, useState } from 'react';
-import { DollarSign, Truck, Star, Award, MessageCircle } from 'lucide-react';
-import FreightRequestModal from './FreightRequestModal';
+// =========================================================
+// NOME DO ARQUIVO: src/components/motorista/DriverDashboardLayout.tsx
+// CTO-Log: Container Mestre unificado. Gerenciamento de Estado e Suporte Operacional.
+// =========================================================
 
-export type DriverCategory =
-  | 'moto'
-  | 'carro'
-  | 'utilitario'
-  | 'toco'
-  | 'truck'
-  | 'carreta'
-  | 'bitrem';
+import { useCallback, useState } from 'react';
+import { MessageCircle, ShieldAlert } from 'lucide-react';
+import FreightRequestModal from './FreightRequestModal';
+import DriverStats from './DriverStats'; // Importando o módulo isolado
+
+export type DriverCategory = 'moto' | 'carro' | 'utilitario' | 'toco' | 'truck' | 'carreta' | 'bitrem';
 
 export interface OperationalFreight {
   id: string;
@@ -46,7 +45,7 @@ interface DriverDashboardLayoutProps {
   onCloseFreight: () => void;
   onAcceptFreight: (freight: OperationalFreight) => Promise<void> | void;
   onRejectFreight: (freight: OperationalFreight) => Promise<void> | void;
-  driver?: any; // CTO FIX: Mantido para não quebrar a compilação
+  driver?: any;
 }
 
 export default function DriverDashboardLayout({
@@ -57,8 +56,8 @@ export default function DriverDashboardLayout({
   driver,
 }: DriverDashboardLayoutProps) {
   
+  // LOCK DE TRANSAÇÃO: Evita duplo clique e Race Conditions
   const [processingAction, setProcessingAction] = useState(false);
-  const isPremium = (driver?.score && Number(driver?.score) >= 4.8) || driver?.categoria?.includes('carreta');
 
   const handleAccept = useCallback(async () => {
     if (!selectedFreight || processingAction) return;
@@ -81,69 +80,42 @@ export default function DriverDashboardLayout({
   }, [selectedFreight, processingAction, onRejectFreight]);
 
   const openWhatsAppSupport = () => {
-    window.open('https://wa.me/5511946099840', '_blank');
+    // Número Oficial da Operação
+    window.open('https://wa.me/5511946099840?text=Olá,%20preciso%20de%20suporte%20operacional%20no%20app%20Fretogo.', '_blank');
   };
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6">
+    <div className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6 space-y-10">
       
-      {/* STATUS GRID OPERACIONAL (UBER STYLE) - MANTIDO */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mb-10">
-        <div className="rounded-3xl border border-emerald-500/10 bg-slate-900/50 p-5 flex flex-col justify-between group hover:border-emerald-500/30 transition-colors">
-          <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500 flex items-center gap-1.5">
-            <DollarSign size={12} /> Ganhos Hoje
-          </p>
-          <h3 className="mt-3 text-2xl font-black text-white tracking-tighter">R$ 0,00</h3>
-        </div>
+      {/* 1. MÉTRICAS DO MOTORISTA (Componentizado e Reutilizável) */}
+      <DriverStats driver={driver} />
 
-        <div className="rounded-3xl border border-blue-500/10 bg-slate-900/50 p-5 flex flex-col justify-between group hover:border-blue-500/30 transition-colors">
-          <p className="text-[10px] font-black uppercase tracking-widest text-blue-400 flex items-center gap-1.5">
-            <Truck size={12} /> Entregas
-          </p>
-          <h3 className="mt-3 text-2xl font-black text-white tracking-tighter">0</h3>
-        </div>
+      {/* 2. ESPAÇO RESERVADO PARA O FEED/RADAR QUE VEM DO COMPONENTE PAI */}
+      {/* O radar vive na page principal, não quebre essa estrutura */}
 
-        <div className="rounded-3xl border border-amber-500/10 bg-slate-900/50 p-5 flex flex-col justify-between group hover:border-amber-500/30 transition-colors">
-          <p className="text-[10px] font-black uppercase tracking-widest text-amber-400 flex items-center gap-1.5">
-            <Star size={12} /> Nota
-          </p>
-          <h3 className="mt-3 text-2xl font-black text-white tracking-tighter">
-            {driver?.score ? Number(driver.score).toFixed(1) : '5.0'}
-          </h3>
-        </div>
-
-        <div className="rounded-3xl border border-purple-500/10 bg-slate-900/50 p-5 flex flex-col justify-between group hover:border-purple-500/30 transition-colors">
-          <p className="text-[10px] font-black uppercase tracking-widest text-purple-400 flex items-center gap-1.5">
-            <Award size={12} /> Nível
-          </p>
-          <h3 className="mt-3 text-xl font-black text-white tracking-tighter uppercase italic">
-            {isPremium ? 'ELITE' : 'PIONEIRO'}
-          </h3>
-        </div>
-      </div>
-
-      {/* O RADAR FOI REMOVIDO DAQUI. ELE AGORA VIVE DIRETAMENTE NO Motorista.tsx (Feed Inteligente) */}
-
-      {/* SUPORTE RÁPIDO - MANTIDO */}
-      <div className="mt-12 flex flex-col md:flex-row items-center justify-between rounded-3xl border border-white/5 bg-slate-900/30 p-6 gap-4">
-        <div className="flex items-center gap-4">
-          <div className="h-10 w-10 rounded-xl bg-[#25D366]/10 flex items-center justify-center text-[#25D366]">
-            <MessageCircle size={20} />
+      {/* 3. MÓDULO DE SUPORTE OPERACIONAL */}
+      <div className="flex flex-col md:flex-row items-center justify-between rounded-3xl border border-slate-800 bg-slate-900/40 p-6 md:p-8 gap-6 shadow-lg">
+        <div className="flex items-center gap-5 w-full md:w-auto">
+          <div className="h-14 w-14 rounded-2xl bg-[#25D366]/10 flex items-center justify-center text-[#25D366] shrink-0 border border-[#25D366]/20">
+            <ShieldAlert size={24} />
           </div>
           <div>
-            <h4 className="text-sm font-black text-white uppercase tracking-widest">Suporte Direto</h4>
-            <p className="text-xs text-slate-500 mt-0.5">Dúvidas na operação? Nossa equipe ajuda você.</p>
+            <h4 className="text-base font-black text-white uppercase tracking-widest">Base de Apoio Logístico</h4>
+            <p className="text-sm text-slate-400 mt-1 leading-relaxed">
+              Problemas na coleta ou entrega? Nossa equipe resolve gargalos em tempo real.
+            </p>
           </div>
         </div>
         <button 
           onClick={openWhatsAppSupport}
-          className="w-full md:w-auto px-6 py-3 bg-[#25D366]/10 text-[#25D366] border border-[#25D366]/20 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] hover:bg-[#25D366] hover:text-black transition-all active:scale-95"
+          className="w-full md:w-auto px-8 py-4 bg-[#25D366]/10 text-[#25D366] border border-[#25D366]/30 rounded-2xl text-xs font-black uppercase tracking-[0.2em] hover:bg-[#25D366] hover:text-slate-950 transition-all active:scale-95 flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(37,211,102,0.15)]"
         >
-          Chamar no WhatsApp
+          <MessageCircle size={18} />
+          Acionar Suporte
         </button>
       </div>
 
-      {/* MODAL DE DETALHES DA OFERTA - ORIGINAL RESTAURADO PARA NÃO QUEBRAR O DETALHAMENTO */}
+      {/* 4. MODAL DE DESPACHO (BLINDADO) */}
       <FreightRequestModal
         freight={selectedFreight}
         visible={Boolean(selectedFreight)}
