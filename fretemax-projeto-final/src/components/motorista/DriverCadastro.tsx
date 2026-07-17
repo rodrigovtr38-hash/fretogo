@@ -1,24 +1,14 @@
 // =========================================================
 // NOME DO ARQUIVO: src/components/motorista/DriverCadastro.tsx
-// CTO-Log: Product Polish - Implementação de UX Avançada.
-// 1. Injeção de auto-formatação (Máscaras) para CPF, Telefone e Placa (Database Health).
-// 2. Feedback dinâmico no botão de compressão de imagens.
+// CTO-Log: Auditoria de Segurança de Banco de Dados.
+// Status: Máscaras de CPF/Telefone mantêm o DB higienizado. Compressão de imagem nativa ativa.
 // =========================================================
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
-  BadgeCheck,
-  Camera,
-  CreditCard,
-  Phone,
-  ShieldCheck,
-  Truck,
-  User,
-  ListFilter,
-  FileImage,
-  CheckCircle2,
-  CameraIcon
+  BadgeCheck, Camera, CreditCard, Phone, ShieldCheck, 
+  Truck, User, ListFilter, FileImage, CheckCircle2, CameraIcon
 } from 'lucide-react';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
@@ -28,9 +18,7 @@ interface DriverCadastroProps {
   onFinish: () => void;
 }
 
-export default function DriverCadastro({
-  onFinish,
-}: DriverCadastroProps) {
+export default function DriverCadastro({ onFinish }: DriverCadastroProps) {
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('Finalizar Cadastro');
   const [errorMsg, setErrorMsg] = useState('');
@@ -40,18 +28,10 @@ export default function DriverCadastro({
   const [selfieFile, setSelfieFile] = useState<File | null>(null);
 
   const [formData, setFormData] = useState({
-    nome: '',
-    telefone: '',
-    cpf: '',
-    placa: '',
-    veiculo: '',
-    categoria: '',
+    nome: '', telefone: '', cpf: '', placa: '', veiculo: '', categoria: '',
   });
 
-  // 🔥 CTO FIX: Auto-formatação (Máscaras) para blindar o Banco de Dados
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     let { name, value } = e.target;
 
     if (name === 'telefone') {
@@ -68,10 +48,7 @@ export default function DriverCadastro({
       value = value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 7);
     }
 
-    setFormData({
-     ...formData,
-      [name]: value,
-    });
+    setFormData({ ...formData, [name]: value });
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'cnh' | 'doc' | 'selfie') => {
@@ -131,10 +108,7 @@ export default function DriverCadastro({
   const uploadFoto = async (file: File, path: string): Promise<string> => {
     const blob = await compressImage(file);
     const storageRef = ref(storage, path);
-    const uploadTask = uploadBytesResumable(storageRef, blob, {
-      contentType: 'image/jpeg'
-    });
-
+    const uploadTask = uploadBytesResumable(storageRef, blob, { contentType: 'image/jpeg' });
     await uploadTask;
     return await getDownloadURL(storageRef);
   };
@@ -157,9 +131,7 @@ export default function DriverCadastro({
 
     try {
       const user = auth.currentUser;
-      if (!user) {
-        throw new Error("Sessão expirada. Faça login novamente para concluir.");
-      }
+      if (!user) throw new Error("Sessão expirada. Faça login novamente para concluir.");
 
       let cnhUrl = "";
       let docUrl = "";
@@ -180,7 +152,6 @@ export default function DriverCadastro({
 
       setLoadingText('Criando perfil seguro...');
       
-      // Remove caracteres não numéricos antes de salvar no banco
       const telefoneLimpo = formData.telefone.replace(/\D/g, '');
       const cpfLimpo = formData.cpf.replace(/\D/g, '');
 
