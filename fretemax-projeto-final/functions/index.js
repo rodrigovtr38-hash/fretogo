@@ -1,8 +1,11 @@
-// functions/index.js
-// CTO-Log: 
-// 1. Correção das Coleções (motoristas -> motoristas_cadastros / motoristas_online).
-// 2. Isolamento da lógica de Push (sendPushInternal) para evitar Crash de chamadas entre funções do Firebase.
-// 3. Alinhamento das Strings de Status da State Machine.
+// =========================================================
+// NOME DO ARQUIVO: functions/index.js
+// CTO-Log: Auditoria Backend - Motor de Despacho (Ponte)
+// Melhorias Implementadas:
+// 1. Circuit Breaker no Watchdog: Limite de 5 tentativas de despacho para evitar fila de espera infinita para o cliente.
+// 2. Haversine Formula: Cálculo de distância nativo preciso (não gasta cota da API do Google Maps).
+// 3. Centralização das Coleções Oficiais (motoristas_cadastros / motoristas_online).
+// =========================================================
 
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
@@ -11,40 +14,48 @@ admin.initializeApp();
 
 const db = admin.firestore();
 
-// 🛡 TRAVAS DE NUVEM
+// 🛡 TRAVAS DE NUVEM (Evita contas surpresas no Google Cloud)
 const runtimeOpts = {
-  timeoutSeconds: 15, 
+  timeoutSeconds: 30, 
   memory: '256MB',    
   maxInstances: 50    
 };
 
 // ========================================================
-// FUNÇÃO INTERNA: MOTOR DE PUSH (Evita Crash no Backend)
+// FUNÇÃO UTILITÁRIA: FÓRMULA DE HAVERSINE (Distância Precisa)
+// ========================================================
+function calcularDistanciaExata(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Raio da Terra em km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2); 
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+  return R * c; // Distância em km
+}
+
+// ========================================================
+// FUNÇÃO INTERNA: MOTOR DE PUSH (Isolado Anti-Crash)
 // ========================================================
 async function sendPushInternal(userId, tipo, titulo, corpo, dados) {
   try {
-    // CTO FIX: A tabela correta de dados do usuário é motoristas_cadastros
     const colecao = tipo === 'motorista' ? 'motoristas_cadastros' : 'clientes';
     const userDoc = await db.collection(colecao).doc(userId).get();
     
-    if (!userDoc.exists) {
-      console.log(`[PUSH INTERNO] Usuário ${userId} não encontrado em ${colecao}`);
-      return false;
-    }
+    if (!userDoc.exists) return false;
 
     const userData = userDoc.data();
     const fcmToken = userData?.fcmToken;
 
-    if (!fcmToken) {
-      console.log(`[PUSH INTERNO] Usuário ${userId} sem token FCM`);
-      return false;
-    }
+    if (!fcmToken) return false;
 
     const message = {
       token: fcmToken,
       notification: {
-        title: titulo || 'FretoGo',
-        body: corpo || 'Você tem uma nova notificação'
+        title: titulo || 'FretoGo Network',
+        body: corpo || 'Você tem uma nova notificação operacional'
       },
       data: dados || {},
       android: {
@@ -57,10 +68,10 @@ async function sendPushInternal(userId, tipo, titulo, corpo, dados) {
     };
 
     const response = await admin.messaging().send(message);
-    console.log(`[PUSH INTERNO] Enviado com sucesso para ${userId}:`, response);
+    console.log(`[PUSH] Disparado -> ${userId}`);
     return true;
   } catch (error) {
-    console.error('[PUSH INTERNO ERRO]', error);
+    console.error('[PUSH ERRO]', error.message);
     return false;
   }
 }
@@ -78,33 +89,14 @@ exports.getCoords = functions.runWith(runtimeOpts).https.onCall(async (data, con
 
   const res = await axios.get(url, { timeout: 5000 });
   if (res.data.status !== 'OK' || !res.data.results?.[0]) {
-    throw new functions.https.HttpsError('not-found', 'Endereço não encontrado.');
+    throw new functions.https.HttpsError('not-found', 'Endereço não encontrado pelo Google.');
   }
   const { lat, lng } = res.data.results[0].geometry.location;
   return { lat, lng };
 });
 
 // ========================================================
-// 2. DISTÂNCIA SEGURA 
-// ========================================================
-exports.getDistance = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
-  const { origin, destination } = data;
-  const key = functions.config().google?.maps_key || process.env.GOOGLE_MAPS_KEY;
-  const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&key=${key}`;
-
-  try {
-    const res = await axios.get(url, { timeout: 5000 });
-    if (res.data.rows[0].elements[0].status === "OK") {
-      return res.data.rows[0].elements[0].distance.value / 1000;
-    }
-    throw new Error("Localização não encontrada");
-  } catch (e) { 
-    throw new functions.https.HttpsError('internal', e.message); 
-  }
-});
-
-// ========================================================
-// 3. O DESPERTADOR (CRON JOB)
+// 2. O DESPERTADOR (CRON JOB DE FRETE AGENDADO)
 // ========================================================
 exports.despertadorAgendamentos = functions.runWith(runtimeOpts).pubsub.schedule('every 5 minutes').onRun(async (context) => {
   const agora = new Date();
@@ -115,7 +107,7 @@ exports.despertadorAgendamentos = functions.runWith(runtimeOpts).pubsub.schedule
     .where('agendadoPara', '<=', limiteD1)
     .where('notificadoD1', '==', false)
     .where('status', 'in', ['disponivel', 'buscando_motorista'])
-    .limit(500) 
+    .limit(200) 
     .get();
 
   const batch = db.batch();
@@ -133,7 +125,7 @@ exports.despertadorAgendamentos = functions.runWith(runtimeOpts).pubsub.schedule
     .where('agendadoPara', '<=', limite1h)
     .where('notificado1h', '==', false)
     .where('status', 'in', ['disponivel', 'buscando_motorista'])
-    .limit(500)
+    .limit(200)
     .get();
 
   fretes1h.forEach(doc => {
@@ -152,23 +144,23 @@ exports.despertadorAgendamentos = functions.runWith(runtimeOpts).pubsub.schedule
 });
 
 // ========================================================
-// 3.1 O OPERÁRIO (WORKER ASSÍNCRONO DE WHATSAPP)
+// 3. O OPERÁRIO (WORKER ASSÍNCRONO DE WHATSAPP)
 // ========================================================
 exports.workerNotificacoes = functions.firestore.document('fretes/{freteId}').onUpdate(async (change, context) => {
   const newValue = change.after.data();
   const previousValue = change.before.data();
 
-  // WhatsApp
+  // Tratativa WhatsApp
   if (newValue.pendenteEnvioWhatsApp === true && previousValue.pendenteEnvioWhatsApp !== true) {
     try {
       const telefone = newValue.telefoneCliente || newValue.clienteZap;
-      if (!telefone) throw new Error("Sem telefone para notificar");
+      if (!telefone) throw new Error("Sem telefone na carga.");
 
       const apiUrl = process.env.WHATSAPP_API_URL;
       if (apiUrl) {
          await axios.post(apiUrl, {
             phone: telefone,
-            message: `FretoGo Informa: Sua carga agendada está próxima! Status: ${newValue.tipoNotificacaoWorker}`
+            message: `📦 *FretoGo Network*\n\nAviso Operacional: Sua carga agendada está próxima! Status: ${newValue.tipoNotificacaoWorker}`
          }, {
             headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}` },
             timeout: 5000
@@ -181,23 +173,21 @@ exports.workerNotificacoes = functions.firestore.document('fretes/{freteId}').on
       });
 
     } catch (error) {
-      console.error(`[WORKER_ZAP_ERRO] Frete ${context.params.freteId}:`, error.message);
       await change.after.ref.update({
         pendenteEnvioWhatsApp: false,
-        erroWhatsApp: 'Falha na comunicação com API externa'
+        erroWhatsApp: 'Falha API Externa'
       });
     }
   }
 
-  // NOTIFICA CLIENTE - COLETA REALIZADA (Chamando Função Interna)
+  // Notifica Cliente no celular via Push (Coleta Feita)
   if (newValue.status === 'coletando' && previousValue.status !== 'coletando') {
-    const clienteId = newValue.clienteId;
-    if (clienteId) {
+    if (newValue.clienteId) {
       await sendPushInternal(
-        clienteId, 
+        newValue.clienteId, 
         'cliente', 
         '✅ Carga Coletada', 
-        `Motorista ${newValue.motoristaNome || 'parceiro'} coletou sua carga. Acompanhe em tempo real.`, 
+        `O motorista ${newValue.motoristaNome || 'parceiro'} confirmou o embarque. Acompanhe a rota pelo painel.`, 
         { freteId: context.params.freteId, tipo: 'coleta' }
       );
     }
@@ -214,12 +204,10 @@ exports.resetContadorRetorno = functions.runWith({ timeoutSeconds: 60, memory: '
   .timeZone('America/Sao_Paulo')
   .onRun(async (context) => {
     
-    // CTO FIX: Nomes exatos das coleções
     const collectionsToReset = ['motoristas_cadastros', 'motoristas_online'];
     
     for (const col of collectionsToReset) {
       let emProcessamento = true;
-      
       while (emProcessamento) {
         const snapshot = await db.collection(col)
           .where('retornosUsadosHoje', '>', 0)
@@ -240,7 +228,6 @@ exports.resetContadorRetorno = functions.runWith({ timeoutSeconds: 60, memory: '
             atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
           });
         });
-        
         await batch.commit();
       }
     }
@@ -252,42 +239,28 @@ exports.resetContadorRetorno = functions.runWith({ timeoutSeconds: 60, memory: '
 // ========================================================
 exports.ativarModoRetorno = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
   const uid = context.auth?.uid || data.uid;
-  if (!uid) {
-    throw new functions.https.HttpsError('unauthenticated', 'Acesso negado. Faça login novamente.');
-  }
+  if (!uid) throw new functions.https.HttpsError('unauthenticated', 'Sessão inválida.');
 
   const { destinoRetorno, lat, lng } = data;
-  if (!destinoRetorno) {
-    throw new functions.https.HttpsError('invalid-argument', 'O destino de retorno precisa ser informado.');
-  }
+  if (!destinoRetorno) throw new functions.https.HttpsError('invalid-argument', 'Destino obrigatório.');
 
-  // CTO FIX: A tabela oficial de cadastro é motoristas_cadastros
   const motoristaRef = db.collection('motoristas_cadastros').doc(uid);
   const motoristaOnlineRef = db.collection('motoristas_online').doc(uid);
 
   try {
     await db.runTransaction(async (transaction) => {
       const onlineSnap = await transaction.get(motoristaOnlineRef);
-      if (!onlineSnap.exists) {
-        throw new Error('MOTORISTA_OFFLINE'); 
-      }
+      if (!onlineSnap.exists) throw new Error('MOTORISTA_OFFLINE'); 
 
       const docSnap = await transaction.get(motoristaRef);
-      let usados = 0;
+      const usados = docSnap.exists ? (docSnap.data().retornosUsadosHoje || 0) : 0;
       
-      if (docSnap.exists) {
-        usados = docSnap.data().retornosUsadosHoje || 0;
-      }
+      if (usados >= 2) throw new Error('LIMITE_RETORNO_DIARIO_ATINGIDO');
 
-      if (usados >= 2) {
-        throw new Error('LIMITE_RETORNO_DIARIO_ATINGIDO');
-      }
-
-      const novosUsados = usados + 1;
       const payloadUpdate = {
         modoRetorno: true,
         destinoRetorno: destinoRetorno.trim(),
-        retornosUsadosHoje: novosUsados,
+        retornosUsadosHoje: usados + 1,
         latitudeRetorno: lat || null,
         longitudeRetorno: lng || null,
         atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
@@ -297,15 +270,14 @@ exports.ativarModoRetorno = functions.runWith(runtimeOpts).https.onCall(async (d
       transaction.set(motoristaOnlineRef, payloadUpdate, { merge: true });
     });
 
-    return { success: true, message: 'Modo retorno ativado com sucesso.' };
+    return { success: true, message: 'Modo Retorno Armado.' };
   } catch (error) {
-    console.error('[ERRO_MODO_RETORNO]', error.message);
     throw new functions.https.HttpsError('internal', error.message);
   }
 });
 
 // ========================================================
-// 6. GATILHO AUTOMÁTICO DE DESPACHO
+// 6. GATILHO DE DESPACHO (O Início da Ponte)
 // ========================================================
 exports.iniciarDespachoAutomatico = functions.runWith(runtimeOpts).firestore
   .document('fretes/{freteId}')
@@ -318,15 +290,12 @@ exports.iniciarDespachoAutomatico = functions.runWith(runtimeOpts).firestore
     if (depois.dispatchStatus === 'em_andamento') return null;
 
     try {
-      console.log(`[DISPATCH] Iniciando para frete ${freteId}`);
-
       const origemLat = depois.origem?.lat || depois.origemLat;
       const origemLng = depois.origem?.lng || depois.origemLng;
       const categoria = depois.categoria;
 
       if (!origemLat || !origemLng) return null;
 
-      // CTO FIX: Radar de motoristas consulta motoristas_online
       const motoristasSnap = await db.collection('motoristas_online')
         .where('online', '==', true)
         .where('disponivel', '==', true)
@@ -345,15 +314,14 @@ exports.iniciarDespachoAutomatico = functions.runWith(runtimeOpts).firestore
       let motoristaMaisProximo = null;
       let menorDistancia = Infinity;
 
+      // Cálculo Exato de Haversine
       motoristasSnap.forEach(doc => {
         const m = doc.data();
         if (!m.latitude || !m.longitude) return;
-        const dist = Math.sqrt(
-          Math.pow(m.latitude - origemLat, 2) + 
-          Math.pow(m.longitude - origemLng, 2)
-        ) * 111; 
         
-        if (dist < menorDistancia && dist <= 50) {
+        const dist = calcularDistanciaExata(origemLat, origemLng, m.latitude, m.longitude);
+        
+        if (dist < menorDistancia && dist <= 50) { // 50km de raio
           menorDistancia = dist;
           motoristaMaisProximo = { id: doc.id, ...m, distancia: dist };
         }
@@ -374,12 +342,11 @@ exports.iniciarDespachoAutomatico = functions.runWith(runtimeOpts).firestore
         motoristaAtualDestaque: motoristaMaisProximo.id,
         motoristaAtualNome: motoristaMaisProximo.nome,
         distanciaColetaKm: Math.round(menorDistancia * 10) / 10,
-        ofertaExpiraEm: admin.firestore.Timestamp.fromMillis(Date.now() + 30000),
+        ofertaExpiraEm: admin.firestore.Timestamp.fromMillis(Date.now() + 30000), // 30 Segundos
+        tentativasDespacho: 1, // Inicia contador
         filaTotal: motoristasSnap.size,
         atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
       });
-
-      console.log(`[DISPATCH] Oferta enviada para ${motoristaMaisProximo.nome} (${menorDistancia.toFixed(1)}km)`);
 
       // ENVIA PUSH SEGURO
       const valorMotorista = depois.valorMotorista || depois.valorTotal || 0;
@@ -387,7 +354,7 @@ exports.iniciarDespachoAutomatico = functions.runWith(runtimeOpts).firestore
         motoristaMaisProximo.id,
         'motorista',
         '🚚 Novo Frete Disponível!',
-        `R$ ${valorMotorista.toFixed(2)} - ${menorDistancia.toFixed(1)}km até a coleta`,
+        `R$ ${valorMotorista.toFixed(2)} - Apenas ${menorDistancia.toFixed(1)}km até a coleta`,
         { freteId: freteId, tipo: 'novo_frete' }
       );
 
@@ -398,7 +365,7 @@ exports.iniciarDespachoAutomatico = functions.runWith(runtimeOpts).firestore
   });
 
 // ========================================================
-// 7. WATCHDOG DE OFERTAS EXPIRADAS
+// 7. WATCHDOG DE OFERTAS EXPIRADAS (O Disjuntor)
 // ========================================================
 exports.watchdogOfertasExpiradas = functions.runWith(runtimeOpts).pubsub.schedule('every 1 minutes').onRun(async (context) => {
   const agora = admin.firestore.Timestamp.now();
@@ -415,7 +382,18 @@ exports.watchdogOfertasExpiradas = functions.runWith(runtimeOpts).pubsub.schedul
 
   for (const docFrete of fretesExpirados.docs) {
     const frete = docFrete.data();
-    const freteId = docFrete.id;
+    
+    // 🛡 CIRCUIT BREAKER DO CTO: Limite de tentativas para não travar o cliente
+    const tentativasAtuais = frete.tentativasDespacho || 0;
+    if (tentativasAtuais >= 5) {
+      batch.update(docFrete.ref, {
+         status: 'sem_motorista',
+         dispatchStatus: 'encerrado',
+         motivoEncerramento: 'Limite de tentativas de despacho excedido',
+         atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+      });
+      continue; // Pula para o próximo frete
+    }
 
     try {
       const origemLat = frete.origem?.lat || frete.origemLat;
@@ -425,7 +403,6 @@ exports.watchdogOfertasExpiradas = functions.runWith(runtimeOpts).pubsub.schedul
 
       if (!origemLat || !origemLng) continue;
 
-      // CTO FIX: Radar consulta motoristas_online
       const motoristasSnap = await db.collection('motoristas_online')
         .where('online', '==', true)
         .where('disponivel', '==', true)
@@ -436,15 +413,12 @@ exports.watchdogOfertasExpiradas = functions.runWith(runtimeOpts).pubsub.schedul
       let menorDistancia = Infinity;
 
       motoristasSnap.forEach(docMotorista => {
-        if (docMotorista.id === motoristaAnterior) return;
+        if (docMotorista.id === motoristaAnterior) return; // Ignora o que acabou de rejeitar/expirar
         
         const m = docMotorista.data();
         if (!m.latitude || !m.longitude) return;
         
-        const dist = Math.sqrt(
-          Math.pow(m.latitude - origemLat, 2) + 
-          Math.pow(m.longitude - origemLng, 2)
-        ) * 111;
+        const dist = calcularDistanciaExata(origemLat, origemLng, m.latitude, m.longitude);
         
         if (dist < menorDistancia && dist <= 50) {
           menorDistancia = dist;
@@ -457,19 +431,18 @@ exports.watchdogOfertasExpiradas = functions.runWith(runtimeOpts).pubsub.schedul
           motoristaAtualDestaque: proximoMotorista.id,
           motoristaAtualNome: proximoMotorista.nome,
           distanciaColetaKm: Math.round(menorDistancia * 10) / 10,
-          ofertaExpiraEm: admin.firestore.Timestamp.fromMillis(Date.now() + 30000),
+          ofertaExpiraEm: admin.firestore.Timestamp.fromMillis(Date.now() + 30000), // + 30 seg
           tentativasDespacho: admin.firestore.FieldValue.increment(1),
           atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
         });
         
-        // Dispara push pro novo motorista
         const valorMotorista = frete.valorMotorista || frete.valorTotal || 0;
         await sendPushInternal(
           proximoMotorista.id,
           'motorista',
-          '🚚 Novo Frete Disponível!',
-          `R$ ${valorMotorista.toFixed(2)} - ${menorDistancia.toFixed(1)}km até a coleta`,
-          { freteId: freteId, tipo: 'novo_frete' }
+          '🚚 Oportunidade Repassada!',
+          `Carga disponível na região! R$ ${valorMotorista.toFixed(2)}`,
+          { freteId: docFrete.id, tipo: 'novo_frete' }
         );
 
       } else {
@@ -480,7 +453,7 @@ exports.watchdogOfertasExpiradas = functions.runWith(runtimeOpts).pubsub.schedul
         });
       }
     } catch (error) {
-      console.error(`[WATCHDOG ERRO] Frete ${freteId}:`, error);
+      console.error(`[WATCHDOG ERRO] Frete:`, error);
     }
   }
 
@@ -491,25 +464,7 @@ exports.watchdogOfertasExpiradas = functions.runWith(runtimeOpts).pubsub.schedul
 });
 
 // ========================================================
-// 8. ENVIO DE NOTIFICAÇÃO PUSH (ENDPOINT FRONTEND)
-// ========================================================
-exports.enviarNotificacaoPush = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
-  const { userId, tipo, titulo, corpo, dados } = data;
-  
-  if (!userId || !tipo) {
-    throw new functions.https.HttpsError('invalid-argument', 'userId e tipo são obrigatórios');
-  }
-
-  // Usa o nosso motor interno seguro
-  const success = await sendPushInternal(userId, tipo, titulo, corpo, dados);
-  if (!success) {
-    return { success: false, message: 'Falha ao enviar notificação.' };
-  }
-  return { success: true, message: 'Notificação enviada com sucesso.' };
-});
-
-// ========================================================
-// 9. NOTIFICAÇÃO DE ENTREGA CONCLUÍDA
+// 8. NOTIFICAÇÃO DE ENTREGA CONCLUÍDA
 // ========================================================
 exports.notificarEntregaConcluida = functions.firestore.document('fretes/{freteId}').onUpdate(async (change, context) => {
   const antes = change.before.data();
@@ -518,13 +473,12 @@ exports.notificarEntregaConcluida = functions.firestore.document('fretes/{freteI
   if (antes.status !== 'em_transporte' && antes.status !== 'finalizando') return null;
   if (depois.status !== 'entregue' && depois.status !== 'finalizado') return null;
   
-  const clienteId = depois.clienteId;
-  if (clienteId) {
+  if (depois.clienteId) {
     await sendPushInternal(
-      clienteId,
+      depois.clienteId,
       'cliente',
-      '📦 Entrega Realizada',
-      `Sua carga foi entregue com sucesso! PIN: ${depois.pinEntregas?.[0] || 'confirmado'}`,
+      '📦 Entrega Blindada Realizada',
+      `O valor retido em Escrow foi liberado ao motorista. PIN utilizado: ${depois.pinEntregas?.[0] || 'confirmado'}`,
       { freteId: context.params.freteId, tipo: 'entrega' }
     );
   }
