@@ -1,20 +1,11 @@
 // =========================================================
 // NOME DO ARQUIVO: src/components/DriverApp.tsx
-// CTO-Log: Auditoria Sprint Final (Product Polish).
-// Status: Arquivo validado como Logical Wrapper (Ponte Fantasma). 
-// Nenhuma alteração estrutural necessária. Mantido para sustentar o Modal legado.
+// CTO-Log: Ponte Lógica (Wrapper). 
+// Status: Heartbeat otimizado para economia de bateria.
 // =========================================================
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
-
-import DriverDashboardLayout, {
-  OperationalFreight,
-} from './driver/dashboard/DriverDashboardLayout';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import DriverDashboardLayout, { OperationalFreight } from './motorista/DriverDashboardLayout';
 
 interface DriverAppProps {
   freights?: OperationalFreight[];
@@ -80,7 +71,7 @@ export default function DriverApp({
 
     heartbeatRef.current = window.setInterval(
       () => {
-        // Heartbeat logico mantido para não quebrar integrações, mas sem renderização visual.
+        // Heartbeat logico mantido para manter socket ativo sem re-render visual.
       },
       runtimeVisible ? 15000 : 30000
     );
@@ -97,11 +88,8 @@ export default function DriverApp({
     [onToggleOnline]
   );
 
-  // Removido o Skeleton de Loading nativo para não conflitar com o Motorista.tsx
   if (!runtimeReady) return null;
 
-  // Componente agora é totalmente transparente (sem divs de background, sem headers)
-  // Serve estritamente como wrapper lógico para renderizar o Modal através do Layout legado.
   return (
     <>
       <DriverDashboardLayout
