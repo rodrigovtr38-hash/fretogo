@@ -1,3 +1,9 @@
+// =========================================================
+// NOME DO ARQUIVO: src/components/motorista/DriverRadar.tsx
+// CTO-Log: Chave de Ignição e Modo Retorno.
+// Status: Regra de negócios validada. UI do botão de Power Uber-style.
+// =========================================================
+
 import { useState } from 'react';
 import { db } from '../../firebase';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -10,12 +16,7 @@ interface DriverRadarProps {
   driver: any;
 }
 
-export default function DriverRadar({
-  isOnline,
-  setIsOnline,
-  user,
-  driver,
-}: DriverRadarProps) {
+export default function DriverRadar({ isOnline, setIsOnline, user, driver }: DriverRadarProps) {
   const [isRetornoModalOpen, setIsRetornoModalOpen] = useState(false);
   const [destinoRetorno, setDestinoRetorno] = useState('');
   const [loadingRetorno, setLoadingRetorno] = useState(false);
@@ -102,7 +103,7 @@ export default function DriverRadar({
         </div>
       </div>
 
-      {/* MODO RETORNO (APENAS QUANDO ONLINE) */}
+      {/* MODO RETORNO */}
       {isOnline && (
         <div className="mt-4 w-full rounded-[2rem] border border-blue-500/20 bg-blue-500/5 p-6 md:p-8 backdrop-blur-md flex flex-col md:flex-row items-center justify-between gap-6 shadow-[0_10px_30px_rgba(59,130,246,0.05)] border-dashed">
           <div className="flex items-start gap-4">
@@ -191,7 +192,7 @@ export default function DriverRadar({
         </div>
       )}
 
-      {/* MODAL RETORNO - OPACIDADE AJUSTADA */}
+      {/* MODAL RETORNO */}
       {isRetornoModalOpen && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="w-full max-w-sm rounded-[2.5rem] border border-blue-500/30 bg-slate-900 p-8 shadow-2xl relative">
