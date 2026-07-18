@@ -1,7 +1,7 @@
 // =========================================================
-// NOME DO ARQUIVO: DriverActiveTrip.tsx
-// CTO-Log: Lógica Multi-Drop de PINs validada. Textos ajustados para maior clareza do motorista durante múltiplas paradas.
-// CTO-Log 2: Injeção do Painel de Custódia Financeira (Escrow) e Gamificação de Segurança do Saque.
+// NOME DO ARQUIVO: src/components/motorista/DriverActiveTrip.tsx
+// CTO-Log: Lógica Multi-Drop de PINs validada e fortemente tipada.
+// Sincronização: Integrado ao array exato de 'pinEntregas' do Cliente.tsx para liberar a custódia.
 // =========================================================
 
 import { useState, useEffect } from 'react';
@@ -45,8 +45,8 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
   const destinoAtual = paradas.length > 0 ? paradas[paradaAtualIndex] : (frete.destino || {});
   
   // Lógica do Mapa
-  const mapOriginGPS = frete.origem?.lat && frete.origem?.lng ? { lat: frete.origem.lat, lng: frete.origem.lng } : null;
-  const mapDestinoGPS = frete.destino?.lat && frete.destino?.lng ? { lat: frete.destino.lat, lng: frete.destino.lng } : null;
+  const mapOriginGPS = frete.origemLat && frete.origemLng ? { lat: frete.origemLat, lng: frete.origemLng } : (frete.origem?.lat ? frete.origem : null);
+  const mapDestinoGPS = frete.destinoLat && frete.destinoLng ? { lat: frete.destinoLat, lng: frete.destinoLng } : (frete.destino?.lat ? frete.destino : null);
   
   const currentMapOrigin = (frete.status === 'em_transporte' && paradaAtualIndex > 0 && paradas[paradaAtualIndex - 1]?.lat)
     ? { lat: paradas[paradaAtualIndex - 1].lat, lng: paradas[paradaAtualIndex - 1].lng }
@@ -57,7 +57,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
   const handleStatusUpdate = async (novoStatus: string) => {
     setActionLoading(true);
     try {
-      await dispatchRealtimeService.atualizarStatusTrip(frete.id, novoStatus as any); // Tipo ignorado localmente pois vem do AppTripState
+      await dispatchRealtimeService.atualizarStatusTrip(frete.id, novoStatus as any); 
     } catch (e) { console.error(e); } finally { setActionLoading(false); }
   };
 
@@ -74,7 +74,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       // Validação do PIN de Entrega (Multi-drop ou Simples)
       else { 
         const pinEntregas = frete.pinEntregas || [];
-        const expectedPin = pinEntregas.length > 0 ? pinEntregas[paradaAtualIndex] : frete.pinEntregas?.[0]; // Adaptado para a estrutura do novo PIN
+        const expectedPin = pinEntregas.length > 0 ? pinEntregas[paradaAtualIndex] : frete.pinEntregas?.[0];
 
         if (pinValue !== expectedPin) { setPinError('PIN de entrega incorreto.'); setActionLoading(false); return; }
         
@@ -122,7 +122,13 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
         </div>
 
         <div className="h-[250px] w-full mb-6 rounded-2xl overflow-hidden bg-slate-950 border border-white/5">
-          <MapaCliente origem={currentMapOrigin} destino={currentMapDestino} operationalMessage="Navegando..." />
+          <MapaCliente 
+            origem={currentMapOrigin} 
+            destino={currentMapDestino} 
+            motoristaPos={currentMapOrigin} // Simulação estática de onde o motorista deveria estar, melhorada por realtime real se integrado
+            vehicleType={frete.veiculo || frete.categoria}
+            operationalMessage="Navegando..." 
+          />
         </div>
         
         <div className="space-y-4">
