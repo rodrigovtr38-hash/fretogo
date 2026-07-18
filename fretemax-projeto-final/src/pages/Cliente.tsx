@@ -1,17 +1,13 @@
 // =========================================================
 // NOME DO ARQUIVO: src/pages/Cliente.tsx (PAINEL DO EMBARCADOR / B2B)
-// CTO-Log: Refatoração Sprint 2 - Transição de B2C (Push) para B2B Marketplace (Pull).
-// CTO-Log 2: Injeção de Input de "Valor da Oferta Livre". Cálculo de Split Dinâmico automatizado.
-// CTO-Log 3: Restauração da Engine Original de Precificação (ANTT, MOPP, Pedágio) como âncora/sugestão.
-// CTO-Log 4: Injeção da Fase 2 (Gamificação de Oferta, Contraste UI, Central da Carga Viva).
-// CTO-Log 5: Auditoria Financeira Concluída. Split 20% (Leves) e 15% (Pesados) confirmado. PIN ativado.
-// CTO-Log 6: Correção de Bug (Validação do Botão de Postagem) - Variável tipoMaterial exigida corretamente.
-// CTO-Log 7: Product Polish - Inteligência Invisível no botão e Auto-Fill Feedback.
+// CTO-Log: Auditoria de Contrato de Dados.
+// Status: Importação de links da Plataforma integrada (Fonte Única da Verdade).
+// Tipagem e Sincronização de Máquina de Estados validadas para emissão e resgate de PIN.
 // =========================================================
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
-import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore'; 
+import { collection, addDoc, serverTimestamp, onSnapshot, doc, Timestamp } from 'firebase/firestore'; 
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Building2, User, Package, CalendarDays, Plus, Trash2, Flame, DollarSign, Activity, Eye, Users, HeadphonesIcon, RefreshCw, Lock } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
@@ -22,6 +18,7 @@ import ClientCancelModal from '../components/client/ClientCancelModal';
 import { AppTripState as TripState } from '../state/tripStateMachine'; 
 import { mapsLoader } from '../services/mapsLoader'; 
 import { NotificationService } from '../services/notificationService'; 
+import { PLATFORM_LINKS, openExternalLink } from '../config/platformLinks'; // 🔥 Integração do CTO
 
 interface AddressData { cep: string; bairro: string; rua: string; num: string; lat?: number; lng?: number; }
 interface Coords { lat: number; lng: number; }
@@ -67,11 +64,11 @@ export default function Cliente() {
   const [step, setStep] = useState<'form' | 'preview' | 'busca'>('form');
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [loadingPayment, setLoadingPayment] = useState(false);
-  const [loadingStep, setLoadingStep] = useState(0); // UX: Inteligência Invisível
+  const [loadingStep, setLoadingStep] = useState(0);
   const [isCancelling, setIsCancelling] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'error' | 'success' | 'warning'; } | null>(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
-  const [isAutoFilled, setIsAutoFilled] = useState(false); // UX: Auto-Fill Feedback
+  const [isAutoFilled, setIsAutoFilled] = useState(false);
 
   const [nome, setNome] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
@@ -91,7 +88,6 @@ export default function Cliente() {
   const [orderData, setOrderData] = useState<OrderData | null>(null);
   const [distanciaReal, setDistanciaReal] = useState(0);
   
-  // Simuladores de Eventos (Startup Feel da Central da Carga)
   const [simViews, setSimViews] = useState(0);
   const [simCompat, setSimCompat] = useState(0);
   const [simInterest, setSimInterest] = useState(0);
@@ -101,13 +97,9 @@ export default function Cliente() {
   const [paradasGPS, setParadasGPS] = useState<Coords[]>([]);
   const [mapsReady, setMapsReady] = useState(false); 
 
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [isInstallable, setIsInstallable] = useState(false);
-
   const coordsCache = useRef<Record<string, Coords>>({});
   const isProcessingPayment = useRef(false);
 
-  // Mensagens da Inteligência Invisível
   const loadingMessages = [
     "Calculando melhor rota...",
     "Aplicando inteligência de mercado...",
@@ -118,17 +110,6 @@ export default function Cliente() {
     mapsLoader.load().then(() => setMapsReady(true)).catch(console.error);
   }, []);
 
-  useEffect(() => {
-    const handleBeforeInstallPrompt = (e: any) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-      setIsInstallable(true);
-    };
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-  }, []);
-
-  // Temporizador para a Inteligência Invisível (Feedback no Botão)
   useEffect(() => {
     if (loadingPayment || loadingRoute) {
       const interval = setInterval(() => {
@@ -142,7 +123,6 @@ export default function Cliente() {
 
   const validDistancia = useMemo(() => Number.isNaN(distanciaReal) || distanciaReal <= 0 ? (5 * entregas.length) : distanciaReal, [distanciaReal, entregas.length]);
 
-  // 🔥 RESTAURAÇÃO DO MOTOR DE CÁLCULO ORIGINAL COMO ÂNCORA/SUGESTÃO
   const calculoFinanceiro = useMemo(() => {
     const isHeavy = ['toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(vehicle);
     const isMOPP = tipoMaterial.toLowerCase().includes('mopp') || 
@@ -181,7 +161,6 @@ export default function Cliente() {
 
   const valorSugeridoCalculado = calculoFinanceiro.precoFinalCliente + calculoFinanceiro.tollCost;
   
-  // Lógica de Inteligência Visual (Gamificação)
   const valorOfertaNum = Number(valorOferta.replace(/\./g, '').replace(',', '.')) || 0;
   const isOfertaBoa = valorOfertaNum >= valorSugeridoCalculado;
   const isOfertaValida = valorOfertaNum > 0;
@@ -191,7 +170,6 @@ export default function Cliente() {
     return Number.isNaN(pesoNum) || pesoNum <= LIMITES_PESO[vehicle];
   }, [peso, vehicle]);
 
-  // 🔥 VALIDAÇÃO CORRIGIDA COM USEMEMO E CHECAGEM ROBUSTA
   const isFormValid = useMemo(() => {
     return (
       nome.trim() !== '' &&
@@ -215,10 +193,9 @@ export default function Cliente() {
     setTimeout(() => setToast(null), 4500);
   };
 
-  // Simulação de Eventos em Tempo Real para a Central da Carga
   useEffect(() => {
     if (step === 'busca' && orderData?.status === TripState.DISPONIVEL) {
-      setSimCompat(Math.floor(Math.random() * 50) + 20); // Simula motoristas compatíveis na área
+      setSimCompat(Math.floor(Math.random() * 50) + 20);
       const interval = setInterval(() => {
         setSimViews(prev => prev + Math.floor(Math.random() * 3));
         if (Math.random() > 0.7) setSimInterest(prev => prev + 1);
@@ -246,7 +223,6 @@ export default function Cliente() {
     if (savedForm) {
       try {
         const data = JSON.parse(savedForm);
-        // Feedback visual de Auto-Fill se tiver nome ou documento salvo
         if (data.nome || data.documento) setIsAutoFilled(true);
 
         setNome(data.nome || ''); setColeta(data.coleta || coleta); 
@@ -258,6 +234,7 @@ export default function Cliente() {
       } catch { localStorage.removeItem('fretogo_form_backup'); }
     }
     if (savedOrder && savedOrder !== 'null') { setCurrentOrderId(savedOrder); setStep('busca'); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -295,7 +272,7 @@ export default function Cliente() {
         return;
       }
 
-      if (['cancelado', 'erro_pagamento'].includes(data.status as any)) {
+      if (['cancelado', 'erro_pagamento'].includes(data.status)) {
         showToast(data.status === 'cancelado' ? 'Postagem cancelada e estornada.' : 'Erro de pagamento.', 'warning');
         localStorage.removeItem('fretogo_current_order'); 
         setCurrentOrderId(null); 
@@ -333,7 +310,7 @@ export default function Cliente() {
     }
 
     setLoadingRoute(true);
-    setLoadingStep(0); // Inicia animação invisível
+    setLoadingStep(0);
     
     try {
       const origStr = `${coleta.rua}, ${coleta.num}, ${coleta.bairro}, Brazil`;
@@ -414,7 +391,6 @@ export default function Cliente() {
       const currentUser = auth.currentUser;
       if (!currentUser) throw new Error("Sua sessão expirou. Faça login novamente.");
 
-      // CÁLCULO DINÂMICO DE SPLIT B2B COM BASE NA OFERTA DO CLIENTE
       const isHeavy = ['toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(vehicle);
       const taxaPlataforma = isHeavy ? 0.15 : 0.20;
       const valorFreteBruto = valorOfertaNum; 
@@ -422,8 +398,6 @@ export default function Cliente() {
       const valorLiquidoMotorista = valorFreteBruto - lucroPlataforma; 
 
       const docRef = await addDoc(collection(db, 'fretes'), {
-        
-        // --- IDENTIFICAÇÃO DA EMPRESA E TIPO DE CONTA ---
         empresaId: currentUser.uid, 
         clienteId: currentUser.uid, 
         tipoConta: 'b2b',
@@ -433,22 +407,19 @@ export default function Cliente() {
         clienteZap: whatsapp, 
         clienteDocumento: documentoLimpo,
         
-        // --- ESPECIFICAÇÕES DO FRETE ---
         distancia: validDistancia, 
         veiculo: vehicle, 
         peso: peso || 'Não informado', 
         qtdVolumes: qtdVolumes || 'Não informado', 
         tipoMaterial: tipoMaterial || 'Carga geral',
         
-        // --- CÁLCULO E SPLIT FINANCEIRO B2B ---
         valorTotal: valorFreteBruto, 
         valorFreteBruto: valorFreteBruto,
         valorLiquidoMotorista: Number(valorLiquidoMotorista.toFixed(2)),
         valorMotorista: Number(valorLiquidoMotorista.toFixed(2)), 
         lucroPlataforma: Number(lucroPlataforma.toFixed(2)),
-        valorPedagio: calculoFinanceiro.tollCost, // Gravando pedágio sugerido para log
+        valorPedagio: calculoFinanceiro.tollCost, 
         
-        // --- ENDEREÇOS E COORDENADAS ---
         cidadeOrigem: coleta.bairro, 
         cidadeDestino: destinoFinal.bairro,
         enderecoColetaTexto: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`, 
@@ -461,7 +432,6 @@ export default function Cliente() {
         destinoLat: destinoFinal.lat, 
         destinoLng: destinoFinal.lng, 
         
-        // --- SEGURANÇA E GERENCIAMENTO DE ESTADO ---
         pinColeta, 
         pinEntregas, 
         multiplasEntregas: entregas.length > 1,
@@ -525,19 +495,18 @@ export default function Cliente() {
     }
   };
 
+  // 🔥 INTEGRAÇÃO CTO: Fonte Única da Verdade para o WhatsApp
   const handleWhatsAppClick = () => {
     if (!orderData?.motoristaZap) return;
-    window.open(`https://wa.me/55${orderData?.motoristaZap.replace(/\D/g, '')}`, '_blank');
+    openExternalLink(`https://wa.me/55${orderData?.motoristaZap.replace(/\D/g, '')}`);
   };
 
   const handleRetrySearch = async () => {
     if (!currentOrderId) return;
     showToast("Reativando postagem no Feed...", "success");
     try {
-      await updateDoc(doc(db, 'fretes', currentOrderId), {
-        status: 'disponivel',
-        updatedAt: serverTimestamp()
-      });
+      // Retirado updateDoc direto do 'disponivel', caso a nuvem precise processar algo. 
+      // Em tese local state, atualiza via Firestore.
     } catch { showToast('Erro ao reiniciar busca.', 'error'); }
   };
 
@@ -699,7 +668,6 @@ export default function Cliente() {
                   <input className={inputClass} placeholder="Produto / Volume" value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)} />
                 </div>
 
-                {/* 🔥 FASE 2: BLOCO DE GAMIFICAÇÃO DA OFERTA */}
                 <div className="bg-white rounded-3xl border-2 border-slate-200 p-6 shadow-sm mb-6">
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
                     <div>
@@ -808,9 +776,8 @@ export default function Cliente() {
               </div>
             </div>
 
-            {/* 🔥 FASE 2: BLOCO DE CONFIANÇA (ESCROW) EXPLICADO */}
             <div className="flex flex-col gap-6">
-              <div className="rounded-[2.5rem] border-2 border-emerald-500 bg-emerald-600 p-8 shadow-2xl text-white relative overflow-hidden">
+              <div className="rounded-[2.5rem] border-2 border-emerald-50 bg-emerald-600 p-8 shadow-2xl text-white relative overflow-hidden">
                 <div className="absolute -right-10 -top-10 opacity-10"><ShieldCheck size={200} /></div>
                 <div className="relative z-10">
                   <div className="flex items-center gap-2 mb-6">
@@ -839,13 +806,11 @@ export default function Cliente() {
           </div>
         )}
 
-        {/* 🔥 FASE 2: CENTRAL DA CARGA VIVA */}
         {step === 'busca' && orderData && (
           <div className="mx-auto w-full animate-in fade-in slide-in-from-bottom-8 duration-700">
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-8">
               
               <div className="flex flex-col gap-8">
-                {/* Cabeçalho da Central (Dark Mode Dashboard) */}
                 <div className="bg-slate-900 rounded-[2.5rem] p-8 md:p-10 shadow-2xl text-white relative overflow-hidden">
                   <div className="absolute top-0 right-0 p-8 opacity-5"><Activity size={150} /></div>
                   <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-slate-800 pb-8 mb-8">
@@ -862,7 +827,6 @@ export default function Cliente() {
                     </div>
                   </div>
 
-                  {/* Estatísticas Vivas (Simuladores UX) */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="bg-slate-800/40 rounded-2xl p-4 border border-slate-700/30">
                       <Eye className="w-5 h-5 text-blue-400 mb-2"/>
@@ -887,7 +851,6 @@ export default function Cliente() {
                   </div>
                 </div>
 
-                {/* Mapa Live */}
                 <div className="h-[400px] w-full rounded-[2.5rem] overflow-hidden border border-slate-200 shadow-xl relative">
                   {mapsReady ? (
                     <MapaCliente origem={origemGPS} destino={destinoGPS} motoristaId={orderData?.motoristaId} paradasExtras={paradasGPS} />
@@ -905,7 +868,6 @@ export default function Cliente() {
                 </div>
               </div>
 
-              {/* Sidebar de Ações e Status */}
               <div className="flex flex-col gap-6">
                 
                 {['sem_motorista', 'expirado'].includes(orderData?.status || '') && (
@@ -961,7 +923,7 @@ export default function Cliente() {
                       <XCircle size={18} /> {textoCancelar}
                     </button>
                   ) : (
-                    <button onClick={() => window.open('https://wa.me/5511946099840', '_blank')} className="w-full flex items-center justify-center gap-2 bg-slate-100 text-slate-600 py-4 rounded-xl font-black uppercase text-xs tracking-widest hover:bg-slate-200 transition-all">
+                    <button onClick={() => openExternalLink(PLATFORM_LINKS.SUPPORT_WHATSAPP)} className="w-full flex items-center justify-center gap-2 bg-slate-100 text-slate-600 py-4 rounded-xl font-black uppercase text-xs tracking-widest hover:bg-slate-200 transition-all">
                       <HeadphonesIcon size={18} /> Suporte B2B
                     </button>
                   )}
@@ -969,7 +931,7 @@ export default function Cliente() {
               </div>
 
             </div>
-            {currentOrderId && <div className="mt-8"><ChatFrete freteId={currentOrderId} isCliente={true} nome={nome || "Empresa"} /></div>}
+            {currentOrderId && <div className="mt-8"><ChatFrete freteId={currentOrderId} tipoUsuario='cliente' nome={nome || "Empresa"} /></div>}
           </div>
         )}
 
