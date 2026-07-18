@@ -1,12 +1,10 @@
 // =========================================================
 // NOME DO ARQUIVO: src/pages/Motorista.tsx
-// CTO-Log: Lapidação de Produto (Product Polish) - Sprint Final
+// CTO-Log: Auditoria de Feed e Match. Validação Lote 2.
 // Ajustes:
-// 1. Injeção de Skeleton Loaders para UX de Busca.
-// 2. Animação de Saída (Framer Motion) para cargas reservadas.
-// 3. Cruzamento Inteligente: O "Modo Retorno" agora filtra o Feed B2B em tempo real.
-// 4. Detecção de Perda de Conexão (Offline Banner).
-// 5. Product Polish: Injeção do Sistema Vivo (Mensagens Dinâmicas de Radar) no Estado Vazio.
+// 1. Sincronização do "Modo Retorno" confirmada.
+// 2. Proteção Offline e Skeleton Loaders mantidos para retenção de UX.
+// 3. Status de viagem alinhados com o Escrow do Cliente.
 // =========================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
