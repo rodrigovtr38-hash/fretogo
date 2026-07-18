@@ -1,23 +1,27 @@
 // =========================================================
-// NOME DO ARQUIVO: src/pages/Home.tsx (PORTAL FRETOGO NETWORK B2B/B2C)
-// CTO-Log: Refatoração Visual Sprint 1. Separação de funis (Embarcador vs Transportador).
-// CTO-Log 2: Correção de importação do lucide-react (CheckCircle adicionado).
-// CTO-Log 3: Refinamento de UX (Adição da seção "Como Funciona" e destaque no CTA de Login).
-// CTO-Log 4: Product Polish - Textos simplificados com gatilhos de conversão rápidos e diretos.
+// NOME DO ARQUIVO: src/pages/Home.tsx
+// CTO-Log: Refatoração Sprint Final.
+// Status: Importação da Fonte Única de Verdade (PLATFORM_LINKS) aplicada.
+// Roteamento SPA e proteção de links externos integrados.
 // =========================================================
+
 import { Zap, Truck, ShieldCheck, ArrowRight, Smartphone, Building2, MapPin, UserCircle, CheckCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { PLATFORM_LINKS, openExternalLink } from '../config/platformLinks';
 
 export default function Home() {
+  const navigate = useNavigate();
+
   const goToClient = () => {
-    window.location.href = '/cliente';
+    navigate('/cliente');
   };
 
   const goToDriver = () => {
-    window.location.href = '/motorista';
+    navigate('/motorista');
   };
 
-  const openWhatsAppSupport = () => {
-    window.open('https://wa.me/5511946099840', '_blank');
+  const handleWhatsAppSupport = () => {
+    openExternalLink(PLATFORM_LINKS.SUPPORT_WHATSAPP);
   };
 
   return (
@@ -37,7 +41,9 @@ export default function Home() {
             <div className="bg-blue-600 p-2 rounded-xl shadow-lg shadow-blue-600/20">
               <Zap className="h-6 w-6 fill-white text-white" />
             </div>
-            <span className="text-2xl font-black italic tracking-tighter text-slate-900">FRETOGO <span className="text-sm font-bold text-blue-600 not-italic tracking-widest uppercase">Network</span></span>
+            <span className="text-2xl font-black italic tracking-tighter text-slate-900">
+              FRETOGO <span className="text-sm font-bold text-blue-600 not-italic tracking-widest uppercase">Network</span>
+            </span>
           </div>
           
           <div className="flex items-center gap-4">
@@ -69,7 +75,7 @@ export default function Home() {
           </p>
         </div>
 
-        {/* OS DOIS FUNIS DE ENTRADA (EMBARCADOR VS TRANSPORTADOR) */}
+        {/* OS DOIS FUNIS DE ENTRADA */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-5xl mx-auto animate-in fade-in zoom-in duration-1000 delay-150">
           
           {/* CARD EMPRESA (EMBARCADOR) */}
@@ -165,13 +171,13 @@ export default function Home() {
             <Zap className="h-5 w-5 fill-slate-400 text-slate-400" />
             <span className="text-lg font-black italic text-slate-400">FRETOGO</span>
           </div>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Tecnologia Logística © 2026. Todos os direitos reservados.</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Tecnologia Logística © {new Date().getFullYear()}. Todos os direitos reservados.</p>
         </div>
       </footer>
 
       {/* BOTÃO FIXO DE WHATSAPP */}
       <button 
-        onClick={openWhatsAppSupport}
+        onClick={handleWhatsAppSupport}
         title="Suporte FretoGo B2B"
         className="fixed bottom-6 right-6 z-[100] flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-[0_10px_30px_rgba(37,211,102,0.3)] transition-all hover:scale-110 hover:bg-[#1ebe57] active:scale-95"
       >
