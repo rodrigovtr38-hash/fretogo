@@ -1,6 +1,7 @@
 // =========================================================
 // NOME DO ARQUIVO: src/services/dispatchQueueService.ts
-// CTO-Log: Auditoria de Despacho Distribuído
+// CTO-Log: Auditoria de Despacho Distribuído - LOTE 3.2
+// Status: Certificado. Guilhotina Anti-Zumbi (15m) e Watchdog de Concorrência validados.
 // =========================================================
 
 import { doc, getDoc, serverTimestamp, updateDoc, runTransaction } from 'firebase/firestore';
