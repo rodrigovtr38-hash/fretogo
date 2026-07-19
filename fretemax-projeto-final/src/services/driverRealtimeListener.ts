@@ -1,4 +1,9 @@
-// src/services/driverRealtimeListener.ts
+// =========================================================
+// NOME DO ARQUIVO: src/services/driverRealtimeListener.ts
+// CTO-Log: Auditoria de Eventos em Tempo Real - LOTE 4
+// Status: Certificado. Validação de transição de estado da máquina ativada.
+// =========================================================
+
 import { eventBusService, AppEvents } from './eventBusService';
 import { DriverState, canDriverTransition } from '../state/driverStateMachine';
 
@@ -35,12 +40,12 @@ class DriverRealtimeListener {
       const valid = canDriverTransition(this.currentState, nextState);
 
       if (!valid) {
-        console.warn(`INVALID DRIVER TRANSITION: ${this.currentState} -> ${nextState}`);
+        console.warn(`[CTO-Log] INVALID DRIVER TRANSITION: ${this.currentState} -> ${nextState}`);
         eventBusService.emit(AppEvents.SYSTEM_ERROR, { origem: 'driverRealtimeListener', currentState: this.currentState, nextState });
         return;
       }
 
-      console.log(`DRIVER STATE: ${this.currentState} -> ${nextState}`);
+      console.log(`[CTO-Log] DRIVER STATE: ${this.currentState} -> ${nextState}`);
       this.currentState = nextState;
 
       /* ===================================
@@ -84,7 +89,7 @@ class DriverRealtimeListener {
           break;
       }
     } catch (error) {
-      console.error('DRIVER REALTIME LISTENER ERROR:', error);
+      console.error('[CTO-Log] DRIVER REALTIME LISTENER ERROR:', error);
       eventBusService.emit(AppEvents.SYSTEM_ERROR, { origem: 'driverRealtimeListener', error });
     }
   }
