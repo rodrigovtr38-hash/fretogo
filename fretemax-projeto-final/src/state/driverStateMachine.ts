@@ -1,3 +1,9 @@
+// =========================================================
+// NOME DO ARQUIVO: src/state/driverStateMachine.ts
+// CTO-Log: Auditoria de Transições Válidas (LOTE 7)
+// Status: Leis da física do Motorista blindadas. Permite Offlines após entregas.
+// =========================================================
+
 export enum DriverState {
   /* BASE */
   OFFLINE = 'offline',
