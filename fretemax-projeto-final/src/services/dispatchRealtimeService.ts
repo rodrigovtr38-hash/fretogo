@@ -1,14 +1,15 @@
-// src/services/dispatchRealtimeService.ts
-// CTO-Log: Refatoração Crítica de Concorrência. 
-// 1. Substituição de strings mágicas ('ACEITO') por AppTripState.
-// 2. Implementação de Batch (Lote) VERDADEIRO na função de aceite para garantir integridade atômica se a internet do motorista cair.
+// =========================================================
+// NOME DO ARQUIVO: src/services/dispatchRealtimeService.ts
+// CTO-Log: Telemetria Live e Transação Atômica. LOTE 3.2
+// Status: Certificado. Escrita em Batch para evitar anomalias de conexão.
+// =========================================================
 
 import { writeBatch, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { firebaseRealtimeService } from './firebaseRealtimeService';
 import { locationRealtimeService } from './locationRealtimeService';
 import { DriverState } from '../state/driverStateMachine';
-import { AppTripState } from '../state/tripStateMachine'; // 🔥 CTO FIX: Importação da máquina de estados
+import { AppTripState } from '../state/tripStateMachine'; 
 
 class DispatchRealtimeService {
   async setDriverOnline(driverId: string) {
@@ -56,7 +57,7 @@ class DispatchRealtimeService {
     }
   }
 
-  // 🔥 CTO FIX: Transação 100% Atômica usando writeBatch.
+  // CTO FIX: Transação 100% Atômica usando writeBatch.
   async aceitarCorrida(driverId: string, freteId: string) {
     try {
       const batch = writeBatch(db);
@@ -75,7 +76,7 @@ class DispatchRealtimeService {
 
       // 2. Prepara a atualização do Frete com o Enum correto
       batch.update(freteRef, {
-        status: AppTripState.ACEITO, // CTO FIX: Substitui 'ACEITO' string por Enum
+        status: AppTripState.ACEITO,
         motoristaId: driverId,
         atualizadoEm: timestamp,
       });
@@ -87,7 +88,7 @@ class DispatchRealtimeService {
       locationRealtimeService.start(driverId, freteId);
     } catch (error) {
       console.error('ERRO ACEITE ATÔMICO (BATCH):', error);
-      throw error; // CTO FIX: Propaga o erro para a UI avisar o motorista que a rede falhou
+      throw error; // Propaga o erro para a UI avisar o motorista que a rede falhou
     }
   }
 
@@ -149,7 +150,7 @@ class DispatchRealtimeService {
     }
   }
 
-  // 🔥 CTO FIX: Tipagem de entrada rigorosa para impedir strings aleatórias
+  // CTO FIX: Tipagem de entrada rigorosa para impedir strings aleatórias
   async atualizarStatusTrip(tripId: string, status: AppTripState) {
     try {
       await firebaseRealtimeService.updateTripRealtime(tripId, {
