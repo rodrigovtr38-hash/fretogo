@@ -1,5 +1,7 @@
-// src/types/index.ts
-// CTO-Log: Alinhamento Estrito. O type OrderStatus agora reflete EXATAMENTE os mesmos valores do AppTripState (tripStateMachine.ts), garantindo que o TypeScript não vai barrar o build por divergência arquitetural.
+// =========================================================
+// NOME DO ARQUIVO: src/types/index.ts
+// CTO-Log: Alinhamento Estrito. Desambiguação de DriverStatus para DriverAccountStatus.
+// =========================================================
 
 /* =========================================================
    ORDER STATUS (Sincronizado com AppTripState)
@@ -38,7 +40,6 @@ export type OrderStatus =
 ========================================================= */
 export const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
   // Lógica principal agora é regida por tripStateMachine.ts.
-  // Mantemos este objeto vazio ou como espelho para legados que o chamem.
 };
 
 /* =========================================================
@@ -75,9 +76,9 @@ export type UserRole =
   | 'operador';
 
 /* =========================================================
-   DRIVER
+   DRIVER (Dados Globais/Cadastrais)
 ========================================================= */
-export type DriverStatus =
+export type DriverAccountStatus =
   | 'pendente'
   | 'aprovado'
   | 'rejeitado'
@@ -89,7 +90,7 @@ export interface DriverData {
   whatsapp: string;
   placa: string;
   categoria: VehicleType;
-  status: DriverStatus;
+  status: DriverAccountStatus;
   score?: number;
   taxaAceite?: number;
   totalCorridas?: number;
@@ -98,7 +99,7 @@ export interface DriverData {
   mediaEntregaMinutos?: number;
   riscoFraude?: boolean;
   validacaoManual?: boolean;
-  online?: boolean;
+  online?: boolean; // Booleano simples para integrações legadas
   emCorrida?: boolean;
   ultimaAtividade?: any;
   tokenFCM?: string;
