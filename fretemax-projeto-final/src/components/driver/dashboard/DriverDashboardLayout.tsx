@@ -1,12 +1,13 @@
 // =========================================================
 // NOME DO ARQUIVO: src/components/motorista/DriverDashboardLayout.tsx
-// CTO-Log: Container Mestre unificado. Gerenciamento de Estado e Suporte Operacional.
+// CTO-Log: Container Mestre unificado.
+// Status: Auditoria completa. Sem erros de importação.
 // =========================================================
 
 import { useCallback, useState } from 'react';
 import { MessageCircle, ShieldAlert } from 'lucide-react';
 import FreightRequestModal from './FreightRequestModal';
-import DriverStats from './DriverStats'; // Importando o módulo isolado
+import DriverStats from './DriverStats';
 
 export type DriverCategory = 'moto' | 'carro' | 'utilitario' | 'toco' | 'truck' | 'carreta' | 'bitrem';
 
@@ -56,7 +57,6 @@ export default function DriverDashboardLayout({
   driver,
 }: DriverDashboardLayoutProps) {
   
-  // LOCK DE TRANSAÇÃO: Evita duplo clique e Race Conditions
   const [processingAction, setProcessingAction] = useState(false);
 
   const handleAccept = useCallback(async () => {
@@ -80,20 +80,13 @@ export default function DriverDashboardLayout({
   }, [selectedFreight, processingAction, onRejectFreight]);
 
   const openWhatsAppSupport = () => {
-    // Número Oficial da Operação
     window.open('https://wa.me/5511946099840?text=Olá,%20preciso%20de%20suporte%20operacional%20no%20app%20Fretogo.', '_blank');
   };
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6 space-y-10">
-      
-      {/* 1. MÉTRICAS DO MOTORISTA (Componentizado e Reutilizável) */}
       <DriverStats driver={driver} />
 
-      {/* 2. ESPAÇO RESERVADO PARA O FEED/RADAR QUE VEM DO COMPONENTE PAI */}
-      {/* O radar vive na page principal, não quebre essa estrutura */}
-
-      {/* 3. MÓDULO DE SUPORTE OPERACIONAL */}
       <div className="flex flex-col md:flex-row items-center justify-between rounded-3xl border border-slate-800 bg-slate-900/40 p-6 md:p-8 gap-6 shadow-lg">
         <div className="flex items-center gap-5 w-full md:w-auto">
           <div className="h-14 w-14 rounded-2xl bg-[#25D366]/10 flex items-center justify-center text-[#25D366] shrink-0 border border-[#25D366]/20">
@@ -115,7 +108,6 @@ export default function DriverDashboardLayout({
         </button>
       </div>
 
-      {/* 4. MODAL DE DESPACHO (BLINDADO) */}
       <FreightRequestModal
         freight={selectedFreight}
         visible={Boolean(selectedFreight)}
