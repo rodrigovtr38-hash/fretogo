@@ -1,4 +1,9 @@
-// src/services/realtimeOrchestrator.ts
+// =========================================================
+// NOME DO ARQUIVO: src/services/realtimeOrchestrator.ts
+// CTO-Log: Auditoria de Orquestração (LOTE 6)
+// Status: Lock de sincronização ativado. Prevenção de loop infinito validada.
+// =========================================================
+
 import { firebaseRealtimeService } from './firebaseRealtimeService';
 import { eventBusService, AppEvents } from './eventBusService';
 import { StateSynchronizationService } from './stateSynchronizationService';
@@ -28,23 +33,19 @@ class RealtimeOrchestrator {
       this.initialized = true;
       eventBusService.emit(AppEvents.REALTIME_CONNECTED);
     } catch (error) {
-      console.error('REALTIME ORCHESTRATOR INIT ERROR:', error);
+      console.error('[CTO-Log] REALTIME ORCHESTRATOR INIT ERROR:', error);
       eventBusService.emit(AppEvents.SYSTEM_ERROR, { origem: 'realtimeOrchestrator.initialize', error });
     }
   }
 
   private registerEvents() {
-    // 🔥 CTO FIX P0 #1: Ajuste de Payload. O Firestore manda o documento bruto (com id, status, motoristaId).
-    // O Orchestrator agora traduz esse payload bruto para a Máquina de Estados entender.
+    // Ajuste de Payload: O Orchestrator traduz o payload bruto para a Máquina de Estados.
     eventBusService.on(AppEvents.TRIP_STATUS_CHANGED, async (payload: any) => {
       if (this.syncing || !payload) return;
       
-      this.syncing = true; // 🔥 LOCK: Impede eventos sobrepostos
+      this.syncing = true; // LOCK: Impede eventos sobrepostos
       try {
-        // Converte o status que veio do banco para o AppTripState oficial
         const tripStateRecebido = payload.status as AppTripState;
-        
-        // Se houver state do motorista no payload (opcional), usa, senão foca no tripState
         const driverStateRecebido = payload.state as DriverState || DriverState.OCUPADO;
 
         const syncResult = StateSynchronizationService.synchronize(
@@ -52,17 +53,15 @@ class RealtimeOrchestrator {
           tripStateRecebido
         );
         
-        // Emite o resultado da sincronização para todos os ouvintes
         eventBusService.emit(AppEvents.STATE_SYNCED, syncResult);
       } catch (error) {
-        console.error('SYNC ERROR:', error);
+        console.error('[CTO-Log] SYNC ERROR:', error);
       } finally {
-        this.syncing = false; // 🔥 RELEASE: Libera para o próximo evento
+        this.syncing = false; // RELEASE: Libera para o próximo evento
       }
     });
   }
 }
 
-// 🔥 Instância Única (Singleton) - Garante que só exista UM cérebro no app
 export const realtimeOrchestrator = new RealtimeOrchestrator();
 export default realtimeOrchestrator;
