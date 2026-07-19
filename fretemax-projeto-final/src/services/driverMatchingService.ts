@@ -1,4 +1,10 @@
-// src/services/driverMatchingService.ts
+// =========================================================
+// NOME DO ARQUIVO: src/services/driverMatchingService.ts
+// CTO-Log: Correção do Linter (X Vermelho) e Sincronização de Banco.
+// 1. Removidas as categorias fantasmas ('van', 'hr'). Oficializadas as 7 categorias.
+// 2. Operador Firestore corrigido de 'array-contains' para '==' (Tipagem exata de string).
+// =========================================================
+
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
 
@@ -6,8 +12,6 @@ export type CategoriaVeiculo =
   | 'moto'
   | 'carro_pequeno'
   | 'utilitario'
-  | 'van'
-  | 'hr'
   | 'toco'
   | 'truck'
   | 'carreta_ls'
@@ -22,7 +26,7 @@ export interface DriverMatchingPayload {
 export interface MatchedDriver {
   id: string;
   nome: string;
-  categoria: CategoriaVeiculo[];
+  categoria: CategoriaVeiculo;
   latitude: number;
   longitude: number;
   online: boolean;
@@ -38,8 +42,6 @@ const CATEGORY_RADIUS: Record<CategoriaVeiculo, number[]> = {
   moto: [5, 15, 30],
   carro_pequeno: [5, 15, 30],
   utilitario: [10, 25, 50],
-  van: [15, 35, 70],
-  hr: [20, 50, 120],
   toco: [20, 50, 120],
   truck: [20, 50, 120],
   carreta_ls: [100, 250],
@@ -59,7 +61,7 @@ function calcularDistanciaKm(lat1: number, lon1: number, lat2: number, lon2: num
   return R * c;
 }
 
-// // AJUSTE CTO: Cálculo das Bordas do Quadrado para não ler 10k motoristas (Geo-Bounding Box)
+// AJUSTE CTO: Cálculo das Bordas do Quadrado para não ler 10k motoristas (Geo-Bounding Box)
 function getBoundingBox(lat: number, lng: number, distanceKm: number) {
   const earthRadius = 6371;
   const latDelta = (distanceKm / earthRadius) * (180 / Math.PI);
@@ -76,19 +78,21 @@ export class DriverMatchingService {
   static async buscarMotoristas(payload: DriverMatchingPayload): Promise<MatchedDriver[]> {
     try {
       const raios = CATEGORY_RADIUS[payload.categoria];
+      if (!raios) return []; // Trava de segurança para categorias indefinidas
+
       const maxRaio = raios[raios.length - 1]; // Maior raio possível para a categoria
 
-      // // AJUSTE CTO: Define a caixa geográfica baseada no raio máximo da categoria
+      // AJUSTE CTO: Define a caixa geográfica baseada no raio máximo da categoria
       const box = getBoundingBox(payload.origem.lat, payload.origem.lng, maxRaio);
 
       const motoristasRef = collection(db, 'motoristas_online'); 
       
-      // // AJUSTE CTO: Query Mestra Blindada. Consulta apenas dentro do quadrado + array-contains para Categoria exata
+      // AJUSTE CTO: Query Mestra Blindada. Consulta apenas dentro do quadrado + filtro exato '=='
       const q = query(
         motoristasRef,
         where('online', '==', true),
         where('disponivel', '==', true),
-        where('categoria', 'array-contains', payload.categoria),
+        where('categoria', '==', payload.categoria), // Correção Crítica Aqui
         where('latitude', '>=', box.latMin),
         where('latitude', '<=', box.latMax)
       );
@@ -97,7 +101,6 @@ export class DriverMatchingService {
       const motoristas: MatchedDriver[] = [];
       const destinoFreteFormatado = payload.cidadeDestino?.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
 
-      // DEBUG: Loga quantos motoristas passaram na query inicial
       console.log(`[DriverMatching] Motoristas encontrados na Query Base: ${snapshot.size}`);
 
       snapshot.forEach((docSnap) => {
@@ -125,7 +128,7 @@ export class DriverMatchingService {
         motoristas.push({
           id: docSnap.id,
           nome: data.nome || 'Motorista',
-          categoria: data.categoria,
+          categoria: data.categoria as CategoriaVeiculo,
           latitude: data.latitude,
           longitude: data.longitude,
           online: data.online,
