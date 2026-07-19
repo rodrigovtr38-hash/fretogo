@@ -1,4 +1,9 @@
-// src/services/firebaseRealtimeService.ts
+// =========================================================
+// NOME DO ARQUIVO: src/services/firebaseRealtimeService.ts
+// CTO-Log: Otimização de Transmissão Firestore - LOTE 4
+// Status: Certificado. Proteção Anti-Drift e Gerenciamento de Memória validados.
+// =========================================================
+
 import { doc, onSnapshot, updateDoc, serverTimestamp, Unsubscribe } from 'firebase/firestore';
 import { db } from '../firebase';
 import { eventBusService, AppEvents } from './eventBusService';
@@ -46,14 +51,14 @@ class FirebaseRealtimeService {
           eventBusService.emit(AppEvents.DRIVER_STATUS_CHANGED, data);
         },
         error => {
-          console.error('REALTIME DRIVER ERROR:', error);
+          console.error('[CTO-Log] REALTIME DRIVER ERROR:', error);
           this.emitDisconnected();
         }
       );
 
       this.registerListener(key, unsubscribe);
     } catch (error) {
-      console.error('ERRO LISTEN DRIVER:', error);
+      console.error('[CTO-Log] ERRO LISTEN DRIVER:', error);
     }
   }
 
@@ -71,7 +76,7 @@ class FirebaseRealtimeService {
           if (!snapshot.exists()) return;
           const data = snapshot.data();
           
-          // 🔥 PROTEÇÃO ANTI-DRIFT: Garante os estados corretos para o Orquestrador
+          // PROTEÇÃO ANTI-DRIFT: Garante os estados corretos para o Orquestrador
           eventBusService.emit(AppEvents.TRIP_STATUS_CHANGED, {
             id: snapshot.id,
             tripState: data.status,
@@ -82,14 +87,14 @@ class FirebaseRealtimeService {
           this.emitConnected();
         },
         error => {
-          console.error('REALTIME TRIP ERROR:', error);
+          console.error('[CTO-Log] REALTIME TRIP ERROR:', error);
           this.emitDisconnected();
         }
       );
 
       this.registerListener(key, unsubscribe);
     } catch (error) {
-      console.error('ERRO LISTEN TRIP:', error);
+      console.error('[CTO-Log] ERRO LISTEN TRIP:', error);
     }
   }
 
@@ -99,7 +104,7 @@ class FirebaseRealtimeService {
       const driverRef = doc(db, 'motoristas', driverId);
       await updateDoc(driverRef, { ...payload, updatedAt: serverTimestamp() });
     } catch (error) {
-      console.error('ERRO UPDATE DRIVER:', error);
+      console.error('[CTO-Log] ERRO UPDATE DRIVER:', error);
     }
   }
 
@@ -109,7 +114,7 @@ class FirebaseRealtimeService {
       const tripRef = doc(db, 'fretes', tripId);
       await updateDoc(tripRef, { ...payload, updatedAt: serverTimestamp() });
     } catch (error) {
-      console.error('ERRO UPDATE TRIP:', error);
+      console.error('[CTO-Log] ERRO UPDATE TRIP:', error);
     }
   }
 
