@@ -1,31 +1,27 @@
+// =========================================================
+// NOME DO ARQUIVO: src/services/realtimeDriverService.ts
+// CTO-Log: Higienização de Sintaxe e Cache de Memória
+// Status: Validação de cache local do motorista.
+// =========================================================
+
 import { DriverData, DriverLocation } from "../types/driver";
 
 class RealtimeDriverService {
   private drivers: Map<string, DriverData> = new Map();
 
-  updateDriverStatus(
-    driverId: string,
-    status: DriverData["status"]
-  ) {
+  updateDriverStatus(driverId: string, status: DriverData["status"]) {
     const driver = this.drivers.get(driverId);
-
     if (!driver) return;
-
+    
     driver.status = status;
-
     this.drivers.set(driverId, driver);
   }
 
-  updateDriverLocation(
-    driverId: string,
-    location: DriverLocation
-  ) {
+  updateDriverLocation(driverId: string, location: DriverLocation) {
     const driver = this.drivers.get(driverId);
-
     if (!driver) return;
-
+    
     driver.location = location;
-
     this.drivers.set(driverId, driver);
   }
 
@@ -42,5 +38,4 @@ class RealtimeDriverService {
   }
 }
 
-export const realtimeDriverService =
-  new RealtimeDriverService();
+export const realtimeDriverService = new RealtimeDriverService();
