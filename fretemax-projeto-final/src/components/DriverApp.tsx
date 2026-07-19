@@ -1,11 +1,11 @@
 // =========================================================
 // NOME DO ARQUIVO: src/components/DriverApp.tsx
-// CTO-Log: Ponte Lógica (Wrapper). 
-// Status: Heartbeat otimizado para economia de bateria.
+// CTO-Log: Wrapper de Layout.
+// Correção: Caminho de importação validado contra erro de compilação.
 // =========================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import DriverDashboardLayout, { OperationalFreight } from './motorista/DriverDashboardLayout';
+import DriverDashboardLayout, { OperationalFreight } from './motorista/dashboard/DriverDashboardLayout';
 
 interface DriverAppProps {
   freights?: OperationalFreight[];
@@ -30,7 +30,6 @@ export default function DriverApp({
   isOnline = false,
   loading = false,
   driverCategory,
-  driverName,
   onToggleOnline,
   onSelectFreight,
   onCloseFreight,
@@ -39,54 +38,17 @@ export default function DriverApp({
   children,
 }: DriverAppProps) {
   const mountedRef = useRef(false);
-  const heartbeatRef = useRef<number | null>(null);
-
   const [runtimeReady, setRuntimeReady] = useState(false);
-  const [runtimeVisible, setRuntimeVisible] = useState(
-    typeof document !== 'undefined' ? !document.hidden : true
-  );
 
   useEffect(() => {
     mountedRef.current = true;
     const initialize = window.requestAnimationFrame(() => {
-      if (mountedRef.current) {
-        setRuntimeReady(true);
-      }
+      if (mountedRef.current) setRuntimeReady(true);
     });
-
-    return () => {
-      mountedRef.current = false;
-      window.cancelAnimationFrame(initialize);
-    };
+    return () => { mountedRef.current = false; window.cancelAnimationFrame(initialize); };
   }, []);
 
-  useEffect(() => {
-    const handleVisibility = () => setRuntimeVisible(!document.hidden);
-    document.addEventListener('visibilitychange', handleVisibility, { passive: true });
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, []);
-
-  useEffect(() => {
-    if (heartbeatRef.current) clearInterval(heartbeatRef.current);
-
-    heartbeatRef.current = window.setInterval(
-      () => {
-        // Heartbeat logico mantido para manter socket ativo sem re-render visual.
-      },
-      runtimeVisible ? 15000 : 30000
-    );
-
-    return () => {
-      if (heartbeatRef.current) clearInterval(heartbeatRef.current);
-    };
-  }, [runtimeVisible]);
-
-  const safeToggleOnline = useCallback(
-    (next: boolean) => {
-      onToggleOnline?.(next);
-    },
-    [onToggleOnline]
-  );
+  const safeToggleOnline = useCallback((next: boolean) => { onToggleOnline?.(next); }, [onToggleOnline]);
 
   if (!runtimeReady) return null;
 
