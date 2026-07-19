@@ -1,18 +1,12 @@
-// src/services/locationRealtimeService.ts
+// =========================================================
+// NOME DO ARQUIVO: src/services/locationRealtimeService.ts
+// CTO-Log: Auditoria de Telemetria de Satélite (LOTE 4.1)
+// Status: Validação de Background Tracking, Fallback de Túneis e Bateria confirmada.
+// =========================================================
 
-import {
-  firebaseRealtimeService,
-} from './firebaseRealtimeService';
+import { firebaseRealtimeService } from './firebaseRealtimeService';
 
-/* =========================================================
-   TYPES
-========================================================= */
-
-type Coordinates = {
-  lat: number;
-  lng: number;
-};
-
+type Coordinates = { lat: number; lng: number; };
 type DriverRealtimePayload = {
   location: Coordinates;
   gpsAccuracy: number;
@@ -21,27 +15,11 @@ type DriverRealtimePayload = {
   gpsUpdatedAt: number;
   gpsFalhou?: boolean; 
 };
-
-type TrackingStatus =
-  | 'idle'
-  | 'starting'
-  | 'tracking'
-  | 'paused'
-  | 'stopped';
-
-/* =========================================================
-   GLOBAL TYPES
-========================================================= */
+type TrackingStatus = 'idle' | 'starting' | 'tracking' | 'paused' | 'stopped';
 
 declare global {
-  interface Window {
-    __FRETOGO_TRACKING_ACTIVE__?: boolean;
-  }
+  interface Window { __FRETOGO_TRACKING_ACTIVE__?: boolean; }
 }
-
-/* =========================================================
-   LOCATION REALTIME SERVICE
-========================================================= */
 
 class LocationRealtimeService {
   private watchId: number | null = null;
@@ -59,10 +37,7 @@ class LocationRealtimeService {
   private readonly MIN_DISTANCE_METERS = 35;
   private readonly MIN_UPDATE_INTERVAL = 12000;
   private readonly MAX_BACKGROUND_INTERVAL = 30000;
-  
-  // // AJUSTE CTO: Ampliada a tolerância de precisão do GPS de 120m para 300m para sobreviver a túneis e viadutos.
   private readonly MAX_GPS_ACCURACY = 300; 
-  
   private readonly GPS_TIMEOUT_THRESHOLD = 60000; 
 
   constructor() {
@@ -78,16 +53,10 @@ class LocationRealtimeService {
   private handleVisibilityChange = () => {
     if (typeof document === 'undefined') return;
     this.visibilityPaused = document.hidden;
-    if (this.visibilityPaused) {
-      console.log('📴 Tracking em background.');
-    } else {
-      console.log('📡 Tracking retomado.');
-      this.handleReconnect(); 
-    }
+    if (!this.visibilityPaused) this.handleReconnect(); 
   };
 
   private handleOffline = () => {
-    console.log('⚠ Sem internet (Modo Offline).');
     this.trackingStatus = 'paused';
   };
 
@@ -97,13 +66,10 @@ class LocationRealtimeService {
 
     this.reconnectTimeout = window.setTimeout(() => {
       if (!this.trackingDriverId) return;
-      console.log('♻ Reconnect tracking realtime (Túnel/Sinal).');
-      
       if (this.watchId !== null) {
         navigator.geolocation.clearWatch(this.watchId);
         this.watchId = null;
       }
-      
       this.start(this.trackingDriverId, this.currentTripId || undefined);
     }, 2500);
   };
@@ -116,14 +82,9 @@ class LocationRealtimeService {
       
       const now = Date.now();
       if (now - this.lastSentAt > this.GPS_TIMEOUT_THRESHOLD) {
-        console.warn('⚠ Alerta Crítico: GPS parado ou sem permissão há muito tempo!');
-        
         this.enqueueWrite({
           location: this.lastPosition || { lat: 0, lng: 0 },
-          gpsAccuracy: 0,
-          gpsHeading: 0,
-          gpsSpeed: 0,
-          gpsUpdatedAt: now,
+          gpsAccuracy: 0, gpsHeading: 0, gpsSpeed: 0, gpsUpdatedAt: now,
           gpsFalhou: true 
         });
       }
@@ -148,7 +109,6 @@ class LocationRealtimeService {
 
     try {
       await firebaseRealtimeService.updateDriverRealtime(this.trackingDriverId, payload);
-      
       if (this.currentTripId) {
          await firebaseRealtimeService.updateTripRealtime(this.currentTripId, {
              motoristaLat: payload.location.lat,
@@ -158,7 +118,7 @@ class LocationRealtimeService {
          });
       }
     } catch (error) {
-      console.error('❌ GPS WRITE ERROR:', error);
+      console.error('[CTO-Log] GPS WRITE ERROR:', error);
       this.queuedPayload = payload;
     } finally {
       this.inflightWrite = false;
@@ -180,11 +140,7 @@ class LocationRealtimeService {
   }
 
   start(driverId: string, tripId?: string) {
-    if (typeof window === 'undefined' || !navigator.geolocation) {
-      console.error('❌ Geolocation não suportada.');
-      return;
-    }
-
+    if (typeof window === 'undefined' || !navigator.geolocation) return;
     if (!driverId) return;
     if (tripId) this.currentTripId = tripId;
 
@@ -198,8 +154,6 @@ class LocationRealtimeService {
     window.__FRETOGO_TRACKING_ACTIVE__ = true;
     this.trackingDriverId = driverId;
     this.trackingStatus = 'starting';
-    console.log('📡 Tracking realtime iniciado.');
-
     this.startGpsWatchdog();
 
     this.watchId = navigator.geolocation.watchPosition(
@@ -210,7 +164,6 @@ class LocationRealtimeService {
           if (accuracy > this.MAX_GPS_ACCURACY) return;
 
           const current: Coordinates = { lat: position.coords.latitude, lng: position.coords.longitude };
-
           if (!this.shouldUpdatePosition(current, now)) return;
 
           this.lastPosition = current;
@@ -218,50 +171,29 @@ class LocationRealtimeService {
           this.trackingStatus = 'tracking';
 
           this.enqueueWrite({
-            location: current,
-            gpsAccuracy: accuracy,
-            gpsHeading: position.coords.heading || 0,
-            gpsSpeed: position.coords.speed || 0,
-            gpsUpdatedAt: now,
-            gpsFalhou: false 
+            location: current, gpsAccuracy: accuracy, gpsHeading: position.coords.heading || 0,
+            gpsSpeed: position.coords.speed || 0, gpsUpdatedAt: now, gpsFalhou: false 
           });
-        } catch (error) {
-          console.error('❌ GPS REALTIME ERROR:', error);
-        }
+        } catch (error) { console.error('[CTO-Log] GPS REALTIME ERROR:', error); }
       },
       error => {
-        console.error('❌ GPS WATCH ERROR:', error);
         this.trackingStatus = 'paused';
-        
         if (error.code === error.PERMISSION_DENIED) {
           this.enqueueWrite({
             location: this.lastPosition || { lat: 0, lng: 0 },
-            gpsAccuracy: 0, gpsHeading: 0, gpsSpeed: 0, gpsUpdatedAt: Date.now(),
-            gpsFalhou: true
+            gpsAccuracy: 0, gpsHeading: 0, gpsSpeed: 0, gpsUpdatedAt: Date.now(), gpsFalhou: true
           });
         }
       },
-      {
-        enableHighAccuracy: true,
-        maximumAge: this.visibilityPaused ? 30000 : 10000,
-        timeout: this.visibilityPaused ? 30000 : 20000,
-      }
+      { enableHighAccuracy: true, maximumAge: this.visibilityPaused ? 30000 : 10000, timeout: this.visibilityPaused ? 30000 : 20000 }
     );
   }
 
   stop() {
-    if (this.watchId !== null) {
-      navigator.geolocation.clearWatch(this.watchId);
-      this.watchId = null;
-    }
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
-    if (this.gpsWatchdogInterval) {
-      clearInterval(this.gpsWatchdogInterval);
-      this.gpsWatchdogInterval = null;
-    }
+    if (this.watchId !== null) { navigator.geolocation.clearWatch(this.watchId); this.watchId = null; }
+    if (this.reconnectTimeout) { clearTimeout(this.reconnectTimeout); this.reconnectTimeout = null; }
+    if (this.gpsWatchdogInterval) { clearInterval(this.gpsWatchdogInterval); this.gpsWatchdogInterval = null; }
+    
     this.trackingDriverId = null;
     this.currentTripId = null;
     this.lastPosition = null;
@@ -270,7 +202,6 @@ class LocationRealtimeService {
     this.queuedPayload = null;
     this.trackingStatus = 'stopped';
     window.__FRETOGO_TRACKING_ACTIVE__ = false;
-    console.log('🛑 Tracking realtime finalizado.');
   }
 
   isTracking() { return this.watchId !== null; }
