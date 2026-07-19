@@ -1,5 +1,8 @@
-// src/services/clientFreightService.ts
+// =========================================================
+// NOME DO ARQUIVO: src/services/clientFreightService.ts
 // CTO-Log: Estrutura mantida 100%. Padronização de chamada usando a interface TripState e otimização para a esteira CI/CD.
+// Sem erros de Linter. Responsável pela emissão do Frete.
+// =========================================================
 
 import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
