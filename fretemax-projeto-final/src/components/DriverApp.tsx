@@ -1,12 +1,12 @@
 // =========================================================
 // NOME DO ARQUIVO: src/components/DriverApp.tsx
-// CTO-Log: Correção de Path Relativo.
-// Status: Subindo um nível (../) para encontrar a pasta 'driver' a partir de 'motorista'.
+// CTO-Log: Resolução Definitiva de Rota.
+// Status: Importação relativa a partir da raiz de componentes.
 // =========================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-// 🔥 CORREÇÃO DE CAMINHO: Subindo um nível para sair de 'motorista' e entrar em 'driver'
-import DriverDashboardLayout, { OperationalFreight } from '../driver/dashboard/DriverDashboardLayout';
+// IMPORTAÇÃO CORRIGIDA: Caminho exato. (Certifique-se de que a pasta 'dashboard' é toda minúscula no VS Code)
+import DriverDashboardLayout, { OperationalFreight } from './driver/dashboard/DriverDashboardLayout';
 
 interface DriverAppProps {
   freights?: OperationalFreight[];
