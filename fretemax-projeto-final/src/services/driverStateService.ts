@@ -1,5 +1,10 @@
-// src/services/driverStateService.ts
-import { doc, getDoc, runTransaction, serverTimestamp, updateDoc } from 'firebase/firestore';
+// =========================================================
+// NOME DO ARQUIVO: src/services/driverStateService.ts
+// CTO-Log: Correção Crítica de Nomenclatura (status -> state) - LOTE 4
+// Status: Certificado. Trava do Modo Retorno (Anti-Concorrência e Limite Diário) garantida.
+// =========================================================
+
+import { doc, runTransaction, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { DriverState, canDriverTransition } from '../state/driverStateMachine';
 
@@ -15,12 +20,15 @@ class DriverStateService {
         const snap = await t.get(ref);
         if (!snap.exists()) throw new Error("Motorista não encontrado");
         
-        const currentState = snap.data().status || DriverState.OFFLINE;
+        // CTO FIX: Acomoda projetos legados ('status') migrando forçosamente para o padrão ('state')
+        const currentState = snap.data().state || snap.data().status || DriverState.OFFLINE;
+        
         if (!canDriverTransition(currentState, nextState)) {
            throw new Error(`Transição inválida de ${currentState} para ${nextState}`);
         }
 
-        const payload = { status: nextState, atualizadoEm: serverTimestamp() };
+        // CTO FIX: Padronizado para 'state' conforme a State Machine e Listeners
+        const payload = { state: nextState, atualizadoEm: serverTimestamp() };
         t.update(ref, payload);
         
         // Se ficar offline, remove do radar. Se online, atualiza.
@@ -37,7 +45,7 @@ class DriverStateService {
     }
   }
 
-  // // AJUSTE CTO: A Catraca do Modo Retorno (Trava de 2x/dia e Anti-Concorrência)
+  // A Catraca do Modo Retorno (Trava de 2x/dia e Anti-Concorrência)
   async ativarModoRetorno(destinoRetorno: string): Promise<{ success: boolean; error?: string }> {
     try {
       const user = auth.currentUser;
@@ -84,7 +92,7 @@ class DriverStateService {
     }
   }
 
-  // // AJUSTE CTO: Desativar manualmente caso o motorista chegue no destino ou desista
+  // Desativar manualmente caso o motorista chegue no destino ou desista
   async desativarModoRetorno(): Promise<boolean> {
     try {
       const user = auth.currentUser;
