@@ -1,12 +1,12 @@
 // =========================================================
 // NOME DO ARQUIVO: src/components/DriverApp.tsx
-// CTO-Log: Correção de Path (Caminho) de Importação.
-// Status: Caminho apontando corretamente para ./motorista/DriverDashboardLayout
+// CTO-Log: Correção de Path Relativo.
+// Status: Subindo um nível (../) para encontrar a pasta 'driver' a partir de 'motorista'.
 // =========================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-// CORREÇÃO: Caminho corrigido para a estrutura exata que o seu projeto possui
-import DriverDashboardLayout, { OperationalFreight } from './motorista/DriverDashboardLayout';
+// 🔥 CORREÇÃO DE CAMINHO: Subindo um nível para sair de 'motorista' e entrar em 'driver'
+import DriverDashboardLayout, { OperationalFreight } from '../driver/dashboard/DriverDashboardLayout';
 
 interface DriverAppProps {
   freights?: OperationalFreight[];
