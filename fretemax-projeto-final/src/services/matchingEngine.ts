@@ -1,25 +1,23 @@
-// src/services/matchingEngine.ts
-import {
-  collection,
-  doc,
-  getDocs,
-  query,
-  serverTimestamp,
-  runTransaction,
-  where,
-} from 'firebase/firestore';
+// =========================================================
+// NOME DO ARQUIVO: src/services/matchingEngine.ts
+// CTO-Log: Correção Crítica de Busca (LOTE 4.1)
+// 1. Sincronizado com as 7 categorias oficiais.
+// 2. Erro fatal de query ('array-contains' alterado para '==') corrigido para que o match ocorra.
+// 3. Integração com Modo Retorno preservada.
+// =========================================================
 
+import {
+  collection, doc, getDocs, query, serverTimestamp, runTransaction, where
+} from 'firebase/firestore';
 import { db } from '../firebase';
 
+// Categorias Oficiais Sincronizadas
 export type CategoriaVeiculo =
   | 'moto'
   | 'carro_pequeno'
   | 'utilitario'
-  | 'van'
-  | 'hr'
   | 'toco'
   | 'truck'
-  | 'carreta'
   | 'carreta_ls'
   | 'bi_trem_cegonha';
 
@@ -39,7 +37,7 @@ export interface MotoristaMatch {
   id: string;
   nome: string;
   telefone?: string;
-  categoria?: string | string[];
+  categoria?: string;
   latitude?: number;
   longitude?: number;
   online?: boolean;
@@ -74,23 +72,25 @@ function getBoundingBox(lat: number, lng: number, distanceKm: number) {
 export async function buscarMotoristasCompativeis(frete: FretePayload): Promise<MotoristaMatch[]> {
   try {
     const categoriaFrete = frete.categoria.toLowerCase().trim();
-    const isPesado = ['toco', 'truck', 'carreta', 'carreta_ls', 'bi_trem_cegonha'].includes(categoriaFrete);
+    const isPesado = ['toco', 'truck', 'carreta_ls', 'bi_trem_cegonha'].includes(categoriaFrete);
     
-    // ALTERAÇÃO 1: Matriz de raios de busca progressivos para leve vs pesado
+    // Matriz de raios de busca progressivos para leve vs pesado
     const RAIOS_BUSCA = isPesado ? [10, 20, 30, 50] : [5, 10, 15, 20, 30];
 
-    const motoristasRef = collection(db, 'motoristas');
+    const motoristasRef = collection(db, 'motoristas_online');
     let motoristasEncontrados: MotoristaMatch[] = [];
     let raioUtilizado = 0;
 
-    // ALTERAÇÃO 2: Laço sequencial de busca iterativa expandindo a GeoBox
+    // Laço sequencial de busca iterativa expandindo a GeoBox
     for (const raio of RAIOS_BUSCA) {
       const box = getBoundingBox(frete.origem.lat, frete.origem.lng, raio);
+      
+      // 🔥 CTO FIX: '==' em vez de 'array-contains' e busca correta em motoristas_online
       const motoristasQuery = query(
         motoristasRef, 
         where('online', '==', true),
         where('disponivel', '==', true),
-        where('categoria', 'array-contains', categoriaFrete),
+        where('categoria', '==', categoriaFrete),
         where('latitude', '>=', box.latMin),
         where('latitude', '<=', box.latMax)
       );
@@ -104,7 +104,7 @@ export async function buscarMotoristasCompativeis(frete: FretePayload): Promise<
           return {
             id: docSnap.id,
             nome: data.nome || 'Motorista',
-            telefone: data.telefone || '',
+            telefone: data.telefone || data.whatsapp || '',
             categoria: data.categoria || '',
             latitude: data.latitude,
             longitude: data.longitude,
@@ -115,9 +115,10 @@ export async function buscarMotoristasCompativeis(frete: FretePayload): Promise<
           } as MotoristaMatch;
         })
         .filter(motorista => {
+          // Filtro de longitude do bounding box
           if (motorista.longitude! < box.lngMin || motorista.longitude! > box.lngMax) return false;
 
-          // Regra de Ouro: Mantida a validação estrita de batimento cardíaco (Heartbeat) de 2 min
+          // Regra de Ouro: Validação estrita de batimento cardíaco (Heartbeat) de 2 min
           if (motorista.ultimoHeartbeat && (tempoAtual - motorista.ultimoHeartbeat > 120000)) return false; 
 
           if (motorista.latitude && motorista.longitude) {
@@ -133,7 +134,7 @@ export async function buscarMotoristasCompativeis(frete: FretePayload): Promise<
           return scoreB - scoreA;
         });
 
-      // Se encontrar candidatos qualificados dentro da camada atual, para o loop e designa
+      // Se encontrar candidatos qualificados, para o loop e designa
       if (motoristasEncontrados.length > 0) {
         raioUtilizado = raio;
         break;
@@ -152,7 +153,7 @@ export async function enviarOfertaMotorista(motoristaId: string, frete: FretePay
   try {
     const motoristaRef = doc(db, 'motoristas', motoristaId);
     
-    // Transação isolada anticoncorrência para evitar aceites duplicados do mesmo veículo
+    // Transação isolada anticoncorrência
     await runTransaction(db, async (transaction) => {
       const motoristaDoc = await transaction.get(motoristaRef);
       if (!motoristaDoc.exists()) throw new Error("Motorista não existe.");
@@ -170,7 +171,7 @@ export async function enviarOfertaMotorista(motoristaId: string, frete: FretePay
           origem: frete.origem,
           destino: frete.destino,
           enviadaEm: serverTimestamp(),
-          expiraEm: new Date(Date.now() + 30000), // ALTERAÇÃO 3: Janela estrita de timeout (30 segundos)
+          expiraEm: new Date(Date.now() + 30000), // Timeout estrito de 30 segundos
         },
         status: 'MATCHING',
         atualizadoEm: serverTimestamp(),
