@@ -1,130 +1,59 @@
-// src/services/tripLifecycleService.ts
-import {
-  doc,
-  getDoc,
-  serverTimestamp,
-  updateDoc,
-} from 'firebase/firestore';
+// =========================================================
+// NOME DO ARQUIVO: src/services/tripLifecycleService.ts
+// CTO-Log: Higienização de Sintaxe e Correção de Importação (LOTE 6)
+// Status: Lock Multi-Drop garantido. Conflitos de importação TypeScript resolvidos.
+// =========================================================
 
-import {
-  db,
-} from '../firebase';
+import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+import { AppTripState, canTransition } from '../state/tripStateMachine';
+import { DriverState } from '../state/driverStateMachine';
+import { StateSynchronizationService } from './stateSynchronizationService';
+import type { FretePayload } from './matchingEngine';
 
-import {
-  AppTripState,
-  canTransition,
-} from '../state/tripStateMachine';
-
-import {
-  DriverState,
-} from '../state/driverStateMachine';
-
-import DispatchQueueService, {
-  DispatchQueueService as DispatchQueueRuntime,
-} from './dispatchQueueService';
-
-import {
-  StateSynchronizationService,
-} from './stateSynchronizationService';
-
-import type {
-  FretePayload,
-} from './matchingEngine';
+// Importação corrigida para evitar falhas no build da Vercel
+import { dispatchQueueService } from './dispatchQueueService';
 
 export class TripLifecycleService {
-  private static inflight =
-    new Set<string>();
+  private static inflight = new Set<string>();
 
-  private static acquire(
-    key: string,
-  ): boolean {
-    if (
-      this.inflight.has(
-        key,
-      )
-    ) {
-      return false;
-    }
-
-    this.inflight.add(
-      key,
-    );
-
+  private static acquire(key: string): boolean {
+    if (this.inflight.has(key)) return false;
+    this.inflight.add(key);
     return true;
   }
 
-  private static release(
-    key: string,
-  ) {
-    this.inflight.delete(
-      key,
-    );
+  private static release(key: string) {
+    this.inflight.delete(key);
   }
 
-  static async alterarStatusViagem(
-    freteId: string,
-    novoStatus: AppTripState,
-    extras: Record<
-      string,
-      unknown
-    > = {},
-  ) {
-    const lockKey =
-      `trip-${freteId}-${novoStatus}`;
+  static async alterarStatusViagem(freteId: string, novoStatus: AppTripState, extras: Record<string, unknown> = {}) {
+    const lockKey = `trip-${freteId}-${novoStatus}`;
 
-    if (
-      !this.acquire(
-        lockKey,
-      )
-    ) {
-      return false;
-    }
+    if (!this.acquire(lockKey)) return false;
 
     try {
-      const freteRef =
-        doc(
-          db,
-          'fretes',
-          freteId,
-        );
+      const freteRef = doc(db, 'fretes', freteId);
+      const snapshot = await getDoc(freteRef);
 
-      const snapshot =
-        await getDoc(
-          freteRef,
-        );
+      if (!snapshot.exists()) return false;
 
-      if (
-        !snapshot.exists()
-      ) {
-        return false;
-      }
-
-      const data =
-        snapshot.data();
+      const data = snapshot.data();
 
       // Verifica se a transição é válida matematicamente
-      const permitido =
-        canTransition(
-          data.status,
-          novoStatus,
-        );
-
-      if (
-        !permitido
-      ) {
-        console.warn(`[TRIP_LIFECYCLE] Transição Bloqueada: De ${data.status} para ${novoStatus}`);
+      const permitido = canTransition(data.status, novoStatus);
+      if (!permitido) {
+        console.warn(`[CTO-Log] Transição Bloqueada: De ${data.status} para ${novoStatus}`);
         return false;
       }
 
       // Sincroniza o estado do motorista baseado no status da viagem
-      const runtime =
-        StateSynchronizationService.synchronize(
-          data.driverState ||
-            DriverState.ONLINE,
-          novoStatus,
-        );
+      const runtime = StateSynchronizationService.synchronize(
+        data.driverState || DriverState.ONLINE,
+        novoStatus
+      );
 
-      // 🔥 FASE 5 (MULTI-DROP): Lógica para controlar as múltiplas entregas
+      // FASE 5 (MULTI-DROP): Lógica para controlar as múltiplas entregas
       let paradaAtualIndex = data.paradaAtualIndex || 0;
       const totalParadas = data.paradas ? data.paradas.length : 1;
 
@@ -136,26 +65,15 @@ export class TripLifecycleService {
         statusReal = AppTripState.EM_TRANSPORTE; // Mantém a roda girando
       }
 
-      await updateDoc(
-        freteRef,
-        {
-          status:
-            statusReal,
-
-          paradaAtualIndex: 
-            paradaAtualIndex,
-
-          runtime,
-
-          atualizadoEm:
-            serverTimestamp(),
-
-          ...extras,
-        },
-      );
+      await updateDoc(freteRef, {
+        status: statusReal,
+        paradaAtualIndex,
+        runtime,
+        atualizadoEm: serverTimestamp(),
+        ...extras,
+      });
 
       // GATILHO AUTOMÁTICO: Se virou DISPONIVEL, inicia busca por motoristas
-
       if (statusReal === AppTripState.DISPONIVEL) {
         try {
           const fretePayload = {
@@ -165,48 +83,31 @@ export class TripLifecycleService {
           } as FretePayload;
                 
           // Dispara matching em background (não bloqueia retorno)
-          DispatchQueueRuntime.iniciarFila(fretePayload).catch(err => 
-            console.error('[AUTO_DISPATCH_ERROR]', err)
+          dispatchQueueService.iniciarFila(fretePayload).catch(err => 
+            console.error('[CTO-Log] AUTO_DISPATCH_ERROR', err)
           );
                 
-          console.log(`[TRIP_LIFECYCLE] Auto-dispatch iniciado para frete ${freteId}`);
+          console.log(`[CTO-Log] Auto-dispatch iniciado para frete ${freteId}`);
         } catch (dispatchError) {
-          console.error('[TRIP_LIFECYCLE] Falha ao iniciar auto-dispatch:', dispatchError);
+          console.error('[CTO-Log] Falha ao iniciar auto-dispatch:', dispatchError);
         }
       }
 
       return true;
     } catch (error) {
-      console.error(
-        '[TRIP_LIFECYCLE_ERROR]',
-        error,
-      );
-
+      console.error('[CTO-Log] TRIP_LIFECYCLE_ERROR:', error);
       return false;
     } finally {
-      this.release(
-        lockKey,
-      );
+      this.release(lockKey);
     }
   }
 
-  static async executarRedispatch(
-    frete: FretePayload,
-  ) {
+  static async executarRedispatch(frete: FretePayload) {
     try {
-      await this.alterarStatusViagem(
-        frete.id,
-        AppTripState.BUSCANDO_MOTORISTA,
-      );
-
-      await DispatchQueueRuntime.iniciarFila(
-        frete,
-      );
+      await this.alterarStatusViagem(frete.id, AppTripState.BUSCANDO_MOTORISTA);
+      await dispatchQueueService.iniciarFila(frete);
     } catch (error) {
-      console.error(
-        '[REDISPATCH_ERROR]',
-        error,
-      );
+      console.error('[CTO-Log] REDISPATCH_ERROR', error);
     }
   }
 }
