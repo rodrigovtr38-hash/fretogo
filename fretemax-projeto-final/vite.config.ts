@@ -1,17 +1,16 @@
-import {
-  defineConfig,
-  splitVendorChunkPlugin,
-} from 'vite';
+// =========================================================
+// NOME DO ARQUIVO: vite.config.ts
+// CTO-Log: Otimização de Compilação Final.
+// Correção: Plugin 'splitVendorChunkPlugin' removido para evitar conflito com 'manualChunks'. Console da Vercel limpo.
+// =========================================================
+
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 
-// 🔥 CTO FIX: Importando o construtor do PWA
+// Importando o construtor do PWA
 import { VitePWA } from 'vite-plugin-pwa';
-
-/* =========================================================
-   VITE CONFIG
-========================================================= */
 
 export default defineConfig({
   plugins: [
@@ -19,15 +18,14 @@ export default defineConfig({
       jsxRuntime: 'automatic',
     }),
     tailwindcss(),
-    splitVendorChunkPlugin(),
     
-    // 🔥 CTO FIX: Ativando a compilação do PWA para o botão de instalar aparecer
+    // Ativando a compilação do PWA para o botão de instalar aparecer (Configuração App Nativo)
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
-        maximumFileSizeToCacheInBytes: 4000000 // Aumentado para 4MB para suportar mapas pesados
+        maximumFileSizeToCacheInBytes: 4000000 // 4MB para suportar mapas pesados
       },
       manifest: {
         name: "FRETOGO — Ecossistema Logístico Realtime",
@@ -111,6 +109,7 @@ export default defineConfig({
     },
     rollupOptions: {
       output: {
+        // Empacotamento inteligente mantido. Evita carregar o mapa do Google se o motorista estiver só na tela de login.
         manualChunks: {
           react: ['react', 'react-dom', 'react-router-dom'],
           firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage'],
