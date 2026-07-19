@@ -1,29 +1,18 @@
-// src/services/paymentService.ts
-// CTO-Log: Auditoria Etapa 6 (Services)
-// Ajuste: Refinamento de Tipagem TypeScript para garantir compilação limpa na Vercel (freteId vs idPedido) mantendo 100% do motor de Escrow.
+// =========================================================
+// NOME DO ARQUIVO: src/services/paymentService.ts
+// CTO-Log: Auditoria Etapa Financeira (LOTE 5)
+// Correção CRÍTICA: Removido import dinâmico que causava erro de compilação/chunking na Vercel. 
+// Status: Motor de Escrow e Anti-Fraude homologados.
+// =========================================================
 
 import {
-  doc,
-  updateDoc,
-  serverTimestamp,
-  runTransaction,
-  getDoc,
+  doc, updateDoc, serverTimestamp, runTransaction, getDoc, 
+  collection, query, where, getDocs, limit
 } from 'firebase/firestore';
-
 import { db } from '../firebase';
-
-import {
-  eventBusService,
-  AppEvents,
-} from './eventBusService';
-
-import {
-  firebaseRealtimeService,
-} from './firebaseRealtimeService';
-
-import {
-  AppTripState,
-} from '../state/tripStateMachine';
+import { eventBusService, AppEvents } from './eventBusService';
+import { firebaseRealtimeService } from './firebaseRealtimeService';
+import { AppTripState } from '../state/tripStateMachine';
 
 type PaymentPayload = {
   valor: number;
@@ -57,7 +46,7 @@ class PaymentService {
 
   async processarPagamento(payload: PaymentPayload): Promise<PaymentResponse> {
     try {
-      // AJUSTE CTO: Defesa AntiFraude. Busca o valor inviolável direto do banco de dados antes de processar.
+      // Defesa AntiFraude: Busca o valor inviolável direto do banco de dados
       const freteRef = doc(db, 'fretes', payload.freteId);
       const freteSnap = await getDoc(freteRef);
       
@@ -68,9 +57,9 @@ class PaymentService {
       const freteData = freteSnap.data();
       const valorEsperado = Number(freteData.valorTotal || freteData.valorFreteBruto || 0);
       
-      // Validação rigorosa com margem de segurança de 2% para diferenças de arredondamento JavaScript
+      // Validação rigorosa (2% para diferenças de arredondamento)
       if (Math.abs(payload.valor - valorEsperado) > valorEsperado * 0.02) {
-        console.error('[FRAUDE_BLOQUEADA] Tentativa de manipulação de valor. Enviado:', payload.valor, 'Banco:', valorEsperado);
+        console.error('[CTO-Log] FRAUDE BLOQUEADA - Enviado:', payload.valor, 'Banco:', valorEsperado);
         eventBusService.emit(AppEvents.PAYMENT_FAILED, payload);
         return { success: false, error: 'VALOR_INVALIDO_FRAUDE' };
       }
@@ -78,7 +67,6 @@ class PaymentService {
       const response = await this.fetchWithTimeout('/api/pagamento', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Garantindo que a API legada que porventura peça 'idPedido' receba o 'freteId' mapeado
         body: JSON.stringify({ ...payload, idPedido: payload.freteId }),
       });
 
@@ -98,7 +86,7 @@ class PaymentService {
 
       return { success: true, transactionId: data.transactionId || data.id };
     } catch (error) {
-      console.error('PAYMENT ERROR:', error);
+      console.error('[CTO-Log] PAYMENT ERROR:', error);
       eventBusService.emit(AppEvents.PAYMENT_FAILED, payload);
       return { success: false, error: 'FALHA_PROCESSAMENTO' };
     }
@@ -108,31 +96,28 @@ class PaymentService {
     try {
       const freteRef = doc(db, 'fretes', freteId);
 
-      // AJUSTE CTO: Converteu Update em Transação para não sobrescrever ID se houver cliques simultâneos
       await runTransaction(db, async (transaction) => {
         const freteSnap = await transaction.get(freteRef);
         if (!freteSnap.exists()) throw new Error('Frete não encontrado');
 
         const dados = freteSnap.data();
         
-        // Proteção contra sobrescrita
         if (dados.pagamentoId || dados.transactionId) {
-          console.warn('[ALERTA] Este frete já possui um ID de transação registrado.');
+          console.warn('[CTO-Log] Este frete já possui um ID de transação registrado.');
           return;
         }
 
         transaction.update(freteRef, {
           pagamentoStatus: 'confirmado',
-          pagamentoId: transactionId, // Campo vital para o Reembolso Reverso
+          pagamentoId: transactionId,
           transactionId: transactionId, 
           status: AppTripState.DISPONIVEL,
           updatedAt: serverTimestamp(),
         });
       });
 
-      console.log(`[PAYMENT] Pagamento confirmado para frete ${freteId}. Status atualizado para DISPONIVEL. Iniciando busca por motoristas...`);
+      console.log(`[CTO-Log] Pagamento ${transactionId} confirmado. Iniciando busca de motoristas...`);
 
-      // Dispara também para o cache Realtime (mantendo a funcionalidade original da interface)
       await firebaseRealtimeService.updateTripRealtime(freteId, {
         pagamentoStatus: 'confirmado',
         pagamentoId: transactionId,
@@ -141,20 +126,22 @@ class PaymentService {
       });
       
     } catch (error) {
-      console.error('SYNC PAYMENT ERROR:', error);
+      console.error('[CTO-Log] SYNC PAYMENT ERROR:', error);
       throw error; 
     }
   }
 
   async processarReembolso(transactionId: string, freteId?: string): Promise<boolean> {
     try {
-      // AJUSTE CTO: Identificação de frete por engenharia reversa caso apenas a transação chegue
       let idPedido = freteId;
+      
+      // CTO FIX: Importação estática nativa corrigida para estabilidade CI/CD
       if (!idPedido) {
-        const q = await import('firebase/firestore').then(({ collection, query, where, getDocs, limit }) =>
-          getDocs(query(collection(db, 'fretes'), where('pagamentoId', '==', transactionId), limit(1)))
-        );
-        if (!q.empty) idPedido = q.docs[0].id;
+        const q = query(collection(db, 'fretes'), where('pagamentoId', '==', transactionId), limit(1));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          idPedido = querySnapshot.docs[0].id;
+        }
       }
 
       const response = await this.fetchWithTimeout('/api/reembolso', {
@@ -169,7 +156,7 @@ class PaymentService {
         const freteRef = doc(db, 'fretes', idPedido);
         await updateDoc(freteRef, {
           pagamentoStatus: 'reembolsado',
-          reembolsado: true, // Trava crucial para o api/reembolso.js
+          reembolsado: true,
           updatedAt: serverTimestamp(),
         });
       }
@@ -177,7 +164,7 @@ class PaymentService {
       eventBusService.emit(AppEvents.PAYMENT_REFUNDED, { transactionId, freteId: idPedido });
       return true;
     } catch (error) {
-      console.error('REFUND ERROR:', error);
+      console.error('[CTO-Log] REFUND ERROR:', error);
       return false;
     }
   }
