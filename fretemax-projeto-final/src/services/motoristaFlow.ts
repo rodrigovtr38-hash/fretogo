@@ -1,6 +1,8 @@
-// src/services/motoristaFlow.ts
-// 🔥 ARQUIVO DEPRECIADO: Funções migradas para dispatchRealtimeService.ts e tripStateMachine.ts
-// Mantido apenas como stub para evitar quebras de importações.
+// =========================================================
+// NOME DO ARQUIVO: src/services/motoristaFlow.ts
+// CTO-Log: Arquivo Lápide (Stub). Auditoria LOTE 5.
+// Status: Funções desativadas para proteger dependências antigas. Inteligência migrada.
+// =========================================================
 
 export type StatusMotorista = 'OFFLINE' | 'ONLINE' | 'OCUPADO' | 'EM_COLETA' | 'EM_ENTREGA' | 'AGUARDANDO';
 
