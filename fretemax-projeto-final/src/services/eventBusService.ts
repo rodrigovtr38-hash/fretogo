@@ -1,5 +1,7 @@
 // =========================================================
 // NOME DO ARQUIVO: src/services/eventBusService.ts
+// CTO-Log: Barramento de Eventos e Gatilhos Globais - LOTE 4
+// Status: Certificado.
 // =========================================================
 
 type EventCallback<T = any> = (payload: T) => void;
@@ -49,7 +51,7 @@ class EventBusService {
       try {
         listener(payload);
       } catch (error) {
-        console.error(`EVENT BUS ERROR -> ${event}`, error);
+        console.error(`[CTO-Log] EVENT BUS ERROR -> ${event}`, error);
       }
     });
   }
@@ -118,7 +120,7 @@ export enum AppEvents {
   REALTIME_DISCONNECTED = 'REALTIME_DISCONNECTED',
   REALTIME_RECONNECTED = 'REALTIME_RECONNECTED',
   
-  // 🔥 ADICIONADO: Gatilho essencial para o Orquestrador Central
+  // Gatilho essencial para o Orquestrador Central
   STATE_SYNCED = 'STATE_SYNCED', 
 
   /*
@@ -129,7 +131,7 @@ export enum AppEvents {
   SYSTEM_ERROR = 'SYSTEM_ERROR',
   PAYMENT_CONFIRMED = 'PAYMENT_CONFIRMED',
   
-  // 🔥 ADICIONADO: Gatilhos essenciais para o fluxo financeiro e estorno
+  // Gatilhos essenciais para o fluxo financeiro e estorno
   PAYMENT_APPROVED = 'PAYMENT_APPROVED',
   PAYMENT_FAILED = 'PAYMENT_FAILED',
   PAYMENT_REFUNDED = 'PAYMENT_REFUNDED',
