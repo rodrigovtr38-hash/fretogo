@@ -1,11 +1,12 @@
 // =========================================================
 // NOME DO ARQUIVO: src/components/DriverApp.tsx
-// CTO-Log: Wrapper de Layout.
-// Correção: Caminho de importação validado contra erro de compilação.
+// CTO-Log: Correção de Path (Caminho) de Importação.
+// Status: Caminho apontando corretamente para ./motorista/DriverDashboardLayout
 // =========================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import DriverDashboardLayout, { OperationalFreight } from './motorista/dashboard/DriverDashboardLayout';
+// CORREÇÃO: Caminho corrigido para a estrutura exata que o seu projeto possui
+import DriverDashboardLayout, { OperationalFreight } from './motorista/DriverDashboardLayout';
 
 interface DriverAppProps {
   freights?: OperationalFreight[];
