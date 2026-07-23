@@ -1,16 +1,16 @@
 // =========================================================
-// NOME DO ARQUIVO: src/components/motorista/DriverActiveTrip.tsx
-// CTO-Log: Lógica Multi-Drop de PINs validada e fortemente tipada.
-// Sincronização: Integrado ao array exato de 'pinEntregas' do Cliente.tsx para liberar a custódia.
+// NOME DO ARQUIVO: src/pages/DriverActiveTrip.tsx
+// CTO-Log: Auditoria de Rotas Concluída.
+// Ajuste: Rotas remapeadas (../) para o arquivo funcionar nativamente dentro da pasta 'pages'.
 // =========================================================
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { db } from '../../firebase';
+import { db } from '../firebase';
 import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { LockKeyhole, ShieldCheck, DollarSign } from 'lucide-react';
-import MapaCliente from '../MapaCliente';
-import { dispatchRealtimeService } from '../../services/dispatchRealtimeService';
+import MapaCliente from '../components/MapaCliente';
+import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
 
 interface DriverActiveTripProps {
   freteId?: string;
