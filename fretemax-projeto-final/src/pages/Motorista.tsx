@@ -1,10 +1,8 @@
 // =========================================================
 // NOME DO ARQUIVO: src/pages/Motorista.tsx
 // CTO-Log: Auditoria de Feed e Match. Validação Lote 2.
-// Ajustes:
-// 1. Sincronização do "Modo Retorno" confirmada.
-// 2. Proteção Offline e Skeleton Loaders mantidos para retenção de UX.
-// 3. Status de viagem alinhados com o Escrow do Cliente.
+// Ajustes: 
+// 1. Rota do DriverActiveTrip ajustada para importação na mesma pasta ('./').
 // =========================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -17,7 +15,7 @@ import DriverHeader from '../components/motorista/DriverHeader';
 import DriverAuth from '../components/motorista/DriverAuth';
 import DriverCadastro from '../components/motorista/DriverCadastro';
 import DriverRadar from '../components/motorista/DriverRadar';
-import DriverActiveTrip from '../components/motorista/DriverActiveTrip';
+import DriverActiveTrip from './DriverActiveTrip';
 import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
 import type { OperationalFreight } from '../components/driver/dashboard/DriverDashboardLayout';
 import { Download, Search, MapPin, Flame, Clock, Sparkles, ThumbsUp, Star, Share2, Info, Truck, Power, WifiOff, Activity } from 'lucide-react'; 
