@@ -1,7 +1,7 @@
 // =========================================================
 // NOME DO ARQUIVO: src/components/DriverApp.tsx
 // CTO-Log: Resolução Definitiva de Rota.
-// Status: Importação relativa a partir da raiz de componentes.
+// Status: Importação relativa a partir da raiz de componentes mantida intacta.
 // =========================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react';
