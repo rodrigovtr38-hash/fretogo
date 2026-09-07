@@ -4,6 +4,7 @@
 // Evolução Fase 5: Integração do Payload Universal B2B.
 // Correção Bloco 02: O frete agora nasce estritamente como 'aguardando_pagamento'.
 // EXECUÇÃO BLOCO 01: Identificação de Bitrem/Carreta corrigida e exclusão de pedágio injetada.
+// EXECUÇÃO BLOCO 03: Blindagem do dispatchStatus para 'retido_pagamento' na origem.
 // =========================================================
 
 import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
@@ -162,7 +163,7 @@ class ClientFreightService {
         cidadeDestinoFormatada, 
         status: 'aguardando_pagamento', // 🔥 CTO FIX: Bloqueia ida pro Feed antes de pagar.
         pagamentoStatus: 'pendente',
-        dispatchStatus: 'mural_aberto', 
+        dispatchStatus: 'retido_pagamento', // 🔥 CTO FIX (BLOCO 03): Não permite visibilidade no Radar antes do PIX.
         createdAt: serverTimestamp(), // Retrocompatibilidade B2B
         criadoEm: serverTimestamp(),
         atualizadoEm: serverTimestamp(),
