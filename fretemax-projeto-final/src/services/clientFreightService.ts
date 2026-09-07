@@ -2,6 +2,7 @@
 // NOME DO ARQUIVO: src/services/clientFreightService.ts
 // CTO-Log: Refinamento e Sincronização do Motor de Cálculo (Bloco 3 / FASE 3).
 // Status: Corrigido - Chamada de pagamento prematura removida.
+// EXECUÇÃO BLOCO 01: Identificação de Bitrem/Carreta corrigida e exclusão de pedágio injetada.
 // =========================================================
 
 import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
@@ -23,6 +24,7 @@ export interface FreightPayload {
   pesoKg?: number;
   tipoCarga?: string;
   paradas?: any[];
+  valorPedagio?: number;
 }
 
 class ClientFreightService {
@@ -52,12 +54,14 @@ class ClientFreightService {
     };
   }
 
-  private calcularComissao(valorBruto: number, categoria: string) {
+  private calcularComissao(valorBruto: number, categoria: string, valorPedagio: number = 0) {
     const cat = categoria ? categoria.toLowerCase().trim() : '';
-    const isHeavy = ['toco', 'truck', 'carreta_ls', 'bi_trem_cegonha', 'carreta'].some(c => cat.includes(c));
+    const isHeavy = ['toco', 'truck', 'carreta', 'bitrem', 'carreta_ls', 'bi_trem_cegonha'].some(c => cat.includes(c));
     const taxa = isHeavy ? 0.15 : 0.20; 
     
-    const valorComissao = this.round(valorBruto * taxa);
+    // Subtrai o pedágio antes de calcular a comissão para proteger o custo do motorista
+    const baseComissao = Math.max(0, valorBruto - valorPedagio);
+    const valorComissao = this.round(baseComissao * taxa);
     const valorLiquidoMotorista = this.round(valorBruto - valorComissao);
     
     return {
@@ -88,9 +92,10 @@ class ClientFreightService {
       }
 
       const valorBruto = pricingMetadata.valorBruto;
+      const valorPedagio = payload.valorPedagio || 0;
       if (valorBruto <= 0) return { success: false, error: 'VALOR_BRUTO_INVALIDO' };
 
-      const { taxaFreto, valorComissao, valorLiquidoMotorista } = this.calcularComissao(valorBruto, normalizedPayload.categoria);
+      const { taxaFreto, valorComissao, valorLiquidoMotorista } = this.calcularComissao(valorBruto, normalizedPayload.categoria, valorPedagio);
       
       if (valorLiquidoMotorista <= 0) return { success: false, error: 'VALOR_LIQUIDO_INVALIDO' };
 
