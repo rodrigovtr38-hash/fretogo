@@ -2,11 +2,11 @@
 // NOME DO ARQUIVO: api/webhook.js
 // CTO-Log: Auditoria Etapa 5 (Escrow e Pagamentos) - REVISÃO FINAL.
 // 6. 🔥 CTO FIX (FASE 12): Validação de Titularidade. Proteção absoluta contra Swap de Motorista e Late Approvals.
-// 7. 🔥 CTO FIX (BLOCO 24): Destravamento Cirúrgico do RTDB. Webhook liberta o motorista via firebase-admin/database.
 // 8. 🔥 CTO FIX (PAGAMENTO REAL): Idempotência de String corrigida (aprovado === approved).
 // 9. 🔥 CTO FIX (BUSINESS): Rejeição não devolve ao radar automaticamente, vira EXPIRADO.
 // 10. 🔥 CTO FIX (BLOCO 03): Transação Atômica injetada para evitar Race Condition contra o Watchdog de 5 minutos.
 // 11. 🔥 CTO FIX (BLOCO 05): Sincronização da timeline visual do cliente injetada no Firestore.
+// 12. 🔥 CTO FIX (EXECUÇÃO BLOCO 03): Novo Funil de Pré-Pagamento. A carga vai para 'disponivel' após o PIX. Fluxo sem motorista.
 // =========================================================
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
@@ -102,9 +102,7 @@ export default async function handler(req, res) {
       if (!pedidoId) return res.status(400).send('Sem referência no pagamento');
 
       const freteRef = db.collection('fretes').doc(pedidoId);
-      const paymentMotoristaId = paymentData.metadata?.motorista_id;
 
-      let rtdbUpdateNeeded = null;
       let zapPayload = null;
 
       // 🔥 CTO FIX: Transação Atômica para blindar contra o Watchdog
@@ -129,19 +127,13 @@ export default async function handler(req, res) {
         // ==========================================
         if (paymentData.status === 'approved') {
           
-          if (freteData.status === 'reservado_aguardando_pagamento') {
+          if (freteData.status === 'aguardando_pagamento') {
             
-            if (paymentMotoristaId && paymentMotoristaId !== freteData.motoristaId) {
-              console.error(`[CRÍTICO: SWAP EVITADO] Pertence ao motorista antigo.`);
-              transaction.update(freteRef, { pagamentoStatus: 'aprovado_incompativel', pagamentoAtrasadoId: paymentId, atualizadoEm: FieldValue.serverTimestamp() });
-              return; 
-            }
-
-            // Liberação Firestore (SSOT)
+            // 🔥 CTO FIX (BLOCO 03): Liberação Firestore (SSOT) direto para o FEED/RADAR
             transaction.update(freteRef, {
-              status: 'aceito', 
+              status: 'disponivel', 
               pagamentoStatus: 'aprovado',
-              dispatchStatus: 'confirmado', 
+              dispatchStatus: 'mural_aberto', // Libera visualização no radar 
               pagoEm: FieldValue.serverTimestamp(),
               pagamentoId: paymentId,
               atualizadoEm: FieldValue.serverTimestamp()
@@ -150,78 +142,43 @@ export default async function handler(req, res) {
             // 🔥 CTO FIX (BLOCO 05): Registro na subcoleção de chat da viagem
             const chatRef = freteRef.collection('chat').doc();
             transaction.set(chatRef, {
-              texto: '🔔 [Torre Operacional]: Vinculação confirmada. Motorista designado para a operação.',
+              texto: '🔔 [Torre Operacional]: Pagamento de custódia (Escrow) confirmado. Carga oficialmente publicada no Radar de Motoristas.',
               nome: 'Torre de Controle (IA)',
               tipoUsuario: 'admin',
               createdAt: FieldValue.serverTimestamp()
             });
-
-            // Prepara liberação RTDB (Motorista) para rodar após a transação
-            if (freteData.motoristaId) {
-               rtdbUpdateNeeded = {
-                 driverId: freteData.motoristaId,
-                 payload: {
-                   state: 'aceitou',
-                   atualizadoEm: Date.now()
-                 }
-               };
-            }
             
             if (freteData.clienteZap || freteData.telefoneCliente) {
                const zapCliente = freteData.clienteZap || freteData.telefoneCliente;
                const linkRastreio = `https://app.fretogo.com.br/cliente?order=${pedidoId}`;
                zapPayload = {
                  telefone: zapCliente,
-                 mensagem: `✅ *FretoGo*: Pagamento Escrow confirmado!\n\nA operação foi liberada oficialmente. Acompanhe a viagem: ${linkRastreio}`
+                 mensagem: `✅ *FretoGo*: Pagamento Escrow confirmado!\n\nSua carga acaba de ser publicada no Radar e está visível para os motoristas. Acompanhe a operação ao vivo: ${linkRastreio}`
                };
             }
           } else {
-            console.warn(`[LATE APPROVAL] Carga em status: ${freteData.status}. Rollback Evitado.`);
+            console.warn(`[LATE APPROVAL] Carga em status: ${freteData.status}. Alteração de status principal ignorada.`);
             transaction.update(freteRef, {
-              pagamentoStatus: 'aprovado_atrasado',
-              pagamentoAtrasadoId: paymentId,
+              pagamentoStatus: 'aprovado',
+              pagamentoId: paymentId,
               atualizadoEm: FieldValue.serverTimestamp()
             });
           }
 
         // ==========================================
-        // CASO 2: PAGAMENTO REJEITADO
+        // CASO 2: PAGAMENTO REJEITADO / ESTORNADO
         // ==========================================
         } else if (['rejected', 'cancelled', 'refunded', 'charged_back'].includes(paymentData.status)) {
           
-          if (freteData.status === 'reservado_aguardando_pagamento') {
-
-            if (paymentMotoristaId && paymentMotoristaId !== freteData.motoristaId) {
-              console.warn(`[ROLLBACK IGNORADO] Recusa de pagamento do motorista antigo.`);
-              return;
-            }
-
-            console.log(`[ROLLBACK] Pagamento recusado. Expirando reserva (NÃO VOLTA AO FEED).`);
+          if (freteData.status === 'aguardando_pagamento') {
+            console.log(`[ROLLBACK] Pagamento recusado ou estornado. Expirando reserva.`);
             
             // 🔥 CTO FIX: Status alterado para expirado em vez de disponivel, conforme regra comercial.
             transaction.update(freteRef, {
               status: 'expirado', 
               pagamentoStatus: paymentData.status,
-              motoristaId: null,
-              motoristaNome: null,
-              motoristaZap: null,
-              motoristaLat: null,
-              motoristaLng: null,
               atualizadoEm: FieldValue.serverTimestamp()
             });
-
-            if (freteData.motoristaId) {
-               rtdbUpdateNeeded = {
-                 driverId: freteData.motoristaId,
-                 payload: {
-                   state: 'online',
-                   freteAtualId: null,
-                   activeTripId: null,
-                   disponivel: true,
-                   atualizadoEm: Date.now()
-                 }
-               };
-            }
 
           } else {
             transaction.update(freteRef, { pagamentoStatus: paymentData.status, atualizadoEm: FieldValue.serverTimestamp() });
@@ -230,12 +187,8 @@ export default async function handler(req, res) {
       });
 
       // Side-effects executados apenas se a transação atômica commitar com sucesso
-      if (rtdbUpdateNeeded) {
-        await rtdb.ref(`drivers/${rtdbUpdateNeeded.driverId}`).update(rtdbUpdateNeeded.payload);
-      }
-
       if (zapPayload) {
-        console.log(`[SUCESSO] Escrow Validado. Pagamento Aprovado. Viagem Liberada!`);
+        console.log(`[SUCESSO] Escrow Validado. Pagamento Aprovado. Viagem Liberada no Radar!`);
         await dispararWhatsAppSeguro(zapPayload.telefone, zapPayload.mensagem);
       }
     }
