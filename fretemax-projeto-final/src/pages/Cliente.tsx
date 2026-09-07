@@ -11,6 +11,7 @@
 // BLOCO 6: Injeção do Painel de Visibilidade de PINs e Automação de Envio no Chat Operacional.
 // CTO-FIX ATUAL: Chat visível imediatamente no Match. Lógica de Expiração (Publicar Novamente ou Excluir) se não pagar em 5 min.
 // CTO-FIX MATEMÁTICO: Isolamento do pedágio da base de cálculo de comissão e padronização canônica de campos.
+// EXECUÇÃO BLOCO 01: Correção Matemática - Padronização da franquia de 15km para pesados (Carreta/Bitrem).
 // =========================================================
 
 import { useState, useEffect, useRef, useMemo } from 'react';
@@ -209,8 +210,8 @@ export default function Cliente() {
       case 'utilitarios': valorMotoristaBase = distanciaFinanceira <= 15 ? 180 : 180 + (distanciaFinanceira - 15) * 6; break;
       case 'toco': valorMotoristaBase = distanciaFinanceira <= 15 ? 350 : 350 + (distanciaFinanceira - 15) * 7; break;
       case 'truck': valorMotoristaBase = distanciaFinanceira <= 15 ? 550 : 550 + (distanciaFinanceira - 15) * 8.5; break;
-      case 'carreta': valorMotoristaBase = Math.max(1200, distanciaFinanceira * 10.5); break;
-      case 'bitrem': valorMotoristaBase = Math.max(1800, distanciaFinanceira * 12.5); break;
+      case 'carreta': valorMotoristaBase = distanciaFinanceira <= 15 ? 1200 : 1200 + (distanciaFinanceira - 15) * 10.5; break;
+      case 'bitrem': valorMotoristaBase = distanciaFinanceira <= 15 ? 1800 : 1800 + (distanciaFinanceira - 15) * 12.5; break;
       default: valorMotoristaBase = 100;
     }
 
