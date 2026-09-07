@@ -3,7 +3,7 @@
 // CTO-Log: Fase 3 - Homologação Operacional Distribuída.
 // Evolução Fase 5: Remoção da sobrescrita otimista do TripState.
 // Bloco Pagamento Real: Compatibilização de chaves de valor.
-// Bloco 2 (Execução): Bypass de QA (Whitelist) injetado para simular aprovação instantânea sem gateway.
+// Bloco 02 (Execução): Ajuste do Bypass QA para 'disponivel' (Feed) ao invés de 'aceito'.
 // =========================================================
 
 import {
@@ -73,11 +73,11 @@ class PaymentService {
         console.log('[CTO-Log] BYPASS DE QA ATIVADO. Simulando pagamento aprovado para:', currentUserEmail);
         const txId = 'QA_BYPASS_' + Date.now();
         
-        // Simula o Webhook: Altera para aprovado e aceito atomicamente
+        // 🔥 CTO FIX (Bloco 02): Muda o status para DISPONIVEL (vai pro Feed) e não ACEITO.
         await runTransaction(db, async (transaction) => {
             transaction.update(freteRef, {
                 pagamentoStatus: 'aprovado',
-                status: 'aceito',
+                status: 'disponivel', // <--- Carga liberada para os motoristas no radar
                 pagamentoId: txId,
                 transactionId: txId,
                 updatedAt: serverTimestamp(),
@@ -86,13 +86,13 @@ class PaymentService {
 
         await firebaseRealtimeService.updateTripRealtime(payload.freteId, {
             pagamentoStatus: 'aprovado',
-            status: 'aceito',
+            status: 'disponivel', // <--- Carga liberada para os motoristas no radar
             pagamentoId: txId,
             transactionId: txId,
         });
 
-        console.log('[CTO-Log] Rota liberada em modo de teste.');
-        // Retorna a URL simulada do próprio app para evitar quebra no Cliente.tsx
+        console.log('[CTO-Log] Carga postada e liberada no Feed em modo de teste.');
+        // Retorna a URL simulada do próprio app para forçar reload no Client.tsx e puxar estado novo.
         return { success: true, transactionId: txId, url: `/cliente?order=${payload.freteId}` };
       }
 
