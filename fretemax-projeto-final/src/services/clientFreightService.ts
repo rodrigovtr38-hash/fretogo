@@ -1,7 +1,8 @@
 // =========================================================
 // NOME DO ARQUIVO: src/services/clientFreightService.ts
 // CTO-Log: Refinamento e Sincronização do Motor de Cálculo (Bloco 3 / FASE 3).
-// Status: Corrigido - Chamada de pagamento prematura removida.
+// Evolução Fase 5: Integração do Payload Universal B2B.
+// Correção Bloco 02: O frete agora nasce estritamente como 'aguardando_pagamento'.
 // EXECUÇÃO BLOCO 01: Identificação de Bitrem/Carreta corrigida e exclusão de pedágio injetada.
 // =========================================================
 
@@ -12,6 +13,7 @@ import { AppTripState as TripState } from '../state/tripStateMachine';
 const inflightRegistry = new Set<string>();
 
 export interface FreightPayload {
+  // Campos Universais (Retrocompatibilidade)
   clienteId: string;
   categoria: string;
   origem: { lat: number; lng: number; endereco?: string; cidade?: string };
@@ -21,10 +23,49 @@ export interface FreightPayload {
   distanciaTotalKm?: number;
   distanciaTarifada?: number;
   distanciaRealKm?: number;
-  pesoKg?: number;
+  pesoKg?: string | number;
   tipoCarga?: string;
   paradas?: any[];
   valorPedagio?: number;
+  
+  // Campos B2B Integrados (Substituindo o antigo Cliente.tsx addDoc direto)
+  empresaId?: string;
+  tipoConta?: string;
+  empresaNome?: string;
+  empresaDocumento?: string;
+  clienteNome?: string;
+  clienteZap?: string;
+  clienteDocumento?: string;
+  distancia?: number;
+  veiculo?: string;
+  peso?: string;
+  tipoMaterial?: string;
+  qtdVolumes?: string;
+  valorNF?: string;
+  observacoes?: string;
+  valorTotal?: number;
+  valorFreteBruto?: number;
+  valorMotorista?: number;
+  valorLiquidoMotorista?: number;
+  lucroPlataforma?: number;
+  cidadeOrigem?: string;
+  cidadeDestino?: string;
+  enderecoColetaTexto?: string;
+  enderecoEntregaTexto?: string;
+  coleta?: any;
+  entrega?: any;
+  origemLat?: number;
+  origemLng?: number;
+  destinoLat?: number;
+  destinoLng?: number;
+  pinColeta?: string;
+  pinEntregas?: string[];
+  multiplasEntregas?: boolean;
+  tipoFrete?: string;
+  dataAgendada?: any;
+  visualizacoes?: number;
+  motoristasNotificados?: number;
+  interressados?: number;
 }
 
 class ClientFreightService {
@@ -37,11 +78,13 @@ class ClientFreightService {
     return Number(value.toFixed(2)); 
   }
 
-  private buildInflightKey(payload: any): string {
-    return `${payload.clienteId}_${payload.origem?.lat}_${payload.destino?.lat}`;
+  private buildInflightKey(payload: FreightPayload): string {
+    const lat = payload.origem?.lat || payload.origemLat || 0;
+    const destLat = payload.destino?.lat || payload.destinoLat || 0;
+    return `${payload.clienteId}_${lat}_${destLat}`;
   }
 
-  private normalizePayload(payload: any) {
+  private normalizePayload(payload: FreightPayload) {
     const paradasTratadas = payload.paradas || [];
     return {
       normalizedPayload: {
@@ -49,7 +92,7 @@ class ClientFreightService {
         paradasTratadas
       },
       pricingMetadata: {
-        valorBruto: payload.valorBruto || payload.valor || 0
+        valorBruto: payload.valorFreteBruto || payload.valorBruto || payload.valorTotal || payload.valor || 0
       }
     };
   }
@@ -95,32 +138,42 @@ class ClientFreightService {
       const valorPedagio = payload.valorPedagio || 0;
       if (valorBruto <= 0) return { success: false, error: 'VALOR_BRUTO_INVALIDO' };
 
-      const { taxaFreto, valorComissao, valorLiquidoMotorista } = this.calcularComissao(valorBruto, normalizedPayload.categoria, valorPedagio);
+      // Se o Cliente.tsx já mandou o cálculo pronto, aproveitamos. Senão, recálcula.
+      let taxaFreto = 0;
+      let valorComissao = payload.lucroPlataforma || 0;
+      let valorLiquidoMotorista = payload.valorLiquidoMotorista || payload.valorMotorista || 0;
+
+      if (valorComissao === 0 && valorLiquidoMotorista === 0) {
+         const calc = this.calcularComissao(valorBruto, normalizedPayload.categoria || payload.veiculo || '', valorPedagio);
+         taxaFreto = calc.taxaFreto;
+         valorComissao = calc.valorComissao;
+         valorLiquidoMotorista = calc.valorLiquidoMotorista;
+      }
       
       if (valorLiquidoMotorista <= 0) return { success: false, error: 'VALOR_LIQUIDO_INVALIDO' };
 
-      const pinColeta = this.generatePin();
-      const pinEntregas = normalizedPayload.paradasTratadas.map(() => this.generatePin());
+      const pinColeta = payload.pinColeta || this.generatePin();
+      const pinEntregas = payload.pinEntregas || normalizedPayload.paradasTratadas.map(() => this.generatePin());
 
-      const cidadeDestinoFormatada = payload.destino.cidade || this.extrairCidadeDoEndereco(payload.destino.endereco);
+      const cidadeDestinoFormatada = payload.cidadeDestino || payload.destino.cidade || this.extrairCidadeDoEndereco(payload.destino.endereco);
 
       const freteRef = await addDoc(collection(db, 'fretes'), {
         ...normalizedPayload,
         cidadeDestinoFormatada, 
-        status: TripState.DISPONIVEL, 
+        status: 'aguardando_pagamento', // 🔥 CTO FIX: Bloqueia ida pro Feed antes de pagar.
         pagamentoStatus: 'pendente',
         dispatchStatus: 'mural_aberto', 
+        createdAt: serverTimestamp(), // Retrocompatibilidade B2B
         criadoEm: serverTimestamp(),
         atualizadoEm: serverTimestamp(),
         pinColeta,
         pinEntregas,
         valorBruto,
+        valorFreteBruto: valorBruto, // Salva nas duas chaves por segurança
         taxaFreto,
         valorComissao,
         valorLiquidoMotorista, 
       });
-
-      // 🔥 CTO FIX: Removido o fluxo prematuro de pagamento daqui. O frete apenas vai pro feed.
       
       return { success: true, freteId: freteRef.id };
     } catch (error) {
