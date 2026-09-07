@@ -1,25 +1,10 @@
-// =========================================================
-// NOME DO ARQUIVO: src/pages/Cliente.tsx (PAINEL DO EMBARCADOR / B2B)
-// CTO-Log: Auditoria de Polimento (Fase de Escala).
-// Correção: Sincronização do Resumo da Rota com o SSOT antes do Pagamento.
-// Evolução Fase 5: INVERSÃO DO FUNIL (Pagamento no Match). Conectado ao PaymentService.
-// Evolução Fase 6: Normalização Canônica de Categorias.
-// CTO-Log (EXECUÇÃO ATUAL): Limpeza estrita de variáveis estáticas/bypass de pagamento.
-// Ajuste Operacional: Fim da retenção de motorista. Pagamento instantâneo (Bloco 02).
-// FIX VERCEL: Correção estrita de sintaxe (aspas/crases) nas linhas 354 e 517-519 para destravar o Build.
-// CLIENTE-AUTH-01: Injeção do Gatekeeper de Autenticação (Google Auth) e bloqueio de Postagem Anônima no Firestore.
-// BLOCO 6: Injeção do Painel de Visibilidade de PINs e Automação de Envio no Chat Operacional.
-// CTO-FIX ATUAL: Criação via clientFreightService e fallback de retenção extirpado.
-// CTO-FIX MATEMÁTICO: Isolamento do pedágio da base de cálculo de comissão e padronização canônica de campos.
-// EXECUÇÃO BLOCO 01: Correção Matemática - Padronização da franquia de 15km para pesados (Carreta/Bitrem).
-// =========================================================
-
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, Timestamp, updateDoc } from 'firebase/firestore'; 
+import { getDatabase, ref, onValue, query, orderByChild, equalTo } from 'firebase/database'; // 🔥 INJEÇÃO RTDB BLOCO 05
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth'; // 🔥 AUTH IMPORT
-import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Building2, User, Package, CalendarDays, Plus, Trash2, Flame, DollarSign, Activity, Eye, BrainCircuit, BarChart3, TrendingUp, AlertOctagon, Download, FileText, Lock, Scale, Clock3, Clock, Chrome, RefreshCcw } from 'lucide-react'; // 🔥 CHROME IMPORT
+import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Building2, User, Package, CalendarDays, Plus, Trash2, Flame, DollarSign, Activity, Eye, BrainCircuit, BarChart3, TrendingUp, AlertOctagon, Download, FileText, Lock, Scale, Clock3, Clock, Chrome, RefreshCcw } from 'lucide-react'; 
 import MapaCliente from '../components/MapaCliente';
 import ChatFrete from '../components/ChatFrete';
 import ClientStatusCard from '../components/client/ClientStatusCard';
@@ -63,7 +48,6 @@ const callWithRetryAndTimeout = async <T,>(callableName: string, payload: unknow
 };
 
 export default function Cliente() {
-  // 🔥 ESTADOS DE AUTENTICAÇÃO (GATEKEEPER)
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
@@ -108,6 +92,7 @@ export default function Cliente() {
   const [mapsReady, setMapsReady] = useState(false); 
   
   const [isAiAnalyzing, setIsAiAnalyzing] = useState(false);
+  const [realDriversCount, setRealDriversCount] = useState(0); // 🔥 NOVO ESTADO: Contador real de motoristas (Bloco 05)
 
   const coordsCache = useRef<Record<string, Coords>>({});
   const isProcessingPayment = useRef(false);
@@ -123,7 +108,6 @@ export default function Cliente() {
     setTimeout(() => setToast(null), 4500);
   };
 
-  // 🔥 LISTENER DE SESSÃO DO FIREBASE
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -136,7 +120,46 @@ export default function Cliente() {
     return () => unsubscribe();
   }, []);
 
-  // 🔥 GOOGLE LOGIN HANDLER
+  // 🔥 BLOCO 05: LISTENER RTDB PARA CONTAGEM DE DISPONIBILIDADE REAL
+  const vehicleTypeToListen = useMemo(() => orderData?.veiculo || vehicle, [orderData?.veiculo, vehicle]);
+
+  useEffect(() => {
+    try {
+      const rtdb = getDatabase();
+      const driversRef = ref(rtdb, 'drivers');
+      // Trazemos do firebase apenas os online. O resto filtramos no client para aliviar.
+      const q = query(driversRef, orderByChild('online'), equalTo(true));
+
+      const unsubscribe = onValue(q, (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.val();
+          let count = 0;
+          const now = Date.now();
+          
+          Object.values(data).forEach((driver: any) => {
+            const isAvailable = driver.disponivel === true;
+            const matchesVehicle = driver.veiculo === vehicleTypeToListen;
+            // Tolerância de 15 min de falha de internet (evita que motorista offline preso conte).
+            const hasRecentHeartbeat = driver.lastUpdate ? (now - driver.lastUpdate < 15 * 60 * 1000) : true; 
+
+            if (isAvailable && matchesVehicle && hasRecentHeartbeat) {
+              count++;
+            }
+          });
+          setRealDriversCount(count);
+        } else {
+          setRealDriversCount(0);
+        }
+      }, (error) => {
+        console.error("[CTO-LOG] Falha ao ler disponibilidade RTDB:", error);
+      });
+
+      return () => unsubscribe();
+    } catch (error) {
+       console.error("[CTO-LOG] Firebase RTDB não inicializado corretamente.", error);
+    }
+  }, [vehicleTypeToListen]);
+
   const handleGoogleLogin = async () => {
     if (isAuthenticating) return;
     setIsAuthenticating(true);
@@ -470,18 +493,15 @@ export default function Cliente() {
       const parsedDate = tipoFrete === 'agendado' && dataAgendada ? new Date(dataAgendada) : null;
       const firebaseTimestamp = parsedDate ? Timestamp.fromDate(parsedDate) : null;
 
-      // 🔥 FIX MATEMÁTICO: Isolando o Pedágio da Tributação
       const isHeavy = ['toco', 'truck', 'carreta', 'bitrem'].includes(vehicle);
       const taxaPlataforma = isHeavy ? 0.15 : 0.20;
       const valorFreteBruto = valorOfertaNum; 
       const valorPedagioOperacao = calculoFinanceiro.tollCost;
       
-      // Subtrai o pedágio antes de calcular a comissão para proteger o custo operacional do motorista
       const baseComissao = Math.max(0, valorFreteBruto - valorPedagioOperacao);
       const lucroPlataforma = baseComissao * taxaPlataforma; 
       const valorLiquidoMotorista = valorFreteBruto - lucroPlataforma; 
 
-      // Montando o Payload unificado preservando todos os campos
       const payload = {
         clienteId: currentUser.uid,
         categoria: vehicle,
@@ -538,7 +558,6 @@ export default function Cliente() {
         setCurrentOrderId(result.freteId);
         setStep('busca');
 
-        // 🔥 CTO FIX: Invoca Pagamento Imediatamente após a criação bem-sucedida.
         try {
           const payRes = await paymentService.processarPagamento({
             valor: valorFreteBruto,
@@ -568,7 +587,6 @@ export default function Cliente() {
     }
   };
 
-  // 🔥 Fallback: Caso o cliente feche a tela do Mercado Pago e precise retomar o pagamento.
   const handlePagarReserva = async () => {
     if (!currentOrderId || !orderData) return;
     try {
@@ -624,7 +642,6 @@ export default function Cliente() {
     try {
       showToast('Recalculando e injetando nova oferta...', 'warning');
       
-      // 🔥 FIX MATEMÁTICO NO SMART PRICING: Protegendo o pedágio na margem adicional
       const isHeavy = ['toco', 'truck', 'carreta', 'bitrem'].includes(orderData.veiculo || '');
       const taxaPlataforma = isHeavy ? 0.15 : 0.20;
       
@@ -672,7 +689,6 @@ export default function Cliente() {
          if (!res.ok) throw new Error(data.error || data.detalhe || 'Erro na devolução.');
          showToast('Estorno realizado! O PIX retornou para sua conta.', 'success');
       } else {
-         // Cancela direto no banco porque ele nem tinha pago ainda.
          await updateDoc(doc(db, 'fretes', currentOrderId), {
             status: 'cancelado',
             canceladoEm: serverTimestamp()
@@ -748,7 +764,6 @@ export default function Cliente() {
     }
   };
 
-  // 🔥 GATEKEEPER RENDER LOGIC
   if (!authReady) {
     return (
       <div className="flex min-h-[100dvh] w-full items-center justify-center bg-slate-50">
@@ -790,7 +805,7 @@ export default function Cliente() {
                {isAuthenticating ? 'Conectando...' : 'Continuar com Google'}
              </button>
              <p className="text-[10px] uppercase font-bold tracking-widest text-slate-400 mt-6">
-               Seu acesso identifica sua empresa com segurança.
+                Seu acesso identifica sua empresa com segurança.
              </p>
           </div>
         </main>
@@ -806,7 +821,6 @@ export default function Cliente() {
     );
   }
 
-  // 🔥 FLUXO LOGADO PRESERVADO DA AQUI PARA BAIXO.
   return (
     <div className="relative min-h-[100dvh] w-full flex flex-col bg-slate-50 text-slate-800 font-sans selection:bg-blue-500/20">
       
@@ -1110,7 +1124,14 @@ export default function Cliente() {
 
               <div className="h-[300px] md:h-[450px] w-full overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-100 relative">
                 {mapsReady && origemGPS && destinoGPS ? (
-                  <MapaCliente origem={origemGPS} destino={destinoGPS} paradasExtras={paradasGPS.length > 1 ? paradasGPS.slice(0, -1) : undefined} vehicleType={vehicle} operationalMessage={`Validando Trajeto B2B...`} />
+                  <MapaCliente 
+                    origem={origemGPS} 
+                    destino={destinoGPS} 
+                    paradasExtras={paradasGPS.length > 1 ? paradasGPS.slice(0, -1) : undefined} 
+                    vehicleType={vehicle} 
+                    operationalMessage={`Validando Trajeto B2B...`} 
+                    realDriversCount={realDriversCount} // 🔥 INJETADO BLOCO 05
+                  />
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-blue-500"><Loader2 className="h-8 w-8 animate-spin mb-3"/></div>
                 )}
@@ -1153,7 +1174,6 @@ export default function Cliente() {
               
               <div className="flex flex-col gap-8">
                 
-                {/* 🔥 CTO FIX: Fallback de Pagamento (Inversão do Funil Seguro) */}
                 {orderData?.status === 'aguardando_pagamento' && (
                   <div className="bg-amber-500 rounded-[2.5rem] p-8 shadow-2xl text-white mb-2 relative overflow-hidden">
                     <h3 className="text-3xl font-black mb-2 flex items-center gap-3">
@@ -1216,6 +1236,7 @@ export default function Cliente() {
                         paradasExtras={paradasGPS} 
                         vehicleType={orderData?.veiculo || vehicle}
                         operationalMessage={orderData?.status ? orderData.status.replace('_', ' ') : undefined}
+                        realDriversCount={realDriversCount} // 🔥 INJETADO BLOCO 05
                       />
                     ) : (
                       <div className="absolute inset-0 flex flex-col items-center justify-center text-blue-500"><Loader2 className="h-8 w-8 animate-spin mb-3"/></div>
