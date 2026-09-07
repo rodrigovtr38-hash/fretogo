@@ -5,11 +5,11 @@
 // Evolução Fase 5: INVERSÃO DO FUNIL (Pagamento no Match). Conectado ao PaymentService.
 // Evolução Fase 6: Normalização Canônica de Categorias.
 // CTO-Log (EXECUÇÃO ATUAL): Limpeza estrita de variáveis estáticas/bypass de pagamento.
-// Ajuste Operacional (5 Minutos): Cronômetro ajustado para 5min e UI enriquecida com Veículo e ETA do motorista.
+// Ajuste Operacional: Fim da retenção de motorista. Pagamento instantâneo (Bloco 02).
 // FIX VERCEL: Correção estrita de sintaxe (aspas/crases) nas linhas 354 e 517-519 para destravar o Build.
 // CLIENTE-AUTH-01: Injeção do Gatekeeper de Autenticação (Google Auth) e bloqueio de Postagem Anônima no Firestore.
 // BLOCO 6: Injeção do Painel de Visibilidade de PINs e Automação de Envio no Chat Operacional.
-// CTO-FIX ATUAL: Chat visível imediatamente no Match. Lógica de Expiração (Publicar Novamente ou Excluir) se não pagar em 5 min.
+// CTO-FIX ATUAL: Criação via clientFreightService e fallback de retenção extirpado.
 // CTO-FIX MATEMÁTICO: Isolamento do pedágio da base de cálculo de comissão e padronização canônica de campos.
 // EXECUÇÃO BLOCO 01: Correção Matemática - Padronização da franquia de 15km para pesados (Carreta/Bitrem).
 // =========================================================
@@ -25,6 +25,7 @@ import ChatFrete from '../components/ChatFrete';
 import ClientStatusCard from '../components/client/ClientStatusCard';
 import ClientCancelModal from '../components/client/ClientCancelModal';
 import { paymentService } from '../services/paymentService'; 
+import { clientFreightService } from '../services/clientFreightService';
 
 import { AppTripState as TripState } from '../state/tripStateMachine'; 
 import { mapsLoader } from '../services/mapsLoader'; 
@@ -32,7 +33,7 @@ import { NotificationService } from '../services/notificationService';
 
 interface AddressData { cep: string; bairro: string; rua: string; num: string; cidade?: string; uf?: string; lat?: number; lng?: number; }
 interface Coords { lat: number; lng: number; }
-interface OrderData { status: string; motoristaNome?: string; motoristaZap?: string; rotaInteligente?: boolean; motoristaId?: string; veiculo?: string; distancia?: number; valorTotal?: number; origemLat?: number; origemLng?: number; destinoLat?: number; destinoLng?: number; paradas?: any[]; pinColeta?: string; pinEntregas?: string[]; multiplasEntregas?: boolean; paradaAtualIndex?: number; pagamentoStatus?: string; createdAt?: any; valorFreteBruto?: number; valorLiquidoMotorista?: number; visualizacoes?: number; motoristasNotificados?: number; interessados?: number; motoristaLat?: number; motoristaLng?: number; tipoMaterial?: string; qtdVolumes?: string; peso?: string; pesoKg?: string; reservadoEm?: number; transactionId?: string; valorPedagio?: number; }
+interface OrderData { status: string; motoristaNome?: string; motoristaZap?: string; rotaInteligente?: boolean; motoristaId?: string; veiculo?: string; distancia?: number; valorTotal?: number; origemLat?: number; origemLng?: number; destinoLat?: number; destinoLng?: number; paradas?: any[]; pinColeta?: string; pinEntregas?: string[]; multiplasEntregas?: boolean; paradaAtualIndex?: number; pagamentoStatus?: string; createdAt?: any; valorFreteBruto?: number; valorLiquidoMotorista?: number; visualizacoes?: number; motoristasNotificados?: number; interessados?: number; motoristaLat?: number; motoristaLng?: number; tipoMaterial?: string; qtdVolumes?: string; peso?: string; pesoKg?: string; reservadoEm?: number; transactionId?: string; valorPedagio?: number; distanciaRealKm?: number; }
 
 type VehicleType = 'moto' | 'carro' | 'utilitarios' | 'toco' | 'truck' | 'carreta' | 'bitrem';
 
@@ -107,9 +108,6 @@ export default function Cliente() {
   const [mapsReady, setMapsReady] = useState(false); 
   
   const [isAiAnalyzing, setIsAiAnalyzing] = useState(false);
-
-  // 🔥 LÓGICA DO CRONÔMETRO DE 5 MINUTOS PARA O CLIENTE
-  const [timeLeftEscrow, setTimeLeftEscrow] = useState<number | null>(null);
 
   const coordsCache = useRef<Record<string, Coords>>({});
   const isProcessingPayment = useRef(false);
@@ -275,33 +273,6 @@ export default function Cliente() {
       (tipoFrete === 'imediato' || (tipoFrete === 'agendado' && dataAgendada.trim() !== ''))
     );
   }, [nome, whatsapp, documento, coleta, entregas, peso, pesoValido, tipoMaterial, valorOfertaNum, tipoFrete, dataAgendada]);
-
-  // 🔥 EFEITO DO CRONÔMETRO ESCROW (CLIENTE - 5 MINUTOS)
-  useEffect(() => {
-    if (orderData?.status === TripState.RESERVADO_AGUARDANDO_PAGAMENTO && orderData?.reservadoEm) {
-      const interval = setInterval(() => {
-        const agora = Date.now();
-        const expiracao = orderData.reservadoEm! + (5 * 60 * 1000); // 5 minutos exatos
-        const restante = Math.max(0, expiracao - agora);
-        
-        setTimeLeftEscrow(restante);
-
-        if (restante === 0) {
-          clearInterval(interval);
-        }
-      }, 1000);
-      return () => clearInterval(interval);
-    } else {
-      setTimeLeftEscrow(null);
-    }
-  }, [orderData?.status, orderData?.reservadoEm]);
-
-  const formatTimeEscrow = (ms: number) => {
-    const totalSeconds = Math.floor(ms / 1000);
-    const m = Math.floor(totalSeconds / 60);
-    const s = totalSeconds % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
 
   useEffect(() => {
     if (step === 'busca' && orderData) {
@@ -510,37 +481,35 @@ export default function Cliente() {
       const lucroPlataforma = baseComissao * taxaPlataforma; 
       const valorLiquidoMotorista = valorFreteBruto - lucroPlataforma; 
 
-      const docRef = await addDoc(collection(db, 'fretes'), {
-        empresaId: currentUser.uid,  // ID real, garantido pela trava.
-        clienteId: currentUser.uid, 
+      // Montando o Payload unificado preservando todos os campos
+      const payload = {
+        clienteId: currentUser.uid,
+        categoria: vehicle,
+        origem: { lat: c1.lat, lng: c1.lng, endereco: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}` },
+        destino: { lat: destinoFinal.lat, lng: destinoFinal.lng, endereco: `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}` },
+        valorPedagio: valorPedagioOperacao,
+        empresaId: currentUser.uid, 
         tipoConta: 'b2b',
         empresaNome: nome || 'Empresa Embarcadora',
         empresaDocumento: documentoLimpo,
         clienteNome: nome || 'Empresa Embarcadora', 
         clienteZap: whatsapp, 
         clienteDocumento: documentoLimpo,
-        
         distancia: validDistancia <= 15 ? 15 : validDistancia, 
         distanciaRealKm: validDistancia, 
         distanciaTotalKm: validDistancia, 
         distanciaTarifada: validDistancia <= 15 ? 15 : validDistancia, 
-        
         veiculo: vehicle, 
-        categoria: vehicle, 
         peso: peso || 'Não informado', 
-        
         tipoMaterial: tipoMaterial,
         qtdVolumes: qtdVolumes,
         valorNF: valorNF,
         observacoes: observacoes,
-        
         valorTotal: valorFreteBruto, 
         valorFreteBruto: valorFreteBruto,
         valorMotorista: Number(valorLiquidoMotorista.toFixed(2)), 
         valorLiquidoMotorista: Number(valorLiquidoMotorista.toFixed(2)),
         lucroPlataforma: Number(lucroPlataforma.toFixed(2)),
-        valorPedagio: valorPedagioOperacao, 
-        
         cidadeOrigem: coleta.bairro, 
         cidadeDestino: destinoFinal.bairro,
         enderecoColetaTexto: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`, 
@@ -552,34 +521,54 @@ export default function Cliente() {
         origemLng: c1.lng, 
         destinoLat: destinoFinal.lat, 
         destinoLng: destinoFinal.lng, 
-        
         pinColeta, 
         pinEntregas, 
         multiplasEntregas: entregas.length > 1,
         tipoFrete,
         dataAgendada: firebaseTimestamp,
-        
         visualizacoes: 0,
         motoristasNotificados: 0,
         interressados: 0,
+      };
 
-        status: tipoFrete === 'agendado' ? TripState.AGENDADO : TripState.DISPONIVEL,
-        pagamentoStatus: 'pendente',
-        dispatchStatus: 'mural_aberto',
-        createdAt: serverTimestamp(),
-      });
+      const result = await clientFreightService.criarFrete(payload);
 
-      localStorage.setItem('fretogo_current_order', docRef.id); setCurrentOrderId(docRef.id);
-      
-      setStep('busca');
-      setLoadingPayment(false); 
-      isProcessingPayment.current = false;
+      if (result.success && result.freteId) {
+        localStorage.setItem('fretogo_current_order', result.freteId);
+        setCurrentOrderId(result.freteId);
+        setStep('busca');
 
+        // 🔥 CTO FIX: Invoca Pagamento Imediatamente após a criação bem-sucedida.
+        try {
+          const payRes = await paymentService.processarPagamento({
+            valor: valorFreteBruto,
+            descricao: `Postagem de Carga - ${VEHICLE_CONFIG[vehicle as VehicleType].nome}`,
+            clienteId: currentUser.uid,
+            freteId: result.freteId
+          });
+
+          if (payRes.success && payRes.url) {
+             window.location.href = payRes.url; 
+          } else {
+             showToast(payRes.error || 'Falha ao gerar link de pagamento seguro.', 'error');
+          }
+        } catch (paymentError: any) {
+           showToast(paymentError.message || "Erro ao conectar com o banco. Você pode tentar novamente.", "error");
+        }
+      } else {
+         throw new Error(result.error || 'Falha estrutural ao registrar carga.');
+      }
     } catch (e: any) {
-      showToast(`Falha estrutural: ${e.message}`, 'error'); localStorage.removeItem('fretogo_current_order'); setCurrentOrderId(null);
-    } finally { setLoadingPayment(false); isProcessingPayment.current = false; }
+      showToast(`Falha estrutural: ${e.message}`, 'error'); 
+      localStorage.removeItem('fretogo_current_order'); 
+      setCurrentOrderId(null);
+    } finally { 
+      setLoadingPayment(false); 
+      isProcessingPayment.current = false; 
+    }
   };
 
+  // 🔥 Fallback: Caso o cliente feche a tela do Mercado Pago e precise retomar o pagamento.
   const handlePagarReserva = async () => {
     if (!currentOrderId || !orderData) return;
     try {
@@ -587,7 +576,7 @@ export default function Cliente() {
       
       const payload = {
         valor: orderData.valorFreteBruto || 0,
-        descricao: `Postagem de Carga - ${VEHICLE_CONFIG[vehicle as VehicleType].nome}`,
+        descricao: `Postagem de Carga - ${orderData.veiculo ? VEHICLE_CONFIG[orderData.veiculo as VehicleType]?.nome : 'FretoGo'}`,
         clienteId: auth.currentUser?.uid || 'cliente',
         freteId: currentOrderId
       };
@@ -606,7 +595,6 @@ export default function Cliente() {
     }
   };
 
-  // 🔥 CTO FIX: BOTÃO PARA REPUBLICAR QUANDO EXCLUIR O MOTORISTA QUE NÃO FOI PAGO (A PUNIÇÃO)
   const handleRepublicar = async () => {
     if (!currentOrderId) return;
     try {
@@ -614,7 +602,6 @@ export default function Cliente() {
       const dataExpiracao = new Date();
       dataExpiracao.setMinutes(dataExpiracao.getMinutes() + 15);
 
-      // Limpa todos os dados do motorista e volta a carga para DISPONIVEL
       await updateDoc(doc(db, 'fretes', currentOrderId), {
         status: 'disponivel',
         motoristaId: null,
@@ -623,7 +610,6 @@ export default function Cliente() {
         motoristaVeiculo: null,
         motoristaPlaca: null,
         reservadoEm: null,
-        pagamentoStatus: 'pendente',
         ofertaExpiraEm: Timestamp.fromDate(dataExpiracao),
         updatedAt: serverTimestamp()
       });
@@ -670,7 +656,6 @@ export default function Cliente() {
     }
   };
 
-  // 🔥 CTO FIX: Função Excluir consertada para evitar chamar o MP atoa se não houver pagamento.
   const handleCancelarPedido = async () => {
     if (!currentOrderId || isCancelling) return;
     setIsCancelling(true);
@@ -789,7 +774,7 @@ export default function Cliente() {
              </div>
              <h2 className="text-3xl font-black text-slate-900 mb-3 tracking-tight">Painel do Embarcador</h2>
              <p className="text-slate-500 text-sm leading-relaxed mb-8">
-               Para publicar um frete, precisamos identificar sua conta. Assim sua operação fica vinculada a você e podemos manter seu histórico e acompanhamento.
+                Para publicar um frete, precisamos identificar sua conta. Assim sua operação fica vinculada a você e podemos manter seu histórico e acompanhamento.
              </p>
              
              <button
@@ -1154,7 +1139,7 @@ export default function Cliente() {
                   </div>
                   
                   <button onClick={handleContratar} disabled={loadingPayment || isProcessingPayment.current} className={`flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[2rem] text-[15px] font-black uppercase tracking-[0.2em] transition-all duration-300 ${loadingPayment ? 'bg-slate-200 text-slate-400' : 'bg-blue-600 text-white shadow-xl shadow-blue-500/40 hover:bg-blue-700 hover:scale-[1.02]'}`}>
-                    {loadingPayment ? <><Loader2 className="h-6 w-6 animate-spin" /> Publicando...</> : <><Zap size={22} /> Publicar e Buscar Motorista</>}
+                    {loadingPayment ? <><Loader2 className="h-6 w-6 animate-spin" /> Processando...</> : <><Zap size={22} /> Publicar e Pagar</>}
                   </button>
                   <button onClick={() => setStep('form')} className="w-full mt-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-colors">Voltar para Edição</button>
               </div>
@@ -1168,75 +1153,19 @@ export default function Cliente() {
               
               <div className="flex flex-col gap-8">
                 
-                {/* 🔥 CTO FIX: BLOCO DO MATCH - O PAGAMENTO DA RESERVA */}
-                {orderData?.status === 'reservado_aguardando_pagamento' && (
-                  <div className="bg-emerald-600 rounded-[2.5rem] p-8 shadow-2xl text-white relative overflow-hidden mb-2 animate-pulse-slow">
+                {/* 🔥 CTO FIX: Fallback de Pagamento (Inversão do Funil Seguro) */}
+                {orderData?.status === 'aguardando_pagamento' && (
+                  <div className="bg-amber-500 rounded-[2.5rem] p-8 shadow-2xl text-white mb-2 relative overflow-hidden">
                     <h3 className="text-3xl font-black mb-2 flex items-center gap-3">
-                       <CheckCircle size={32}/> MOTORISTA ENCONTRADO!
+                       <Clock size={32}/> PAGAMENTO PENDENTE
                     </h3>
-                    <p className="text-emerald-100 mb-6">O parceiro <b className="text-white">{orderData.motoristaNome}</b> aceitou sua carga e está aguardando a liberação. Pague agora para enviar a ele os endereços exatos e os PINs de segurança.</p>
+                    <p className="text-amber-100 mb-6 text-sm font-medium">Sua carga foi salva, mas ainda não está visível para os parceiros. Realize o pagamento de custódia (Escrow) para publicá-la no Radar agora mesmo.</p>
                     
-                    <div className="bg-emerald-700/50 rounded-2xl p-4 mb-4 border border-emerald-400/30 flex items-start gap-4 shadow-inner">
-                      <div className="p-3 bg-emerald-500/20 rounded-xl mt-1">
-                        <User size={24} className="text-white"/>
-                      </div>
-                      <div>
-                        <p className="text-[10px] uppercase font-bold text-emerald-200 tracking-wider">Parceiro Pronto para Coleta</p>
-                        <p className="text-xl font-black text-white leading-tight">{orderData.motoristaNome || 'Motorista Parceiro'}</p>
-                        <div className="flex flex-wrap items-center gap-2 mt-2">
-                          <span className="bg-emerald-800/80 text-emerald-100 text-[9px] px-2 py-1 rounded font-black uppercase tracking-widest border border-emerald-600/50">
-                            {orderData.veiculo ? VEHICLE_CONFIG[orderData.veiculo as VehicleType]?.nome : 'Veículo'}
-                          </span>
-                          <span className="bg-emerald-800/80 text-emerald-100 text-[9px] px-2 py-1 rounded font-black uppercase tracking-widest border border-emerald-600/50">
-                            Chega em ~{Math.max(5, Math.round((orderData.distanciaRealKm || 0) * 1.5))} min
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="bg-slate-900/50 rounded-2xl p-6 border border-emerald-400/30 flex items-center justify-between mb-6">
-                        <div>
-                           <p className="text-[10px] uppercase tracking-widest text-emerald-300">Sua Oferta</p>
-                           <p className="text-3xl font-black">R$ {orderData.valorFreteBruto?.toFixed(2).replace('.',',')}</p>
-                        </div>
-                        <div className="text-right">
-                           <p className="text-[10px] uppercase tracking-widest text-emerald-300">Motorista Recebe</p>
-                           <p className="text-xl font-bold">R$ {orderData.valorLiquidoMotorista?.toFixed(2).replace('.',',')}</p>
-                           <p className="text-[9px] uppercase text-emerald-400/80 mt-1">Taxa FretoGo: R$ {((orderData.valorFreteBruto || 0) - (orderData.valorLiquidoMotorista || 0)).toFixed(2).replace('.',',')}</p>
-                        </div>
-                    </div>
-
-                    {/* 🔥 CTO FIX: A Punição por Falta de Pagamento */}
-                    {timeLeftEscrow === 0 ? (
-                      <div className="flex flex-col gap-3 mt-4">
-                         <div className="bg-red-500/20 border border-red-500/30 rounded-2xl p-4 text-center mb-2">
-                            <AlertTriangle className="text-red-400 mx-auto mb-2" size={24}/>
-                            <p className="text-red-400 font-black uppercase tracking-widest text-sm">Tempo Esgotado</p>
-                            <p className="text-red-200 text-[10px] mt-1">O motorista foi liberado porque o pagamento não foi efetuado.</p>
-                         </div>
-                         <button onClick={handleRepublicar} disabled={loadingPayment} className="w-full bg-slate-900 hover:bg-black text-white text-sm font-black uppercase tracking-[0.1em] py-5 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg border border-slate-700">
-                            <RefreshCcw size={18}/> Publicar Novamente no Radar
-                         </button>
-                         <button onClick={() => setShowCancelModal(true)} disabled={loadingPayment} className="w-full bg-transparent border border-red-500/30 text-red-100 hover:bg-red-500/20 text-xs font-black uppercase tracking-widest py-4 rounded-xl flex items-center justify-center gap-2 transition-all">
-                            <Trash2 size={16}/> Excluir Frete Definitivamente
-                         </button>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex items-center justify-center gap-3 mb-6 bg-slate-900/40 py-3 rounded-xl border border-amber-400/50 shadow-inner">
-                           <Clock size={20} className="text-amber-400 animate-spin-slow" />
-                           <p className="text-sm font-bold text-amber-300">Tempo restante para pagar:</p>
-                           <p className="text-xl font-mono font-black text-amber-400 tracking-widest">
-                             {timeLeftEscrow !== null ? formatTimeEscrow(timeLeftEscrow) : '05:00'}
-                           </p>
-                        </div>
-                        <button onClick={handlePagarReserva} disabled={loadingPayment} className="w-full bg-slate-900 hover:bg-black text-white text-lg font-black uppercase tracking-[0.2em] py-5 rounded-[1.5rem] flex items-center justify-center gap-3 transition-all shadow-xl disabled:opacity-50 disabled:cursor-not-allowed">
-                            {loadingPayment ? <Loader2 className="animate-spin" /> : <Lock size={20}/>}
-                            {loadingPayment ? 'Conectando...' : 'Confirmar e Pagar'}
-                        </button>
-                        <p className="text-center text-[10px] text-emerald-200 mt-4 font-bold uppercase tracking-widest">O valor ficará retido pela garantia Escrow até a entrega.</p>
-                      </>
-                    )}
+                    <button onClick={handlePagarReserva} disabled={loadingPayment} className="w-full bg-slate-900 hover:bg-black text-white text-lg font-black uppercase tracking-[0.2em] py-5 rounded-[1.5rem] flex items-center justify-center gap-3 transition-all shadow-xl disabled:opacity-50 disabled:cursor-not-allowed">
+                       {loadingPayment ? <Loader2 className="animate-spin" /> : <Lock size={20}/>}
+                       {loadingPayment ? 'Conectando...' : 'Ir para Pagamento'}
+                    </button>
+                    <p className="text-center text-[10px] text-amber-200 mt-4 font-bold uppercase tracking-widest">A proteção Escrow garante devolução integral em caso de cancelamento.</p>
                   </div>
                 )}
 
@@ -1246,7 +1175,7 @@ export default function Cliente() {
                     <div>
                       <div className="flex items-center gap-3 mb-3">
                         <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-500"></span></span>
-                        <p className="text-cyan-400 font-bold tracking-widest uppercase text-xs">Carga Ativa no Feed</p>
+                        <p className="text-cyan-400 font-bold tracking-widest uppercase text-xs">Carga no Sistema</p>
                       </div>
                       <h2 className="text-3xl md:text-4xl font-black">ID: #{currentOrderId?.slice(0,8).toUpperCase()}</h2>
                     </div>
@@ -1292,7 +1221,7 @@ export default function Cliente() {
                       <div className="absolute inset-0 flex flex-col items-center justify-center text-blue-500"><Loader2 className="h-8 w-8 animate-spin mb-3"/></div>
                     )}
                     
-                    {['aguardando_pagamento', 'disponivel', 'buscando_motorista'].includes(orderData?.status || '') && (
+                    {['disponivel', 'buscando_motorista'].includes(orderData?.status || '') && (
                       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 bg-slate-900/95 backdrop-blur-md px-6 py-4 rounded-full shadow-2xl border border-cyan-500/50">
                         <span className="relative flex h-4 w-4">
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
@@ -1328,8 +1257,7 @@ export default function Cliente() {
                     </div>
                 </div>
 
-                {/* 🔥 CTO FIX: Adicionado 'reservado_aguardando_pagamento' para o Chat ficar sempre visível */}
-                {['reservado_aguardando_pagamento', 'aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 'em_transporte', 'entregue'].includes(orderData?.status || '') && (
+                {['aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 'em_transporte', 'entregue'].includes(orderData?.status || '') && (
                   <div className="mt-8 pt-8 border-t border-white/5">
                      <div className="mb-6 bg-slate-950 border border-emerald-500/20 rounded-3xl p-6 shadow-inner">
                         <h3 className="text-sm font-black uppercase tracking-widest text-emerald-400 mb-4 flex items-center gap-2">
