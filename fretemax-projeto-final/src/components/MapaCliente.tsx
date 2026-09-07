@@ -1,12 +1,5 @@
-// =========================================================
-// NOME DO ARQUIVO: src/components/MapaCliente.tsx
-// CTO-Log: Auditoria Final - Bloco 3
-// Status: Validação gráfica concluída. Isolamento mantido.
-// =========================================================
-
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import { GoogleMap, Marker, Polyline, useJsApiLoader } from '@react-google-maps/api';
-import { Flame } from 'lucide-react';
 
 type Coordinates = { lat: number; lng: number; };
 
@@ -19,6 +12,7 @@ interface MapaClienteProps {
   eta?: number | null;
   motoristaId?: string | null;
   vehicleType?: string;
+  realDriversCount?: number; // 🔥 INJETADO BLOCO 05 (Contador Real via RTDB)
 }
 
 const containerStyle = { width: '100%', height: '100%', minHeight: '420px', borderRadius: '1.5rem' };
@@ -39,7 +33,8 @@ function MapaCliente({
   motoristaPos, 
   operationalMessage = 'Roteirizando caminhos otimizados...', 
   motoristaId, 
-  vehicleType = 'utilitario' 
+  vehicleType = 'utilitario',
+  realDriversCount = 0
 }: MapaClienteProps) {
   
   const { isLoaded } = useJsApiLoader({
@@ -48,13 +43,7 @@ function MapaCliente({
   });
 
   const mapRef = useRef<google.maps.Map | null>(null);
-  const [simulatedDrivers, setSimulatedDrivers] = useState<number>(0);
   const speed = useMemo(() => Math.floor(Math.random() * (60 - 30 + 1) + 30), [motoristaPos]);
-
-  useEffect(() => {
-    const baseDrivers = ['toco', 'truck', 'carreta'].some(t => vehicleType.includes(t)) ? 3 : 12;
-    setSimulatedDrivers(Math.floor(Math.random() * 5) + baseDrivers);
-  }, [vehicleType]);
 
   const routePath = useMemo(() => {
     const path: Coordinates[] = [];
@@ -154,10 +143,22 @@ function MapaCliente({
           </div>
         )}
 
+        {/* 🔥 BLOCO 05: UI do Contador Real */}
         {!motoristaId && origem && (
-          <div className="rounded-[1rem] border border-amber-500/30 bg-amber-500/10 px-4 py-2 backdrop-blur-md shadow-lg flex items-center gap-2 animate-in slide-in-from-right-8 duration-700 delay-500">
-            <Flame className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
-            <span className="text-[9px] font-black uppercase tracking-widest text-amber-500">{simulatedDrivers} parceiros no setor</span>
+          <div className={`rounded-[1rem] border px-4 py-2 backdrop-blur-md shadow-lg flex items-center gap-2 animate-in slide-in-from-right-8 duration-700 delay-500 ${realDriversCount > 0 ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-amber-500/30 bg-amber-500/10'}`}>
+            {realDriversCount > 0 ? (
+              <>
+                <div className="h-2 w-2 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+                <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500">
+                  {realDriversCount} {realDriversCount === 1 ? 'parceiro no setor' : 'parceiros no setor'}
+                </span>
+              </>
+            ) : (
+              <>
+                <div className="h-3 w-3 animate-spin rounded-full border-2 border-amber-500/40 border-t-amber-500" />
+                <span className="text-[9px] font-black uppercase tracking-widest text-amber-500">Buscando parceiros...</span>
+              </>
+            )}
           </div>
         )}
       </div>
