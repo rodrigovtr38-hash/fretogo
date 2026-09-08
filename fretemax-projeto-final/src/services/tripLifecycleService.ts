@@ -5,6 +5,7 @@
 // Evolução Fase 12 (Escrow): Blindagem atômica injetada no runTransaction.
 // Correção Bloco 4: Injeção do status 'finalizado' no Tracker de Logs da Torre.
 // Correção Bloco 04 (Execução): Preservação de campos financeiros (pagamentoStatus, pagoEm, reservaExpiraEm) no mapeamento genérico de transição.
+// Correção Bloco de Agendamento: Bloqueio do Forced Reset para proteger cargas agendadas durante recusa de motoristas.
 // =========================================================
 
 import { doc, serverTimestamp, collection, addDoc, runTransaction } from 'firebase/firestore';
@@ -28,6 +29,8 @@ export interface TripDocumentData {
   motoristaTelefone?: string | null;
   motoristaAtualDestaque?: string | null;
   dispatchStatus?: string;
+  tipoFrete?: string;
+  agendado?: boolean;
   [key: string]: unknown;
 }
 
@@ -98,7 +101,12 @@ export class TripLifecycleService {
           break;
         case AppTripState.DISPONIVEL:
            if (contract?.isRecusa) {
-             mensagemLog = "⚠️ [Torre Operacional]: Operação abortada/recusada. Carga devolvida ao Radar.";
+             mensagemLog = "⚠️ [Torre Operacional]: Operação abortada/recusada. Carga devolvida ao Radar imediato.";
+           }
+           break;
+        case 'agendado':
+           if (contract?.isRecusa) {
+             mensagemLog = "⚠️ [Torre Operacional]: Motorista cancelou a reserva. A operação retornou para o status Agendado aguardando o momento da coleta.";
            }
            break;
         case AppTripState.SEM_MOTORISTA:
@@ -144,6 +152,9 @@ export class TripLifecycleService {
         }
 
         const data = snapshot.data() as TripDocumentData;
+        
+        // 🔥 CTO FIX: Verifica proativamente se é uma carga agendada
+        const isAgendado = data.tipoFrete === 'agendado' || data.agendado === true;
 
         // 🔥 CTO FIX (Escrow Atomic Lock): Impede que dois motoristas acessem ao mesmo tempo
         if (novoStatus === AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO as any) {
@@ -211,6 +222,13 @@ export class TripLifecycleService {
 
             statusCalculado = runtime.tripState;
             
+            // 🔥 CTO FIX: Intercepta o Forced Reset de Agendamento
+            // Impede categoricamente que a recusa do motorista transforme uma carga futura em carga imediata
+            if (isForcedReset && novoStatus === AppTripState.DISPONIVEL && isAgendado) {
+                statusCalculado = 'agendado';
+                payloadUpdate.dispatchStatus = 'retido_agendamento';
+            }
+
             if (novoStatus === AppTripState.ENTREGUE && paradaAtualIndex + 1 < totalParadas) {
               paradaAtualIndex += 1;
               statusCalculado = AppTripState.EM_TRANSPORTE; 
@@ -236,7 +254,6 @@ export class TripLifecycleService {
               if (contract.entregueEm !== undefined) payloadUpdate.entregueEm = contract.entregueEm;
               if (contract.canceladoPorMotoristaEm !== undefined) payloadUpdate.canceladoPorMotoristaEm = contract.canceladoPorMotoristaEm;
               
-              // 🔥 CTO FIX: Preservação financeira durante transições operacionais (Bloco 04)
               if (contract.pagamentoStatus !== undefined) payloadUpdate.pagamentoStatus = contract.pagamentoStatus;
               if (contract.pagoEm !== undefined) payloadUpdate.pagoEm = contract.pagoEm;
               if (contract.reservaExpiraEm !== undefined) payloadUpdate.reservaExpiraEm = contract.reservaExpiraEm;
@@ -268,7 +285,8 @@ export class TripLifecycleService {
 
       const freightPayloadToBroadcast = { ...finalDocumentState } as unknown as FretePayload;
       
-      if (statusCalculado === AppTripState.DISPONIVEL && wasForcedReset) {
+      // CTO FIX: Emite evento de cancelamento tanto para disponíveis quanto agendados
+      if ((statusCalculado === AppTripState.DISPONIVEL || statusCalculado === 'agendado') && wasForcedReset) {
          ftiRadar.dispatch({ userId: 'system', eventType: 'DRIVER_CANCELED', data: freightPayloadToBroadcast, timestamp: new Date().toISOString() });
       }
       if (statusCalculado === AppTripState.EM_TRANSPORTE) {
@@ -278,6 +296,7 @@ export class TripLifecycleService {
          ftiRadar.dispatch({ userId: finalDocumentState.motoristaId || 'unknown', eventType: 'TRIP_COMPLETED', data: freightPayloadToBroadcast, timestamp: new Date().toISOString() });
       }
 
+      // O Dispatch Ativo SÓ RODA se for DISPONIVEL
       if (statusCalculado === AppTripState.DISPONIVEL && finalDocumentState.dispatchStatus !== 'aberto_no_feed') {
         try {
           DispatchQueueService.iniciarFila(freightPayloadToBroadcast).catch((err: unknown) => 
