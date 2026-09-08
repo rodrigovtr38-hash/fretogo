@@ -4,6 +4,7 @@
 // Evolução Fase 5: Remoção da sobrescrita otimista do TripState.
 // Bloco Pagamento Real: Compatibilização de chaves de valor.
 // Bloco 02 (Execução): Ajuste do Bypass QA para 'disponivel' (Feed) ao invés de 'aceito'.
+// Bloco 05-B (Execução): Tratamento de erro detalhado do backend e Sandbox Mode Explícito.
 // =========================================================
 
 import {
@@ -64,13 +65,15 @@ class PaymentService {
         return { success: false, error: 'VALOR_INVALIDO_FRAUDE' };
       }
 
-      // 🔥 CTO FIX: BYPASS DE HOMOLOGAÇÃO (Modo Teste - Bloco 2)
-      // Intercepta a chamada de contas autorizadas e simula aprovação instantânea
-      const TEST_EMAILS = ['contato@fretogo.com.br', 'rodrigovtr38@gmail.com'];
+      // 🔥 CTO FIX: MODO DE TESTE EXPLÍCITO / SANDBOX (Bloco 05-B)
+      // O modo Sandbox é ativado se o usuário estiver na lista de admins OU se houver uma flag local configurada no navegador.
+      const AUTHORIZED_SANDBOX_ACCOUNTS = ['contato@fretogo.com.br', 'rodrigovtr38@gmail.com'];
       const currentUserEmail = auth.currentUser?.email;
+      const isSandboxMode = (currentUserEmail && AUTHORIZED_SANDBOX_ACCOUNTS.includes(currentUserEmail)) ||
+                            (typeof window !== 'undefined' && localStorage.getItem('FRETOGO_SANDBOX') === 'true');
 
-      if (currentUserEmail && TEST_EMAILS.includes(currentUserEmail)) {
-        console.log('[CTO-Log] BYPASS DE QA ATIVADO. Simulando pagamento aprovado para:', currentUserEmail);
+      if (isSandboxMode) {
+        console.log('[CTO-Log] 🧪 MODO SANDBOX ATIVADO. Simulando aprovação para:', currentUserEmail || 'Tester com Flag Local');
         const txId = 'QA_BYPASS_' + Date.now();
         
         // 🔥 CTO FIX (Bloco 02): Muda o status para DISPONIVEL (vai pro Feed) e não ACEITO.
@@ -104,8 +107,20 @@ class PaymentService {
       });
 
       if (!response.ok) {
+        // 🔥 CTO FIX (Bloco 05-B): Captura a resposta real do backend para diagnóstico detalhado em vez de mascarar
+        const errorText = await response.text();
+        console.error('[CTO-Log] FALHA NA API DE PAGAMENTO (Backend):', response.status, errorText);
+        
+        let errorMessage = 'ERRO_PAGAMENTO';
+        try {
+          const parsedErr = JSON.parse(errorText);
+          if (parsedErr.error) errorMessage = parsedErr.error;
+        } catch (e) {
+          // Mantém o fallback 'ERRO_PAGAMENTO' se o backend cuspir HTML ou timeout
+        }
+
         eventBusService.emit(AppEvents.PAYMENT_FAILED, payload);
-        return { success: false, error: 'ERRO_PAGAMENTO' };
+        return { success: false, error: errorMessage }; // Devolve a string real do backend para o Toast do cliente
       }
 
       const data = await response.json();
