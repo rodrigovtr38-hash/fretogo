@@ -52,7 +52,7 @@ export default function Cliente() {
   const [authReady, setAuthReady] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
 
-  const [step, setStep] = useState<'form' | 'preview' | 'busca'>('form');
+  const [step, setStep] = useState<'form' | 'preview' | 'oferta' | 'busca'>('form');
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [loadingPayment, setLoadingPayment] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0);
@@ -265,10 +265,12 @@ export default function Cliente() {
   const isOfertaBoa = valorOfertaNum >= (valorSugeridoCalculado * 0.95);
 
   useEffect(() => {
-    setIsAiAnalyzing(true);
-    const timeout = setTimeout(() => setIsAiAnalyzing(false), 1500);
-    return () => clearTimeout(timeout);
-  }, [vehicle, validDistancia, tipoMaterial]);
+    if (step === 'oferta') {
+      setIsAiAnalyzing(true);
+      const timeout = setTimeout(() => setIsAiAnalyzing(false), 1500);
+      return () => clearTimeout(timeout);
+    }
+  }, [step, vehicle, validDistancia, tipoMaterial]);
 
   const pesoValido = useMemo(() => {
     const pesoNum = parseInt(peso.replace(/\D/g, ''), 10);
@@ -408,9 +410,6 @@ export default function Cliente() {
     setLoadingStep(0);
     
     try {
-      // FIX IMPLEMENTADO: Remove o "Guarulhos" e "SP" hardcoded. O array .filter(Boolean) evita vírgulas 
-      // extras caso os campos não existam, enviando "Rua, Num, Bairro, CEP, Brasil" perfeitamente limpo
-      // para o geocoder que mapeará Franca (ou qualquer outra cidade) corretamente.
       const origStr = [coleta.rua, coleta.num, coleta.bairro, coleta.cidade, coleta.uf, coleta.cep, 'Brasil'].filter(Boolean).join(', ');
       
       const origCoords = await getValidCoords(origStr);
@@ -450,7 +449,8 @@ export default function Cliente() {
     }
   };
 
-  const handleContratar = async () => {
+  // FLUXO DE OFERTA ONE-CLICK: Cria a carga e imediatamente chama o Mercado Pago
+  const handleConfirmarEPagar = async () => {
     if (loadingRoute || loadingPayment || isProcessingPayment.current) return;
     
     if (valorOfertaNum <= 0) {
@@ -466,8 +466,6 @@ export default function Cliente() {
     
     isProcessingPayment.current = true;
     setLoadingPayment(true);
-    setLoadingStep(0);
-    await new Promise(resolve => setTimeout(resolve, 50));
     
     if (tipoFrete === 'agendado' && dataAgendada) {
       const agoraTimestamp = Date.now();
@@ -481,101 +479,125 @@ export default function Cliente() {
       }
     }
 
+    let createdFreteId = currentOrderId;
+
     try {
-      // FIX IMPLEMENTADO: Utiliza a mesma lógica de endereçamento livre para resgatar as coords da coleta.
-      const c1 = await getValidCoords([coleta.rua, coleta.num, coleta.bairro, coleta.cidade, coleta.uf, coleta.cep, 'Brasil'].filter(Boolean).join(', '));
-      
-      const coordsEntregas = [];
-      for (const e of entregas) {
-         // FIX IMPLEMENTADO: Utiliza a mesma lógica de endereçamento livre para resgatar as coords das entregas.
-         const c = await getValidCoords([e.rua, e.num, e.bairro, e.cidade, e.uf, e.cep, 'Brasil'].filter(Boolean).join(', '));
-         coordsEntregas.push({ ...e, lat: c.lat, lng: c.lng });
+      // 1. Criar o frete no banco (se ainda não foi criado)
+      if (!createdFreteId) {
+        const c1 = await getValidCoords([coleta.rua, coleta.num, coleta.bairro, coleta.cidade, coleta.uf, coleta.cep, 'Brasil'].filter(Boolean).join(', '));
+        
+        const coordsEntregas = [];
+        for (const e of entregas) {
+           const c = await getValidCoords([e.rua, e.num, e.bairro, e.cidade, e.uf, e.cep, 'Brasil'].filter(Boolean).join(', '));
+           coordsEntregas.push({ ...e, lat: c.lat, lng: c.lng });
+        }
+        const destinoFinal = coordsEntregas[coordsEntregas.length - 1];
+        const documentoLimpo = documento.replace(/\D/g, ''); 
+        
+        const pinColeta = Math.floor(1000 + Math.random() * 9000).toString();
+        const pinEntregas = entregas.map(() => Math.floor(1000 + Math.random() * 9000).toString());
+
+        const parsedDate = tipoFrete === 'agendado' && dataAgendada ? new Date(dataAgendada) : null;
+        const firebaseTimestamp = parsedDate ? Timestamp.fromDate(parsedDate) : null;
+
+        const isHeavy = ['toco', 'truck', 'carreta', 'bitrem'].includes(vehicle);
+        const taxaPlataforma = isHeavy ? 0.15 : 0.20;
+        const valorFreteBruto = valorOfertaNum; 
+        const valorPedagioOperacao = calculoFinanceiro.tollCost;
+        
+        const baseComissao = Math.max(0, valorFreteBruto - valorPedagioOperacao);
+        const lucroPlataforma = baseComissao * taxaPlataforma; 
+        const valorLiquidoMotorista = valorFreteBruto - lucroPlataforma; 
+
+        const payload = {
+          clienteId: currentUser.uid,
+          categoria: vehicle,
+          origem: { lat: c1.lat, lng: c1.lng, endereco: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}` },
+          destino: { lat: destinoFinal.lat, lng: destinoFinal.lng, endereco: `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}` },
+          valorPedagio: valorPedagioOperacao,
+          empresaId: currentUser.uid, 
+          tipoConta: 'b2b',
+          empresaNome: nome || 'Empresa Embarcadora',
+          empresaDocumento: documentoLimpo,
+          clienteNome: nome || 'Empresa Embarcadora', 
+          clienteZap: whatsapp, 
+          clienteDocumento: documentoLimpo,
+          distancia: validDistancia <= 15 ? 15 : validDistancia, 
+          distanciaRealKm: validDistancia, 
+          distanciaTotalKm: validDistancia, 
+          distanciaTarifada: validDistancia <= 15 ? 15 : validDistancia, 
+          veiculo: vehicle, 
+          peso: peso || 'Não informado', 
+          tipoMaterial: tipoMaterial,
+          qtdVolumes: qtdVolumes,
+          observacoes: observacoes,
+          valorTotal: valorFreteBruto, 
+          valorFreteBruto: valorFreteBruto,
+          valorMotorista: Number(valorLiquidoMotorista.toFixed(2)), 
+          valorLiquidoMotorista: Number(valorLiquidoMotorista.toFixed(2)),
+          lucroPlataforma: Number(lucroPlataforma.toFixed(2)),
+          cidadeOrigem: coleta.bairro, 
+          cidadeDestino: destinoFinal.bairro,
+          enderecoColetaTexto: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`, 
+          enderecoEntregaTexto: `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}`,
+          coleta, 
+          entrega: destinoFinal, 
+          paradas: coordsEntregas,
+          origemLat: c1.lat, 
+          origemLng: c1.lng, 
+          destinoLat: destinoFinal.lat, 
+          destinoLng: destinoFinal.lng, 
+          pinColeta, 
+          pinEntregas, 
+          multiplasEntregas: entregas.length > 1,
+          tipoFrete,
+          dataAgendada: firebaseTimestamp,
+          visualizacoes: 0,
+          motoristasNotificados: 0,
+          interressados: 0,
+        };
+
+        const result = await clientFreightService.criarFrete(payload);
+
+        if (result.success && result.freteId) {
+          createdFreteId = result.freteId;
+          localStorage.setItem('fretogo_current_order', createdFreteId);
+          setCurrentOrderId(createdFreteId);
+        } else {
+           throw new Error(result.error || 'Falha estrutural ao registrar carga.');
+        }
       }
-      const destinoFinal = coordsEntregas[coordsEntregas.length - 1];
-      const documentoLimpo = documento.replace(/\D/g, ''); 
-      
-      const pinColeta = Math.floor(1000 + Math.random() * 9000).toString();
-      const pinEntregas = entregas.map(() => Math.floor(1000 + Math.random() * 9000).toString());
 
-      const parsedDate = tipoFrete === 'agendado' && dataAgendada ? new Date(dataAgendada) : null;
-      const firebaseTimestamp = parsedDate ? Timestamp.fromDate(parsedDate) : null;
-
-      const isHeavy = ['toco', 'truck', 'carreta', 'bitrem'].includes(vehicle);
-      const taxaPlataforma = isHeavy ? 0.15 : 0.20;
-      const valorFreteBruto = valorOfertaNum; 
-      const valorPedagioOperacao = calculoFinanceiro.tollCost;
-      
-      const baseComissao = Math.max(0, valorFreteBruto - valorPedagioOperacao);
-      const lucroPlataforma = baseComissao * taxaPlataforma; 
-      const valorLiquidoMotorista = valorFreteBruto - lucroPlataforma; 
-
-      const payload = {
+      // 2. Acionar serviço de pagamento instantaneamente
+      const paymentPayload = {
+        valor: valorOfertaNum,
+        descricao: `Postagem de Carga - ${vehicle ? VEHICLE_CONFIG[vehicle]?.nome : 'FretoGo'}`,
         clienteId: currentUser.uid,
-        categoria: vehicle,
-        origem: { lat: c1.lat, lng: c1.lng, endereco: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}` },
-        destino: { lat: destinoFinal.lat, lng: destinoFinal.lng, endereco: `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}` },
-        valorPedagio: valorPedagioOperacao,
-        empresaId: currentUser.uid, 
-        tipoConta: 'b2b',
-        empresaNome: nome || 'Empresa Embarcadora',
-        empresaDocumento: documentoLimpo,
-        clienteNome: nome || 'Empresa Embarcadora', 
-        clienteZap: whatsapp, 
-        clienteDocumento: documentoLimpo,
-        distancia: validDistancia <= 15 ? 15 : validDistancia, 
-        distanciaRealKm: validDistancia, 
-        distanciaTotalKm: validDistancia, 
-        distanciaTarifada: validDistancia <= 15 ? 15 : validDistancia, 
-        veiculo: vehicle, 
-        peso: peso || 'Não informado', 
-        tipoMaterial: tipoMaterial,
-        qtdVolumes: qtdVolumes,
-        observacoes: observacoes,
-        valorTotal: valorFreteBruto, 
-        valorFreteBruto: valorFreteBruto,
-        valorMotorista: Number(valorLiquidoMotorista.toFixed(2)), 
-        valorLiquidoMotorista: Number(valorLiquidoMotorista.toFixed(2)),
-        lucroPlataforma: Number(lucroPlataforma.toFixed(2)),
-        cidadeOrigem: coleta.bairro, 
-        cidadeDestino: destinoFinal.bairro,
-        enderecoColetaTexto: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`, 
-        enderecoEntregaTexto: `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}`,
-        coleta, 
-        entrega: destinoFinal, 
-        paradas: coordsEntregas,
-        origemLat: c1.lat, 
-        origemLng: c1.lng, 
-        destinoLat: destinoFinal.lat, 
-        destinoLng: destinoFinal.lng, 
-        pinColeta, 
-        pinEntregas, 
-        multiplasEntregas: entregas.length > 1,
-        tipoFrete,
-        dataAgendada: firebaseTimestamp,
-        visualizacoes: 0,
-        motoristasNotificados: 0,
-        interressados: 0,
+        freteId: createdFreteId as string
       };
 
-      const result = await clientFreightService.criarFrete(payload);
-
-      if (result.success && result.freteId) {
-        localStorage.setItem('fretogo_current_order', result.freteId);
-        setCurrentOrderId(result.freteId);
-        setStep('busca');
+      const res = await paymentService.processarPagamento(paymentPayload);
+      
+      if (res.success && res.url) {
+         window.location.href = res.url; 
       } else {
-         throw new Error(result.error || 'Falha estrutural ao registrar carga.');
+         throw new Error(res.error || 'Falha ao gerar link de pagamento seguro.');
       }
     } catch (e: any) {
-      showToast(`Falha estrutural: ${e.message}`, 'error'); 
-      localStorage.removeItem('fretogo_current_order'); 
-      setCurrentOrderId(null);
+      showToast(`Falha na operação: ${e.message}`, 'error'); 
+      if (createdFreteId) {
+         setStep('busca'); // Falhou no pagamento mas criou a carga. Vai para a tela de retry.
+      } else {
+         localStorage.removeItem('fretogo_current_order'); 
+         setCurrentOrderId(null);
+      }
     } finally { 
       setLoadingPayment(false); 
       isProcessingPayment.current = false; 
     }
   };
 
+  // Mantido especificamente para quando o usuário retorna do MP ou tenta pagar novamente na tela de Busca
   const handlePagarReserva = async () => {
     if (!currentOrderId || !orderData) return;
     try {
@@ -596,7 +618,7 @@ export default function Cliente() {
          throw new Error(res.error || 'Falha ao gerar link de pagamento seguro.');
       }
     } catch (error: any) {
-       showToast(error.message || "Erro ao processar checkout.", "error");
+       showToast(error.message || "Erro ao processar pagamento.", "error");
     } finally {
        setLoadingPayment(false);
     }
@@ -986,13 +1008,16 @@ export default function Cliente() {
           </div>
         )}
 
+        {/* ========================================================
+            ETAPA 2: RESUMO DA ROTA (Isolado da Oferta)
+            ======================================================== */}
         {step === 'preview' && (
-          <div className="w-full grid grid-cols-1 gap-8 animate-in fade-in zoom-in duration-500 lg:grid-cols-[1fr_450px]">
+          <div className="w-full max-w-4xl mx-auto animate-in fade-in zoom-in duration-500">
             <div className="rounded-[2.5rem] border border-slate-200 bg-white p-8 shadow-xl">
               <div className="mb-8 flex items-center justify-between border-b border-slate-100 pb-6">
                 <div>
                   <h2 className="text-3xl font-black text-slate-900">Resumo da Rota</h2>
-                  <p className="text-sm text-slate-500 font-medium mt-1">Confira os detalhes operacionais antes de postar no Feed.</p>
+                  <p className="text-sm text-slate-500 font-medium mt-1">Confira os detalhes operacionais antes de avançar.</p>
                 </div>
                 <div className="h-14 w-14 rounded-full bg-blue-50 flex items-center justify-center"><MapPin className="h-6 w-6 text-blue-600" /></div>
               </div>
@@ -1060,10 +1085,61 @@ export default function Cliente() {
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-blue-500"><Loader2 className="h-8 w-8 animate-spin mb-3"/></div>
                 )}
               </div>
+
+              <div className="mt-8 flex flex-col sm:flex-row gap-4">
+                 <button onClick={() => setStep('form')} className="flex-1 py-4 text-xs font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors bg-slate-100 rounded-3xl">
+                    Voltar para Edição
+                 </button>
+                 <button onClick={() => setStep('oferta')} className="flex-[2] flex min-h-[72px] items-center justify-center gap-3 rounded-[2rem] text-[15px] font-black uppercase tracking-[0.2em] transition-all duration-300 bg-blue-600 text-white shadow-xl shadow-blue-500/40 hover:bg-blue-700 hover:scale-[1.02]">
+                    Continuar para Oferta <ArrowLeft className="rotate-180" size={22} />
+                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================
+            ETAPA 3: OFERTA & PAGAMENTO ONE-CLICK
+            ======================================================== */}
+        {step === 'oferta' && (
+          <div className="w-full grid grid-cols-1 gap-8 animate-in fade-in zoom-in duration-500 lg:grid-cols-[1fr_450px]">
+            
+            <div className="flex flex-col gap-6">
+               <div className="text-center md:text-left mb-2">
+                  <h2 className="text-3xl md:text-4xl font-black text-slate-900 mb-2">Seu frete está pronto</h2>
+                  <p className="text-slate-500 text-lg">Confira os detalhes acima. Ao continuar, você será direcionado para o pagamento seguro.</p>
+               </div>
+
+               <div className="bg-blue-600 rounded-[2.5rem] p-8 shadow-2xl text-white relative overflow-hidden">
+                  <h3 className="text-2xl font-black mb-4 flex items-center gap-3">
+                     <CheckCircle size={28}/> DISPONIBILIDADE
+                  </h3>
+                  <p className="text-blue-100 mb-6 text-base font-medium leading-relaxed">
+                     Encontramos motoristas parceiros disponíveis para atender essa região. Seu frete será enviado aos motoristas após a confirmação do pagamento.
+                  </p>
+                  {realDriversCount > 0 && (
+                     <p className="inline-block bg-blue-500/50 px-4 py-3 rounded-xl text-white font-bold text-sm mb-0 shadow-inner">
+                        {realDriversCount} motoristas disponíveis próximos à coleta
+                     </p>
+                  )}
+               </div>
+
+               {/* Resumo Visual Rápido para não perder o contexto da rota */}
+               <div className="h-[200px] w-full overflow-hidden rounded-[2.5rem] border-2 border-slate-200 bg-slate-100 relative shadow-sm hidden md:block">
+                  {mapsReady && origemGPS && destinoGPS && (
+                     <MapaCliente 
+                       origem={origemGPS} 
+                       destino={destinoGPS} 
+                       paradasExtras={paradasGPS.length > 1 ? paradasGPS.slice(0, -1) : undefined} 
+                       vehicleType={vehicle} 
+                       operationalMessage={`Aguardando confirmação de pagamento...`} 
+                       realDriversCount={realDriversCount}
+                     />
+                  )}
+               </div>
             </div>
 
             <div className="flex flex-col gap-6">
-              
               <div className="bg-white rounded-[2.5rem] border-2 border-slate-200 overflow-hidden shadow-xl">
                 <div className="bg-slate-900 px-6 py-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -1151,19 +1227,22 @@ export default function Cliente() {
                     <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">Custo Total Oficial</p>
                     <p className="text-3xl font-black text-emerald-400">R$ {(valorOfertaNum).toFixed(2).replace('.', ',')}</p>
                     <p className="text-[10px] text-slate-500 mt-3 font-medium leading-relaxed">
-                      * O valor será retido com segurança (Escrow) e só liberado ao motorista após a conclusão da entrega.
+                      Seu pagamento fica protegido até a conclusão do serviço, conforme as regras da plataforma.
                     </p>
                   </div>
                   
-                  <button onClick={handleContratar} disabled={loadingPayment || isProcessingPayment.current} className={`flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[2rem] text-[15px] font-black uppercase tracking-[0.2em] transition-all duration-300 ${loadingPayment ? 'bg-slate-200 text-slate-400' : 'bg-blue-600 text-white shadow-xl shadow-blue-500/40 hover:bg-blue-700 hover:scale-[1.02]'}`}>
-                    {loadingPayment ? <><Loader2 className="h-6 w-6 animate-spin" /> Processando...</> : <><Zap size={22} /> Confirmar Carga</>}
+                  <button onClick={handleConfirmarEPagar} disabled={loadingPayment || isProcessingPayment.current} className={`flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[2rem] text-[15px] font-black uppercase tracking-[0.2em] transition-all duration-300 ${loadingPayment ? 'bg-slate-200 text-slate-400' : 'bg-blue-600 text-white shadow-xl shadow-blue-500/40 hover:bg-blue-700 hover:scale-[1.02]'}`}>
+                    {loadingPayment ? <><Loader2 className="h-6 w-6 animate-spin" /> Aguarde...</> : <><Lock size={22} /> Confirmar e pagar</>}
                   </button>
-                  <button onClick={() => setStep('form')} className="w-full mt-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-colors">Voltar para Edição</button>
+                  <button onClick={() => setStep('preview')} className="w-full mt-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-colors">Voltar para Resumo</button>
               </div>
             </div>
           </div>
         )}
 
+        {/* ========================================================
+            ETAPA 4: ACOMPANHAMENTO DA CARGA OU RETRY DE PAGAMENTO
+            ======================================================== */}
         {step === 'busca' && orderData && (
           <div className="mx-auto w-full animate-in fade-in slide-in-from-bottom-8 duration-700">
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-8">
@@ -1172,18 +1251,24 @@ export default function Cliente() {
                 
                 {orderData?.status === 'aguardando_pagamento' && (
                   <div className="bg-blue-600 rounded-[2.5rem] p-8 shadow-2xl text-white mb-2 relative overflow-hidden">
-                    <h3 className="text-3xl font-black mb-2 flex items-center gap-3">
-                       <CheckCircle size={32}/> CARGA PREPARADA!
+                    <h3 className="text-3xl font-black mb-4 flex items-center gap-3">
+                       <CheckCircle size={32}/> Seu frete está pronto
                     </h3>
-                    <p className="text-blue-100 mb-6 text-sm font-medium leading-relaxed">
-                      Sua operação foi criada com sucesso e a distância foi confirmada. {realDriversCount > 0 ? `Atualmente, temos ${realDriversCount} motorista(s) online na sua região compatível(eis) com a sua carga.` : 'A plataforma está pronta para notificar parceiros logísticos em sua região.'} Realize o pagamento de custódia (Escrow) 100% seguro para publicar a oferta no Radar.
+                    <p className="text-blue-100 mb-6 text-base font-medium leading-relaxed">
+                       Encontramos motoristas parceiros disponíveis para atender essa região. Seu frete será enviado aos motoristas após a confirmação do pagamento.
                     </p>
-                    
+                    {realDriversCount > 0 && (
+                       <p className="inline-block bg-blue-500/50 px-4 py-2 rounded-xl text-white font-bold text-sm mb-6">
+                          {realDriversCount} motoristas disponíveis próximos à coleta
+                       </p>
+                    )}
                     <button onClick={handlePagarReserva} disabled={loadingPayment} className="w-full bg-slate-900 hover:bg-black text-white text-lg font-black uppercase tracking-[0.2em] py-5 rounded-[1.5rem] flex items-center justify-center gap-3 transition-all shadow-xl disabled:opacity-50 disabled:cursor-not-allowed">
                        {loadingPayment ? <Loader2 className="animate-spin" /> : <Lock size={20}/>}
-                       {loadingPayment ? 'Conectando...' : 'Pagar Custódia e Publicar'}
+                       {loadingPayment ? 'Conectando...' : 'Confirmar e pagar'}
                     </button>
-                    <p className="text-center text-[10px] text-blue-200 mt-4 font-bold uppercase tracking-widest">A proteção Escrow garante devolução integral automática em caso de cancelamento.</p>
+                    <p className="text-center text-[10px] text-blue-200 mt-4 font-bold uppercase tracking-widest">
+                       Seu pagamento fica protegido até a conclusão do serviço, conforme as regras da plataforma.
+                    </p>
                   </div>
                 )}
 
