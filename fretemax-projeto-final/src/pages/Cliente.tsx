@@ -408,7 +408,11 @@ export default function Cliente() {
     setLoadingStep(0);
     
     try {
-      const origStr = `${coleta.rua}, ${coleta.num}, ${coleta.bairro}, ${coleta.cidade || 'Guarulhos'}, ${coleta.uf || 'SP'}, ${coleta.cep}, Brazil`;
+      // FIX IMPLEMENTADO: Remove o "Guarulhos" e "SP" hardcoded. O array .filter(Boolean) evita vírgulas 
+      // extras caso os campos não existam, enviando "Rua, Num, Bairro, CEP, Brasil" perfeitamente limpo
+      // para o geocoder que mapeará Franca (ou qualquer outra cidade) corretamente.
+      const origStr = [coleta.rua, coleta.num, coleta.bairro, coleta.cidade, coleta.uf, coleta.cep, 'Brasil'].filter(Boolean).join(', ');
+      
       const origCoords = await getValidCoords(origStr);
       setOrigemGPS(origCoords);
 
@@ -417,7 +421,8 @@ export default function Cliente() {
       let lastOrigin = origStr;
 
       for (const stop of entregas) {
-        const destStr = `${stop.rua}, ${stop.num}, ${stop.bairro}, ${stop.cidade || 'Guarulhos'}, ${stop.uf || 'SP'}, ${stop.cep}, Brazil`;
+        const destStr = [stop.rua, stop.num, stop.bairro, stop.cidade, stop.uf, stop.cep, 'Brasil'].filter(Boolean).join(', ');
+        
         const destCoords = await getValidCoords(destStr);
         pGPS.push(destCoords);
 
@@ -477,11 +482,13 @@ export default function Cliente() {
     }
 
     try {
-      const c1 = await getValidCoords(`${coleta.rua}, ${coleta.num}, ${coleta.bairro}, ${coleta.cidade || 'Guarulhos'}, ${coleta.uf || 'SP'}, ${coleta.cep}, Brazil`);
+      // FIX IMPLEMENTADO: Utiliza a mesma lógica de endereçamento livre para resgatar as coords da coleta.
+      const c1 = await getValidCoords([coleta.rua, coleta.num, coleta.bairro, coleta.cidade, coleta.uf, coleta.cep, 'Brasil'].filter(Boolean).join(', '));
       
       const coordsEntregas = [];
       for (const e of entregas) {
-         const c = await getValidCoords(`${e.rua}, ${e.num}, ${e.bairro}, ${e.cidade || 'Guarulhos'}, ${e.uf || 'SP'}, ${e.cep}, Brazil`);
+         // FIX IMPLEMENTADO: Utiliza a mesma lógica de endereçamento livre para resgatar as coords das entregas.
+         const c = await getValidCoords([e.rua, e.num, e.bairro, e.cidade, e.uf, e.cep, 'Brasil'].filter(Boolean).join(', '));
          coordsEntregas.push({ ...e, lat: c.lat, lng: c.lng });
       }
       const destinoFinal = coordsEntregas[coordsEntregas.length - 1];
