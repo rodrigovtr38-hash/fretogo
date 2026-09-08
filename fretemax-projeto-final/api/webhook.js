@@ -7,6 +7,7 @@
 // 10. 🔥 CTO FIX (BLOCO 03): Transação Atômica injetada para evitar Race Condition contra o Watchdog de 5 minutos.
 // 11. 🔥 CTO FIX (BLOCO 05): Sincronização da timeline visual do cliente injetada no Firestore.
 // 12. 🔥 CTO FIX (EXECUÇÃO BLOCO 03): Novo Funil de Pré-Pagamento. A carga vai para 'disponivel' após o PIX. Fluxo sem motorista.
+// 13. 🔥 CTO FIX (EXECUÇÃO BLOCO 03.B): Isolamento de Agendamento. Cargas agendadas vão para status 'agendado', imediatas vão para 'disponivel'.
 // =========================================================
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
@@ -129,11 +130,13 @@ export default async function handler(req, res) {
           
           if (freteData.status === 'aguardando_pagamento') {
             
-            // 🔥 CTO FIX (BLOCO 03): Liberação Firestore (SSOT) direto para o FEED/RADAR
+            // 🔥 CTO FIX: Proteção de Carga Agendada
+            const isAgendado = freteData.tipoFrete === 'agendado' || freteData.agendado === true;
+
             transaction.update(freteRef, {
-              status: 'disponivel', 
+              status: isAgendado ? 'agendado' : 'disponivel', 
               pagamentoStatus: 'aprovado',
-              dispatchStatus: 'mural_aberto', // Libera visualização no radar 
+              dispatchStatus: isAgendado ? 'retido_agendamento' : 'mural_aberto', 
               pagoEm: FieldValue.serverTimestamp(),
               pagamentoId: paymentId,
               atualizadoEm: FieldValue.serverTimestamp()
@@ -142,7 +145,9 @@ export default async function handler(req, res) {
             // 🔥 CTO FIX (BLOCO 05): Registro na subcoleção de chat da viagem
             const chatRef = freteRef.collection('chat').doc();
             transaction.set(chatRef, {
-              texto: '🔔 [Torre Operacional]: Pagamento de custódia (Escrow) confirmado. Carga oficialmente publicada no Radar de Motoristas.',
+              texto: isAgendado 
+                ? '🔔 [Torre Operacional]: Pagamento de custódia confirmado. Sua carga está AGENDADA e será exibida no Radar no momento oportuno.' 
+                : '🔔 [Torre Operacional]: Pagamento de custódia (Escrow) confirmado. Carga oficialmente publicada no Radar de Motoristas.',
               nome: 'Torre de Controle (IA)',
               tipoUsuario: 'admin',
               createdAt: FieldValue.serverTimestamp()
@@ -153,7 +158,9 @@ export default async function handler(req, res) {
                const linkRastreio = `https://app.fretogo.com.br/cliente?order=${pedidoId}`;
                zapPayload = {
                  telefone: zapCliente,
-                 mensagem: `✅ *FretoGo*: Pagamento Escrow confirmado!\n\nSua carga acaba de ser publicada no Radar e está visível para os motoristas. Acompanhe a operação ao vivo: ${linkRastreio}`
+                 mensagem: isAgendado 
+                   ? `✅ *FretoGo*: Pagamento confirmado!\n\nSua operação está oficialmente AGENDADA na nossa torre de controle. Acompanhe: ${linkRastreio}` 
+                   : `✅ *FretoGo*: Pagamento Escrow confirmado!\n\nSua carga acaba de ser publicada no Radar e está visível para os motoristas. Acompanhe a operação ao vivo: ${linkRastreio}`
                };
             }
           } else {
