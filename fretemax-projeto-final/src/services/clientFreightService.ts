@@ -5,6 +5,7 @@
 // Correção Bloco 02: O frete agora nasce estritamente como 'aguardando_pagamento'.
 // EXECUÇÃO BLOCO 01: Identificação de Bitrem/Carreta corrigida e exclusão de pedágio injetada.
 // EXECUÇÃO BLOCO 03: Blindagem do dispatchStatus para 'retido_pagamento' na origem.
+// EXECUÇÃO BLOCO 05-B: Injeção de expiraEm (15 min) para limpeza automática de fretes fantasmas.
 // =========================================================
 
 import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
@@ -158,12 +159,17 @@ class ClientFreightService {
 
       const cidadeDestinoFormatada = payload.cidadeDestino || payload.destino.cidade || this.extrairCidadeDoEndereco(payload.destino.endereco);
 
+      // 🔥 CTO FIX (BLOCO 05-B): Calcular data de expiração (15 minutos a partir de agora)
+      const dataExpiracao = new Date();
+      dataExpiracao.setMinutes(dataExpiracao.getMinutes() + 15);
+
       const freteRef = await addDoc(collection(db, 'fretes'), {
         ...normalizedPayload,
         cidadeDestinoFormatada, 
         status: 'aguardando_pagamento', // 🔥 CTO FIX: Bloqueia ida pro Feed antes de pagar.
         pagamentoStatus: 'pendente',
         dispatchStatus: 'retido_pagamento', // 🔥 CTO FIX (BLOCO 03): Não permite visibilidade no Radar antes do PIX.
+        expiraEm: dataExpiracao, // 🔥 CTO FIX (BLOCO 05-B): Injeção do TTL para varredura
         createdAt: serverTimestamp(), // Retrocompatibilidade B2B
         criadoEm: serverTimestamp(),
         atualizadoEm: serverTimestamp(),
