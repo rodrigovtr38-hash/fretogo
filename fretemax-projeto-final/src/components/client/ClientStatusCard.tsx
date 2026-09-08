@@ -1,8 +1,7 @@
 // =========================================================
 // NOME DO ARQUIVO: src/components/client/ClientStatusCard.tsx
 // CTO-Log: Auditoria de Polimento (Fase de Escala).
-// Status: Timeline Viva refinada, sistema Multi-PIN estabilizado e exibição das "Informações Ouro".
-// Evolução Fase 5: Reconhecimento explícito do estado de Reserva (RESERVADO_AGUARDANDO_PAGAMENTO).
+// Status: O Cofre de Segurança (Zero Trust) foi ativado. Os PINs não são mais revelados até que a foto do local chegue da nuvem.
 // =========================================================
 
 import { useState, useEffect } from 'react';
@@ -63,7 +62,6 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
 
   if (isTimeExpired) { safeStatus = 'Baixa Procura (Mural)'; statusColor = 'text-amber-400'; bgColor = 'bg-amber-500/10 border-amber-500/30'; isPulsing = false; }
   else if (status === 'aguardando_pagamento') { safeStatus = 'Aguardando Escrow'; isPulsing = true; }
-  // 🔥 CTO FIX: Reconhecimento do status de Reserva
   else if (status === 'reservado_aguardando_pagamento') { safeStatus = 'Aguardando Seu Pagamento'; statusColor = 'text-emerald-400'; bgColor = 'bg-emerald-500/10 border-emerald-500/30'; isPulsing = true; }
   else if (status === 'disponivel' || status === 'buscando_motorista') { safeStatus = 'Radar Ativo no Feed'; isPulsing = true; }
   else if (status === 'cancelado') { safeStatus = 'Operação Abortada'; statusColor = 'text-red-400'; bgColor = 'bg-red-500/10 border-red-500/30'; isPulsing = false; }
@@ -231,9 +229,6 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
                   <span className="text-[10px] font-bold text-slate-300 uppercase bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700">
                     {veiculo?.replace('_', ' ') || 'Veículo'}
                   </span>
-                  <span className="text-[10px] font-bold text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700">
-                    PLACA: F**-***9
-                  </span>
                 </div>
               </div>
             </div>
@@ -266,7 +261,6 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
           </div>
         )}
 
-        {/* 🔥 CTO FIX: Sincronização Ouro. A Especificação da Carga viaja até o acompanhamento do cliente */}
         <div className="rounded-2xl border border-white/5 bg-slate-950/50 p-4 flex flex-col gap-3 transition-colors hover:bg-slate-950/80">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-yellow-500/10 rounded-xl text-yellow-400 shrink-0">
@@ -293,40 +287,93 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
           </div>
         </div>
 
-        {/* Layout Organizado para Múltiplos PINs de Entrega em cascata */}
+        {/* =======================================================
+            COFRE ZERO TRUST: Revelação Baseada em Evidência
+            ======================================================= */}
         {(pinColeta || (pinEntregas && pinEntregas.length > 0)) && (
           <div className="rounded-[1.5rem] border border-cyan-500/30 bg-cyan-950/30 p-5 mt-6 relative overflow-hidden shadow-inner">
             <div className="absolute top-0 left-0 w-1 h-full bg-cyan-500"></div>
             <p className="text-[10px] font-black uppercase tracking-widest text-cyan-400 flex items-center gap-2 mb-4">
-              <Lock size={14} /> Chaves de Liberação (PIN) de Rota
+              <Lock size={14} /> Cofre de PINs
             </p>
             <div className="flex flex-col gap-3">
               
               {pinColeta && (
-                <div className="bg-slate-950 px-4 py-3 rounded-2xl border border-white/10 flex items-center justify-between shadow-[0_5px_15px_rgba(0,0,0,0.3)]">
-                  <div>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold tracking-widest block mb-1">Passo 1: PIN da Coleta</span>
-                    <span className="font-mono font-black text-xl text-white tracking-[0.2em] block">{pinColeta}</span>
+                <div className="bg-slate-950 px-4 py-3 rounded-2xl border border-white/10 flex flex-col shadow-[0_5px_15px_rgba(0,0,0,0.3)]">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-[9px] text-slate-400 uppercase font-bold tracking-widest block mb-1">Passo 1: PIN da Coleta</span>
+                      {orderData?.fotosPod?.coleta ? (
+                         <span className="font-mono font-black text-xl text-emerald-400 tracking-[0.2em] block">{pinColeta}</span>
+                      ) : (
+                         <span className="text-xs font-bold text-slate-500 italic flex items-center gap-1"><Lock size={12}/> Oculto até envio da foto</span>
+                      )}
+                    </div>
+                    <CheckCircle2 size={24} className={status === 'coletando' ? 'text-amber-500 animate-pulse' : (status === 'indo_coleta' || status === 'chegou_coleta' || status === 'aceito' ? 'text-slate-700' : 'text-emerald-500')} />
                   </div>
-                  <CheckCircle2 size={24} className={status === 'coletando' ? 'text-amber-500 animate-pulse' : 'text-emerald-500'} />
+                  
+                  {orderData?.fotosPod?.coleta ? (
+                    <div className="mt-3 pt-3 border-t border-white/5 flex items-center gap-3">
+                      <a href={orderData.fotosPod.coleta} target="_blank" rel="noreferrer" className="shrink-0 hover:opacity-80 transition-opacity">
+                        <img src={orderData.fotosPod.coleta} alt="Comprovante de Coleta" className="w-14 h-14 rounded-lg object-cover border border-emerald-500/50" />
+                      </a>
+                      <div className="leading-tight">
+                        <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">Evidência Recebida</p>
+                        <p className="text-xs text-slate-300 font-medium">Você já pode repassar o PIN ao motorista.</p>
+                      </div>
+                    </div>
+                  ) : (
+                    status === 'coletando' && (
+                      <div className="mt-3 pt-3 border-t border-white/5">
+                         <p className="text-[9px] text-amber-500 font-bold uppercase tracking-widest animate-pulse flex items-center gap-1"><Camera size={12}/> Aguardando motorista enviar a evidência visual...</p>
+                      </div>
+                    )
+                  )}
                 </div>
               )}
               
               {pinEntregas && pinEntregas.map((pin: string, index: number) => {
                  const isActiveDrop = paradaAtualIndex === index && status !== 'coletando';
-                 const isCompletedDrop = paradaAtualIndex > index;
+                 const isCompletedDrop = paradaAtualIndex > index || status === 'entregue' || status === 'finalizando';
+                 const isFotoDropEnviada = !!orderData?.fotosPod?.[`parada_${index}`];
                  
                  return (
-                  <div key={index} className={`bg-slate-950 px-4 py-3 rounded-2xl border flex items-center justify-between shadow-[0_5px_15px_rgba(0,0,0,0.3)] transition-all ${isActiveDrop ? 'border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.2)]' : 'border-white/5 opacity-70'}`}>
-                    <div>
-                      <span className={`text-[9px] uppercase font-bold tracking-widest block mb-1 ${isActiveDrop ? 'text-cyan-400' : 'text-slate-500'}`}>
-                        PIN de Entrega {pinEntregas.length > 1 ? `- Parada ${index + 1}` : ''}
-                      </span>
-                      <span className={`font-mono font-black text-xl tracking-[0.2em] block ${isCompletedDrop ? 'text-slate-600 line-through' : isActiveDrop ? 'text-emerald-400' : 'text-white'}`}>
-                        {pin}
-                      </span>
+                  <div key={index} className={`bg-slate-950 px-4 py-3 rounded-2xl border flex flex-col shadow-[0_5px_15px_rgba(0,0,0,0.3)] transition-all ${isActiveDrop ? 'border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.2)]' : 'border-white/5 opacity-70'}`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className={`text-[9px] uppercase font-bold tracking-widest block mb-1 ${isActiveDrop ? 'text-cyan-400' : 'text-slate-500'}`}>
+                          Entrega {pinEntregas.length > 1 ? `- Parada ${index + 1}` : ''}
+                        </span>
+                        
+                        {isCompletedDrop ? (
+                          <span className="font-mono font-black text-xl tracking-[0.2em] block text-slate-600 line-through">{pin}</span>
+                        ) : isFotoDropEnviada ? (
+                          <span className="font-mono font-black text-xl tracking-[0.2em] block text-emerald-400">{pin}</span>
+                        ) : (
+                          <span className="text-xs font-bold text-slate-500 italic flex items-center gap-1"><Lock size={12}/> Oculto até envio da foto</span>
+                        )}
+                      </div>
+                      {isCompletedDrop && <CheckCircle2 size={24} className="text-emerald-500" />}
+                      {isActiveDrop && !isCompletedDrop && <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></div>}
                     </div>
-                    {isCompletedDrop && <CheckCircle2 size={20} className="text-emerald-500/50" />}
+
+                    {isFotoDropEnviada && (
+                      <div className="mt-3 pt-3 border-t border-white/5 flex items-center gap-3">
+                        <a href={orderData.fotosPod[`parada_${index}`]} target="_blank" rel="noreferrer" className="shrink-0 hover:opacity-80 transition-opacity">
+                          <img src={orderData.fotosPod[`parada_${index}`]} alt={`Comprovante Parada ${index + 1}`} className="w-14 h-14 rounded-lg object-cover border border-emerald-500/50" />
+                        </a>
+                        <div className="leading-tight">
+                          <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">{isCompletedDrop ? 'Evidência Validada' : 'Evidência Recebida'}</p>
+                          {!isCompletedDrop && <p className="text-xs text-slate-300 font-medium">Repasse o PIN para finalizar a etapa.</p>}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {isActiveDrop && !isFotoDropEnviada && (
+                      <div className="mt-3 pt-3 border-t border-white/5">
+                         <p className="text-[9px] text-amber-500 font-bold uppercase tracking-widest animate-pulse flex items-center gap-1"><Camera size={12}/> Aguardando foto na doca do cliente...</p>
+                      </div>
+                    )}
                   </div>
                 );
               })}
