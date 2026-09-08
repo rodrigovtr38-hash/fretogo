@@ -3,6 +3,7 @@
 // CTO-Log: Auditoria Final - Bloco 6 (Operação & Contingência).
 // Correção: Refinamento do Botão de Emergência / Cancelamento Direto na Tela de Rota.
 // Status: Devolução atômica ao Feed em caso de Pane Mecânica ou Emergência Pessoal.
+// Correção Bloco 09: Tipagem e renderização isolada de "Instruções da Doca/Coleta" (Problema 04).
 // =========================================================
 
 import { useState, useEffect } from 'react';
@@ -10,7 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { db, auth, storage } from '../firebase'; 
 import { doc, onSnapshot, DocumentData } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage'; 
-import { LockKeyhole, AlertTriangle, Loader2, MapPin, Radio, Navigation, Scale, Camera, Wallet, CheckCircle2, MessageCircle, FileText, Check, XCircle } from 'lucide-react';
+import { LockKeyhole, AlertTriangle, Loader2, MapPin, Radio, Navigation, Scale, Camera, Wallet, CheckCircle2, MessageCircle, FileText, Check, XCircle, Info } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
 import { locationRealtimeService } from '../services/locationRealtimeService'; 
@@ -42,6 +43,7 @@ interface ActiveFreightData extends DocumentData {
   distanciaRealKm?: number;
   valorLiquidoMotorista?: number;
   valorMotorista?: number;
+  observacoes?: string; // 🔥 CTO FIX: Tipagem adicionada para resolver Problema 04
 }
 
 export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
@@ -471,6 +473,24 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
             <p className="text-sm font-bold text-white leading-snug">{enderecoAlvoTexto}</p>
           </div>
         </div>
+
+        {/* 🔥 CTO FIX: Renderização da seção de Observações da Doca/Coleta */}
+        {frete.observacoes && frete.observacoes.trim() !== '' && (
+          <div className="mb-6 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 shadow-inner relative overflow-hidden group">
+            <div className="absolute top-0 left-0 w-1 h-full bg-amber-500"></div>
+            <div className="flex gap-3">
+              <Info size={20} className="text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-500 mb-2 flex items-center gap-1">
+                  Instruções da Doca / Observações
+                </p>
+                <p className="text-sm font-medium text-slate-200 leading-relaxed whitespace-pre-wrap">
+                  {frete.observacoes}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-4">
           {(frete.status === AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO || String(frete.status) === 'reservado_aguardando_pagamento') && (
