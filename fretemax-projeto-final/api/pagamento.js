@@ -5,6 +5,7 @@
 // Evolução Fase 8: Trava dura de estado. Só gera cobrança para reservas ativas e motoristas vinculados.
 // Evolução Fase 11: Blindagem de Late Approval. Injeção de Metadata com motorista_id na Preferência MP.
 // Evolução Fase 12: Idempotência Atômica. Previne criação simultânea de múltiplos checkouts.
+// Evolução Bloco 05-B: Adaptado para fluxo Pré-Match (aguardando_pagamento sem motoristaId).
 // =========================================================
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
@@ -48,15 +49,16 @@ export default async function handler(req, res) {
 
         const data = freteSnap.data();
         
-        // 🔥 CTO FIX: Proteção de Estado da Reserva (Bloco 8)
-        if (data.status !== 'reservado_aguardando_pagamento') {
+        // 🔥 CTO FIX: Proteção de Estado da Reserva (Bloco 05-B - Adaptado para Pré-Match)
+        if (data.status !== 'aguardando_pagamento' && data.status !== 'reservado_aguardando_pagamento') {
           throw new Error('INVALID_STATUS');
         }
 
-        // 🔥 CTO FIX: Proteção de Motorista Fantasma
-        if (!data.motoristaId) {
-          throw new Error('NO_DRIVER');
-        }
+        // 🔥 CTO FIX (Bloco 05-B): Removida a trava de motorista inexistente, 
+        // pois no novo fluxo Escrow o pagamento ocorre ANTES do Match.
+        // if (!data.motoristaId) {
+        //   throw new Error('NO_DRIVER');
+        // }
 
         // 🔥 CTO FIX: Idempotência - Bloqueio de Concorrência
         // Previne que cliques rápidos gerem múltiplas chamadas ao Mercado Pago.
@@ -138,7 +140,7 @@ export default async function handler(req, res) {
         external_reference: idPedido, 
         // 🔥 CTO FIX: BLINDAGEM BLOCO 11 (Contra Late Approval / Swap de Motoristas)
         metadata: {
-          motorista_id: freteData.motoristaId
+          motorista_id: freteData.motoristaId || null
         },
         notification_url: `https://${req.headers.host}/api/webhook`, 
         payment_methods: {
