@@ -1,9 +1,8 @@
 // =========================================================
 // NOME DO ARQUIVO: src/pages/DriverActiveTrip.tsx
 // CTO-Log: Auditoria Final - Bloco 6 (Operação & Contingência).
-// Correção: Refinamento do Botão de Emergência / Cancelamento Direto na Tela de Rota.
-// Status: Devolução atômica ao Feed em caso de Pane Mecânica ou Emergência Pessoal.
-// Correção Bloco 09: Tipagem e renderização isolada de "Instruções da Doca/Coleta" (Problema 04).
+// Correção Executada: Aplicação Zero Trust (FOTO -> PIN) e trava anti-falsificação.
+// Status: O PIN só é injetado na interface após o upload confirmado da foto da respectiva etapa.
 // =========================================================
 
 import { useState, useEffect } from 'react';
@@ -11,7 +10,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { db, auth, storage } from '../firebase'; 
 import { doc, onSnapshot, DocumentData } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage'; 
-import { LockKeyhole, AlertTriangle, Loader2, MapPin, Radio, Navigation, Scale, Camera, Wallet, CheckCircle2, MessageCircle, FileText, Check, XCircle, Info } from 'lucide-react';
+import { LockKeyhole, AlertTriangle, Loader2, MapPin, Radio, Navigation, Scale, Camera, Wallet, CheckCircle2, MessageCircle, FileText, Check, XCircle, Info, UploadCloud } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
 import { locationRealtimeService } from '../services/locationRealtimeService'; 
@@ -43,7 +42,9 @@ interface ActiveFreightData extends DocumentData {
   distanciaRealKm?: number;
   valorLiquidoMotorista?: number;
   valorMotorista?: number;
-  observacoes?: string; // 🔥 CTO FIX: Tipagem adicionada para resolver Problema 04
+  observacoes?: string;
+  tentativasPin?: number;
+  bloqueioPin?: boolean;
 }
 
 export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
@@ -55,9 +56,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
   const [pinError, setPinError] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   
-  const [tentativasPin, setTentativasPin] = useState(0);
-  const [bloqueioPin, setBloqueioPin] = useState(false);
-
   const [fotoPodBase64, setFotoPodBase64] = useState<string | null>(null);
   const [uploadingPod, setUploadingPod] = useState(false);
   
@@ -135,6 +133,9 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
      }
   }
 
+  const etapaAtualKey = frete.status === AppTripState.COLETANDO ? 'coleta' : `parada_${paradaAtualIndex}`;
+  const isFotoConfirmada = !!frete.fotosPod?.[etapaAtualKey];
+
   const handleOpenNav = async (app: 'waze' | 'google') => {
     setActionLoading(true);
     try {
@@ -194,71 +195,62 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     }
   };
 
+  const handleUploadPhoto = async () => {
+    if (!fotoPodBase64 || uploadingPod || frete.bloqueioPin) return;
+    setUploadingPod(true);
+    setPinError('');
+    try {
+      const fileRef = ref(storage, `pods/${frete.id}/${etapaAtualKey}.jpg`);
+      await uploadString(fileRef, fotoPodBase64, 'data_url');
+      const finalUrl = await getDownloadURL(fileRef);
+
+      const fotosAtuais = frete.fotosPod || {};
+      fotosAtuais[etapaAtualKey] = finalUrl;
+      
+      await dispatchRealtimeService.atualizarTripRealtime(frete.id, { fotosPod: fotosAtuais });
+      setFotoPodBase64(null);
+    } catch (uploadError) {
+      console.error('[CTO-Log] Erro no upload da foto POD:', uploadError);
+      setPinError('Falha no upload da foto. Verifique sua conexão e tente novamente.');
+    } finally {
+      setUploadingPod(false);
+    }
+  };
+
   const handlePinSubmit = async () => {
-    if (bloqueioPin || uploadingPod) return;
+    if (frete.bloqueioPin || actionLoading) return;
     setActionLoading(true);
     setPinError('');
 
+    const isColeta = frete.status === AppTripState.COLETANDO;
+    const currentPin = isColeta ? frete.pinColeta : (frete.pinEntregas || [])[paradaAtualIndex];
+
+    if (!isFotoConfirmada) {
+      setPinError('ERRO: A foto de evidência é OBRIGATÓRIA antes de validar o PIN.');
+      setActionLoading(false);
+      return;
+    }
+
     try {
-      if (frete.status === AppTripState.COLETANDO) {
-        if (pinValue !== frete.pinColeta) { 
-          const errosAtuais = tentativasPin + 1;
-          setTentativasPin(errosAtuais);
-          if (errosAtuais >= 3) {
-            setBloqueioPin(true);
-            setPinError('SISTEMA BLOQUEADO: Limite de 3 tentativas excedido. Contate a Torre.');
-          } else {
-            setPinError(`PIN incorreto. Restam ${3 - errosAtuais} tentativas.`); 
-          }
-          setActionLoading(false); 
-          return; 
+      if (pinValue !== currentPin) { 
+        const errosAtuais = (frete.tentativasPin || 0) + 1;
+        
+        if (errosAtuais >= 3) {
+          await dispatchRealtimeService.atualizarTripRealtime(frete.id, { tentativasPin: errosAtuais, bloqueioPin: true });
+          setPinError('SISTEMA BLOQUEADO: Limite de 3 tentativas excedido. Contate a Torre.');
+        } else {
+          await dispatchRealtimeService.atualizarTripRealtime(frete.id, { tentativasPin: errosAtuais });
+          setPinError(`PIN incorreto. Restam ${3 - errosAtuais} tentativas.`); 
         }
-        setTentativasPin(0);
-        await dispatchRealtimeService.atualizarStatusTrip(frete.id, AppTripState.EM_TRANSPORTE);
+        setActionLoading(false); 
+        return; 
+      }
       
+      await dispatchRealtimeService.atualizarTripRealtime(frete.id, { tentativasPin: 0 });
+
+      if (isColeta) {
+        await dispatchRealtimeService.atualizarStatusTrip(frete.id, AppTripState.EM_TRANSPORTE);
       } else {
-        if (!fotoPodBase64) {
-          setPinError('A foto do canhoto/mercadoria é OBRIGATÓRIA antes de validar o PIN.');
-          setActionLoading(false); 
-          return;
-        }
-
-        const pinEntregas = frete.pinEntregas || [];
-        if (pinEntregas.length > 0 && pinValue !== pinEntregas[paradaAtualIndex]) { 
-          const errosAtuais = tentativasPin + 1;
-          setTentativasPin(errosAtuais);
-          if (errosAtuais >= 3) {
-            setBloqueioPin(true);
-            setPinError('SISTEMA BLOQUEADO: Limite de 3 tentativas excedido. Contate a Torre.');
-          } else {
-            setPinError(`PIN incorreto. Restam ${3 - errosAtuais} tentativas.`); 
-          }
-          setActionLoading(false); 
-          return; 
-        }
-        
-        setTentativasPin(0);
-        setUploadingPod(true);
-
-        let finalUrl = '';
-        
-        try {
-          const fileRef = ref(storage, `pods/${frete.id}/parada_${paradaAtualIndex}.jpg`);
-          await uploadString(fileRef, fotoPodBase64, 'data_url');
-          finalUrl = await getDownloadURL(fileRef);
-        } catch (uploadError) {
-          console.error('[CTO-Log] Erro no upload da foto POD:', uploadError);
-          setPinError('Falha no upload do comprovante. Verifique a conexão e tente novamente.');
-          setUploadingPod(false);
-          setActionLoading(false); 
-          return;
-        }
-
-        const fotosAtuais = frete.fotosPod || {};
-        fotosAtuais[`parada_${paradaAtualIndex}`] = finalUrl;
-        
-        await dispatchRealtimeService.atualizarTripRealtime(frete.id, { fotosPod: fotosAtuais });
-
         if (paradaAtualIndex + 1 < paradas.length) {
            await dispatchRealtimeService.atualizarTripRealtime(frete.id, { paradaAtualIndex: paradaAtualIndex + 1 });
         } else {
@@ -268,11 +260,9 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       
       setIsPinModalOpen(false); 
       setPinValue('');
-      setFotoPodBase64(null);
     } catch (e) { 
       setPinError('Erro sistêmico ao validar. Tente novamente.'); 
     } finally { 
-      setUploadingPod(false);
       setActionLoading(false); 
     }
   };
@@ -287,7 +277,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       const driverId = auth.currentUser?.uid;
       if (!driverId) throw new Error("Motorista não identificado");
 
-      // Ocorrência gera a devolução pro feed (disponivel) no dispatchRealtimeService
       await dispatchRealtimeService.cancelarViagemMotorista(driverId, frete.id, `Emergência/Cancelamento: ${ocorrenciaMotivo}`);
       
       setIsPinModalOpen(false); 
@@ -474,7 +463,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
           </div>
         </div>
 
-        {/* 🔥 CTO FIX: Renderização da seção de Observações da Doca/Coleta */}
         {frete.observacoes && frete.observacoes.trim() !== '' && (
           <div className="mb-6 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 shadow-inner relative overflow-hidden group">
             <div className="absolute top-0 left-0 w-1 h-full bg-amber-500"></div>
@@ -518,7 +506,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
           )}
           {[AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE].includes(frete.status) && (
             <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full flex items-center justify-center h-16 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.4)] bg-cyan-500 hover:bg-cyan-400">
-              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : `Validar PIN para ${frete.status === AppTripState.COLETANDO ? 'Sair com Carga' : 'Finalizar'}`}
+              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : `Registrar Evidência / PIN`}
             </button>
           )}
         </div>
@@ -534,7 +522,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
            </div>
         )}
 
-        {/* 🔥 CTO FIX: Botão Direto de Cancelamento / Emergência na Tela de Rota */}
         {frete.status !== AppTripState.FINALIZANDO && frete.status !== AppTripState.ENTREGUE && (
           <div className="mt-6 pt-4 border-t border-white/5">
             <button 
@@ -581,51 +568,80 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
         )}
       </AnimatePresence>
 
-      {/* MODAL DE PIN E COMPROVANTE */}
+      {/* MODAL DE SEGURANÇA: FOTO E PIN */}
       <AnimatePresence>
         {isPinModalOpen && (
           <motion.div key="pin-modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/90 backdrop-blur-sm p-4">
             <motion.div key="modal-pin" initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="bg-slate-900 p-8 rounded-[2.5rem] w-full max-w-sm border border-cyan-500/50 shadow-2xl">
-              <div className="flex justify-center mb-4"><div className="bg-cyan-500/10 p-4 rounded-full border border-cyan-500/20"><LockKeyhole size={32} className="text-cyan-400" /></div></div>
-              <h3 className="text-white text-center font-black mb-2 uppercase text-xl tracking-tight">{frete.status === AppTripState.COLETANDO ? 'PIN de Coleta' : 'Comprovante & PIN'}</h3>
               
-              {frete.status === AppTripState.COLETANDO ? (
-                <p className="text-slate-400 text-xs text-center mb-6 leading-relaxed">Peça os 4 dígitos ao responsável no local para liberar o sistema.</p>
+              {frete.bloqueioPin ? (
+                <div className="text-center">
+                  <div className="flex justify-center mb-4"><div className="bg-red-500/10 p-4 rounded-full border border-red-500/20"><AlertTriangle size={32} className="text-red-400" /></div></div>
+                  <h3 className="text-red-400 font-black mb-2 uppercase text-xl tracking-tight">Sistema Bloqueado</h3>
+                  <p className="text-slate-400 text-xs mb-6 leading-relaxed">Você excedeu o limite de 3 tentativas para inserir o PIN desta carga. A trava de segurança foi ativada na Torre de Controle.</p>
+                  <button onClick={() => setIsPinModalOpen(false)} className="w-full bg-slate-800 py-4 font-black uppercase text-xs rounded-xl text-white hover:bg-slate-700">Entendido</button>
+                </div>
               ) : (
-                <p className="text-slate-400 text-xs text-center mb-4 leading-relaxed">Tire a foto do canhoto assinado ou da mercadoria deixada no local ANTES de digitar o PIN.</p>
+                <>
+                  <div className="flex justify-center mb-4"><div className="bg-cyan-500/10 p-4 rounded-full border border-cyan-500/20"><LockKeyhole size={32} className="text-cyan-400" /></div></div>
+                  <h3 className="text-white text-center font-black mb-2 uppercase text-xl tracking-tight">{frete.status === AppTripState.COLETANDO ? 'Evidência de Coleta' : 'Evidência de Entrega'}</h3>
+                  
+                  {!isFotoConfirmada ? (
+                    // ESTÁGIO 1: Upload Fotográfico Obrigatório
+                    <div className="mb-6 mt-4">
+                      <p className="text-slate-400 text-xs text-center mb-4 leading-relaxed font-bold">
+                        A foto do canhoto assinado ou da mercadoria deixada no local é <span className="text-cyan-400">OBRIGATÓRIA</span> para liberar o teclado numérico do PIN.
+                      </p>
+                      <label className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${fotoPodBase64 ? 'border-emerald-500 bg-emerald-500/10' : 'border-cyan-500/30 bg-slate-950 hover:bg-slate-900 focus:border-cyan-400'}`}>
+                          {fotoPodBase64 ? (
+                            <div className="flex flex-col items-center">
+                              <CheckCircle2 size={32} className="text-emerald-400 mb-2" />
+                              <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Foto Capturada!</span>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center">
+                              <Camera size={32} className="text-cyan-400 mb-2" />
+                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Abrir Câmera</span>
+                            </div>
+                          )}
+                          <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCapturePhoto} />
+                      </label>
+                      
+                      {fotoPodBase64 && (
+                        <button onClick={handleUploadPhoto} disabled={uploadingPod} className="w-full mt-4 flex items-center justify-center gap-2 bg-emerald-500 py-3 font-black uppercase text-xs rounded-xl text-slate-950 hover:bg-emerald-400 transition-colors shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+                          {uploadingPod ? <><Loader2 className="animate-spin text-black" size={16}/> Sincronizando com a Torre</> : <><UploadCloud size={16}/> Enviar Evidência para Liberar PIN</>}
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    // ESTÁGIO 2: Liberação do PIN
+                    <div className="mt-4">
+                      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 mb-6 flex flex-col items-center">
+                        <CheckCircle2 size={24} className="text-emerald-400 mb-1" />
+                        <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest text-center">Foto registrada com sucesso.<br/>O Embarcador já recebeu a evidência.</span>
+                      </div>
+                      
+                      <p className="text-slate-400 text-xs text-center mb-4 leading-relaxed font-bold">
+                        Peça os 4 dígitos ao responsável no local para finalizar esta etapa.
+                      </p>
+                      <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={4} value={pinValue} onChange={(e) => { setPinValue(e.target.value.replace(/\D/g, '')); setPinError(''); }} className="w-full p-5 text-center text-5xl font-black tracking-[0.5em] bg-slate-950 text-cyan-400 border-2 border-cyan-500/30 rounded-2xl mb-4 focus:outline-none focus:border-cyan-400 placeholder:text-slate-800" placeholder="0000" />
+                    </div>
+                  )}
+
+                  {pinError && <p className="text-red-400 text-[10px] font-black text-center mb-4 uppercase tracking-widest">{pinError}</p>}
+
+                  <div className="flex flex-col gap-3 mt-4">
+                    <div className="flex gap-2">
+                      <button onClick={() => { setIsPinModalOpen(false); setPinValue(''); setPinError(''); setFotoPodBase64(null); }} className="w-1/3 bg-transparent border border-white/10 py-4 font-black uppercase text-xs rounded-xl text-slate-400 hover:bg-white/5">Voltar</button>
+                      {isFotoConfirmada && (
+                        <button onClick={handlePinSubmit} disabled={actionLoading || pinValue.length < 4} className="w-2/3 flex items-center justify-center bg-cyan-500 py-4 font-black uppercase tracking-widest rounded-xl text-slate-950 disabled:opacity-50 hover:bg-cyan-400 shadow-lg shadow-cyan-500/20">
+                          {actionLoading ? <Loader2 className="animate-spin text-black" size={18}/> : 'Validar PIN'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </>
               )}
-
-              {frete.status !== AppTripState.COLETANDO && (
-                <div className="mb-6">
-                  <label className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${fotoPodBase64 ? 'border-emerald-500 bg-emerald-500/10' : 'border-cyan-500/30 bg-slate-950 hover:bg-slate-900 focus:border-cyan-400'}`}>
-                     {fotoPodBase64 ? (
-                       <div className="flex flex-col items-center">
-                         <CheckCircle2 size={32} className="text-emerald-400 mb-2" />
-                         <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Foto Capturada!</span>
-                       </div>
-                     ) : (
-                       <div className="flex flex-col items-center">
-                         <Camera size={32} className="text-cyan-400 mb-2" />
-                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Abrir Câmera</span>
-                       </div>
-                     )}
-                     <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCapturePhoto} />
-                  </label>
-                </div>
-              )}
-
-              <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={4} value={pinValue} onChange={(e) => { setPinValue(e.target.value.replace(/\D/g, '')); setPinError(''); }} className="w-full p-5 text-center text-5xl font-black tracking-[0.5em] bg-slate-950 text-cyan-400 border-2 border-cyan-500/30 rounded-2xl mb-4 focus:outline-none focus:border-cyan-400 placeholder:text-slate-800" placeholder="0000" />
-
-              {pinError && <p className="text-red-400 text-[10px] font-black text-center mb-4 uppercase tracking-widest">{pinError}</p>}
-
-              <div className="flex flex-col gap-3 mt-4">
-                <div className="flex gap-2">
-                  <button onClick={() => { setIsPinModalOpen(false); setPinValue(''); setPinError(''); setFotoPodBase64(null); }} className="w-1/3 bg-transparent border border-white/10 py-4 font-black uppercase text-xs rounded-xl text-slate-400 hover:bg-white/5">Voltar</button>
-                  <button onClick={handlePinSubmit} disabled={actionLoading || uploadingPod || pinValue.length < 4} className="w-2/3 flex items-center justify-center bg-cyan-500 py-4 font-black uppercase tracking-widest rounded-xl text-slate-950 disabled:opacity-50 hover:bg-cyan-400 shadow-lg shadow-cyan-500/20">
-                    {uploadingPod ? <><Loader2 className="animate-spin text-black" size={18}/> Enviando</> : actionLoading ? <Loader2 className="animate-spin text-black" size={18}/> : 'Confirmar PIN'}
-                  </button>
-                </div>
-              </div>
             </motion.div>
           </motion.div>
         )}
