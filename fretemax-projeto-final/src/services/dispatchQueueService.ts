@@ -4,6 +4,7 @@
 // Correção Crítica: Remoção da Morte Súbita baseada no relógio local do usuário.
 // O Backend agora respeita 100% o modelo "Mural/Feed". A carga NUNCA expira sozinha na tela.
 // Delegação total de estado para TripLifecycleService.
+// Correção Bloco de Agendamento: Adição de Guard Clause contra Dispatch Imediato de Cargas Agendadas.
 // =========================================================
 
 import { doc, getDoc } from 'firebase/firestore';
@@ -28,6 +29,14 @@ interface QueueState {
 export class DispatchQueueService {
   static async iniciarFila(frete: FretePayload) {
     try {
+      // 🔥 CTO FIX: Proteção Defensiva de Agendamento
+      // Impede categoricamente que um frete agendado vaze para a fila de urgência.
+      const isAgendado = (frete as any).tipoFrete === 'agendado' || (frete as any).agendado === true;
+      if (isAgendado) {
+        console.warn(`[DISPATCH] 🛡️ Carga ${frete.id} é AGENDADA. Abortando dispatch imediato para respeitar o tempo de coleta.`);
+        return;
+      }
+
       const motoristas = await buscarMotoristasCompativeis(frete);
 
       // 🔥 INTERVENÇÃO CTO: Se não achar motorista, NÃO MATAR A CARGA. 
