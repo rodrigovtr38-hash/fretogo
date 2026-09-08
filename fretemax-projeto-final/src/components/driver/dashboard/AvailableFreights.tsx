@@ -26,8 +26,6 @@ const CATEGORY_LABELS: Record<string, string> = {
   bitrem: 'Bitrem',
 };
 
-const FREIGHT_TTL_MS = 30 * 60 * 1000; 
-
 const formatDistance = (km: number | undefined | null) => {
   if (!km || isNaN(km)) return '0 km';
   if (km < 1) return `${Math.round(km * 1000)} m`;
@@ -78,9 +76,18 @@ export default function AvailableFreights({
 
   const now = Date.now();
   const validFreights = freights.filter(freight => {
-    if (freight.agendado || freight.tipoFrete === 'agendado') return true;
-    const timestamp = freight.criadoEm || freight.atualizadoEm || (freight.createdAt as any)?.toMillis?.() || now;
-    return (now - timestamp) < FREIGHT_TTL_MS;
+    // 🔥 CTO FIX: Filtra Cargas Agendadas (Elas não devem poluir a malha ativa)
+    if (freight.agendado || freight.tipoFrete === 'agendado') {
+        return false; 
+    }
+    
+    // 🔥 CTO FIX: Lê a data de expiração real gerada no backend (Bloco 03)
+    if (freight.expiraEm) {
+        const expirationTime = freight.expiraEm.toMillis ? freight.expiraEm.toMillis() : new Date(freight.expiraEm).getTime();
+        return now < expirationTime;
+    }
+    
+    return true; // Fallback se o backend por algum motivo não gerar expiraEm
   });
 
   return (
@@ -128,7 +135,6 @@ export default function AvailableFreights({
             const isHot = freight.prioridade || (freight.valorMotorista && freight.valorMotorista > 150);
             const km = freight.distanciaRealKm || freight.distanciaTotalKm || freight.distanciaEntregaKm || freight.distancia || 1;
             const ganhoPorKm = (freight.valorLiquidoMotorista || freight.valorMotorista || 0) / km;
-            const isAgendado = freight.agendado || freight.tipoFrete === 'agendado';
             
             const numParadas = freight.pinEntregas?.length || freight.paradas?.length || 1;
             const isMultiDrop = freight.multiplasEntregas || numParadas > 1;
@@ -167,11 +173,6 @@ export default function AvailableFreights({
                         {CATEGORY_LABELS[freight.categoria || 'carro']}
                       </span>
                     </div>
-                    {isAgendado && (
-                      <span className="bg-indigo-500/20 text-indigo-400 text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded flex items-center gap-1">
-                        <CalendarClock size={10} /> Agendado
-                      </span>
-                    )}
                     {isMultiDrop && (
                       <span className="bg-purple-500/20 text-purple-400 text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded flex items-center gap-1 mt-1 shadow-[0_0_10px_rgba(168,85,247,0.3)]">
                         <Layers size={10} /> Multi-Drop ({numParadas})
