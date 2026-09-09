@@ -2,6 +2,7 @@
 // NOME DO ARQUIVO: src/services/stateSynchronizationService.ts
 // CTO-Log: Auditoria de Matriz de Estados (LOTE 6)
 // Status: Matriz de comportamento cruzado validada.
+// EXECUÇÃO BLOCO 6 (Prob #3): Inclusão de estados órfãos (Reserva/Agendamento/Aceite) para evitar disponibilidade indevida e despachos fantasmas.
 // =========================================================
 
 import { DriverState } from '../state/driverStateMachine';
@@ -41,9 +42,17 @@ export class StateSynchronizationService {
         };
 
       case AppTripState.OFERTANDO:
+      case AppTripState.AGUARDANDO_ACEITE:
         return {
           driverState: DriverState.RECEBENDO_OFERTA, tripState, dispatchState: 'RESERVED', trackingState: 'ACTIVE', availabilityState: 'RESERVED',
           operationalRuntime: { matching: true, tracking: true, radar: true, dispatch: true, returning: false, realtime: true },
+        };
+
+      case AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO as any:
+      case AppTripState.AGENDADO:
+        return {
+          driverState: DriverState.ONLINE, tripState, dispatchState: 'RESERVED', trackingState: 'IDLE', availabilityState: 'RESERVED',
+          operationalRuntime: { matching: false, tracking: false, radar: true, dispatch: true, returning: false, realtime: true },
         };
 
       case AppTripState.ACEITO:
