@@ -2,6 +2,7 @@
 // NOME DO ARQUIVO: src/services/matchingEngine.ts
 // CTO-Log: Refatoração de Busca e Sincronia de Coleção (Fase 3).
 // Evolução Fase 6: Normalização de Categorias Canônicas.
+// EXECUÇÃO BLOCO 8 (Prob #3): Proteção de resiliência no parsing da categoria. Evita crash do Dispatch caso payload chegue sem categoria (null/undefined).
 // =========================================================
 
 import {
@@ -69,7 +70,8 @@ function getBoundingBox(lat: number, lng: number, distanceKm: number) {
 
 export async function buscarMotoristasCompativeis(frete: FretePayload): Promise<MotoristaMatch[]> {
   try {
-    const categoriaFrete = frete.categoria.toLowerCase().trim();
+    // 🔥 CTO FIX [Bloco 8 - Prob #3]: Proteção contra payload malformado ausente/null/undefined
+    const categoriaFrete = (frete.categoria || '').toLowerCase().trim();
     // 🔥 CTO FIX: Array atualizado com as nomenclaturas canônicas.
     const isPesado = ['toco', 'truck', 'carreta', 'bitrem'].includes(categoriaFrete);
     
