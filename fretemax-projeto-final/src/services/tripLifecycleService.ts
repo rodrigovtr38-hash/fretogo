@@ -7,6 +7,7 @@
 // EXECUÇÃO BLOCO 6 (Prob #2): Correção de Race Condition no Lock (Trava por freteId exclusivo).
 // EXECUÇÃO BLOCO 6 (Prob #4): Prevenção de duplicidade do evento TRIP_STARTED em multi-stop.
 // EXECUÇÃO BLOCO 7 (Prob #1): Remoção do estado obsoleto RESERVADO_AGUARDANDO_PAGAMENTO da regra de aceite. Trava de concorrência movida para ACEITO com expansão de pipeline.
+// EXECUÇÃO BLOCO 7 (Prob #2): Expansão da regra de isForcedReset para garantir limpeza de motorista em CANCELADO_MOTORISTA, REDISPATCH e ERRO.
 // =========================================================
 
 import { doc, serverTimestamp, collection, addDoc, runTransaction } from 'firebase/firestore';
@@ -184,6 +185,7 @@ export class TripLifecycleService {
             }
         }
 
+        // 🔥 CTO FIX [Bloco 7 - Problema #2]: Expansão da matriz de estados cancelados para garantir a desvinculação completa
         const isForcedReset = (novoStatus === AppTripState.DISPONIVEL || novoStatus === AppTripState.EXPIRADO) && 
           [
             AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO as any,
@@ -195,7 +197,12 @@ export class TripLifecycleService {
             AppTripState.SEM_MOTORISTA, 
             AppTripState.EXPIRADO,
             AppTripState.OFERTANDO,
-            AppTripState.AGUARDANDO_ACEITE
+            AppTripState.AGUARDANDO_ACEITE,
+            AppTripState.CANCELADO,
+            AppTripState.CANCELADO_MOTORISTA,
+            AppTripState.CANCELADO_CLIENTE,
+            AppTripState.REDISPATCH,
+            AppTripState.ERRO
           ].includes(data.status as AppTripState);
 
         wasForcedReset = isForcedReset;
