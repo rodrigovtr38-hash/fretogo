@@ -6,6 +6,7 @@
 // EXECUÇÃO BLOCO 6 (Prob #1): Correção de ciclo de vida Multi-Stop (Runtime gerado pós-intervenção).
 // EXECUÇÃO BLOCO 6 (Prob #2): Correção de Race Condition no Lock (Trava por freteId exclusivo).
 // EXECUÇÃO BLOCO 6 (Prob #4): Prevenção de duplicidade do evento TRIP_STARTED em multi-stop.
+// EXECUÇÃO BLOCO 7 (Prob #1): Remoção do estado obsoleto RESERVADO_AGUARDANDO_PAGAMENTO da regra de aceite. Trava de concorrência movida para ACEITO com expansão de pipeline.
 // =========================================================
 
 import { doc, serverTimestamp, collection, addDoc, runTransaction } from 'firebase/firestore';
@@ -172,11 +173,13 @@ export class TripLifecycleService {
         
         const isAgendado = data.tipoFrete === 'agendado' || data.agendado === true;
 
-        if (novoStatus === AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO as any) {
+        // 🔥 CTO FIX [Bloco 7 - Problema #1]: Bloqueio de Concorrência atômico garantindo aceite direto, bloqueando dupla atribuição.
+        if (novoStatus === AppTripState.ACEITO) {
             if (data.motoristaId && data.motoristaId !== contract?.motoristaId) {
                 throw new Error("FRETE_JA_ATRIBUIDO");
             }
-            if (!['disponivel', 'buscando_motorista'].includes(data.status as string)) {
+            // Expansão da matriz de aceitação: Permite match com cargas no Dispatcher Ofertando/Aguardando e Agendamentos.
+            if (!['disponivel', 'buscando_motorista', 'ofertando', 'aguardando_aceite', 'agendado'].includes(data.status as string)) {
                 throw new Error("FRETE_JA_ATRIBUIDO");
             }
         }
@@ -206,20 +209,7 @@ export class TripLifecycleService {
 
         const payloadUpdate: Partial<TripDocumentData> = {};
 
-        if (novoStatus === AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO as any) {
-            payloadUpdate.status = novoStatus;
-            payloadUpdate.updatedAt = serverTimestamp() as unknown;
-            
-            if (contract) {
-                if (contract.motoristaId !== undefined) payloadUpdate.motoristaId = contract.motoristaId;
-                if (contract.motoristaNome !== undefined) payloadUpdate.motoristaNome = contract.motoristaNome;
-                if (contract.motoristaTelefone !== undefined) payloadUpdate.motoristaTelefone = contract.motoristaTelefone;
-                if (contract.reservadoEm !== undefined) payloadUpdate.reservadoEm = contract.reservadoEm;
-                if (contract.reservaExpiraEm !== undefined) payloadUpdate.reservaExpiraEm = contract.reservaExpiraEm;
-                if (contract.pagamentoStatus !== undefined) payloadUpdate.pagamentoStatus = contract.pagamentoStatus;
-            }
-            statusCalculado = novoStatus;
-        } else if (novoStatus === 'finalizado') {
+        if (novoStatus === 'finalizado') {
             payloadUpdate.status = novoStatus;
             payloadUpdate.atualizadoEm = serverTimestamp() as unknown;
             statusCalculado = novoStatus;
@@ -270,6 +260,7 @@ export class TripLifecycleService {
               if (contract.pagamentoStatus !== undefined) payloadUpdate.pagamentoStatus = contract.pagamentoStatus;
               if (contract.pagoEm !== undefined) payloadUpdate.pagoEm = contract.pagoEm;
               if (contract.reservaExpiraEm !== undefined) payloadUpdate.reservaExpiraEm = contract.reservaExpiraEm;
+              if (contract.reservadoEm !== undefined) payloadUpdate.reservadoEm = contract.reservadoEm;
             }
 
             if (isForcedReset) {
