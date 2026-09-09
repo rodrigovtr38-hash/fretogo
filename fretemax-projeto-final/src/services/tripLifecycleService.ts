@@ -8,6 +8,7 @@
 // EXECUÇÃO BLOCO 6 (Prob #4): Prevenção de duplicidade do evento TRIP_STARTED em multi-stop.
 // EXECUÇÃO BLOCO 7 (Prob #1): Remoção do estado obsoleto RESERVADO_AGUARDANDO_PAGAMENTO da regra de aceite. Trava de concorrência movida para ACEITO com expansão de pipeline.
 // EXECUÇÃO BLOCO 7 (Prob #2): Expansão da regra de isForcedReset para garantir limpeza de motorista em CANCELADO_MOTORISTA, REDISPATCH e ERRO.
+// EXECUÇÃO BLOCO 7 (Prob #4): Correção do log de Torre de Controle para registrar Entregas Parciais (Multi-Stop) preservando o status EM_TRANSPORTE.
 // =========================================================
 
 import { doc, serverTimestamp, collection, addDoc, runTransaction } from 'firebase/firestore';
@@ -109,6 +110,9 @@ export class TripLifecycleService {
         case AppTripState.EM_TRANSPORTE: // Nota: Esse print será substituído pelo print da Cloud Function quando houver PIN
           mensagemLog = "✅ [Torre Operacional]: Rota confirmada. Motorista em deslocamento logístico.";
           break;
+        case 'entrega_parcial': // 🔥 CTO FIX [Bloco 7 - Problema #4]: Status virtual injetado exclusivamente para o Log de IA.
+          mensagemLog = "📍 [Torre Operacional]: Entrega parcial concluída. Operação segue para a próxima parada da rota.";
+          break;
         case AppTripState.ENTREGUE:
           mensagemLog = "🏁 [Torre Operacional]: Rota Finalizada com Sucesso! Valores aguardando liquidação pelo sistema Escrow.";
           break;
@@ -161,6 +165,7 @@ export class TripLifecycleService {
       let wasForcedReset = false;
       let finalDocumentState: TripDocumentData | null = null;
       let statusAnterior: string | null = null; // 🔥 CTO FIX [Bloco 6 - Problema #4]: Cache do status pré-mutação
+      let isEntregaParcial = false; // 🔥 CTO FIX [Bloco 7 - Problema #4]: Flag de controle local
 
       await runTransaction(db, async (transaction) => {
         const snapshot = await transaction.get(freteRef);
@@ -236,6 +241,7 @@ export class TripLifecycleService {
             if (novoStatus === AppTripState.ENTREGUE && paradaAtualIndex + 1 < totalParadas) {
               paradaAtualIndex += 1;
               statusCalculado = AppTripState.EM_TRANSPORTE; 
+              isEntregaParcial = true; // 🔥 CTO FIX [Bloco 7 - Problema #4]: Ativa flag para a IA não se perder
             }
 
             // Geramos o runtime apenas DEPOIS de decidir o verdadeiro status (statusCalculado)
@@ -292,7 +298,8 @@ export class TripLifecycleService {
 
       if (!finalDocumentState) return false;
 
-      await this.registrarEventoDeIA(freteId, statusCalculado as string, contract);
+      // 🔥 CTO FIX [Bloco 7 - Problema #4]: Envia o status virtual de entrega parcial se a flag foi ativada.
+      await this.registrarEventoDeIA(freteId, isEntregaParcial ? 'entrega_parcial' : (statusCalculado as string), contract);
 
       const freightPayloadToBroadcast = { ...finalDocumentState } as unknown as FretePayload;
       
