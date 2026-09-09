@@ -14,6 +14,9 @@
 // 10. 🔥 CTO FIX (BLOCO 10): Watchdog de Expiração Absoluta (Garbage Collector do expiraEm).
 // 11. 🔥 CTO FIX: Injeção da Validação Zero Trust para Foto + PIN.
 // 12. 🔥 CTO FIX: Injeção de Liquidação Centralizada de Viagem (Bypass Firestore Rules).
+// 13. 🔥 CTO FIX (PATCH BLOCO 01): Criação de Frete Zero Trust e Idempotência.
+// 14. 🔥 CTO FIX (PATCH BLOCO 01): Cancelamento Server-Side e Máquina de Estados.
+// 15. 🔥 CTO FIX (PATCH BLOCO 01): Auto-Bid Server-Side Recalculation.
 // =========================================================
 
 const functions = require('firebase-functions');
@@ -836,4 +839,180 @@ exports.liquidarViagemMotorista = functions.runWith(runtimeOpts).https.onCall(as
 
     return { success: true, novoStatus: 'entregue' };
   });
+});
+
+// ========================================================
+// 13. CRIAR FRETE ZERO TRUST (PATCH BLOCO 01)
+// ========================================================
+exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Usuário não autenticado.');
+
+  const { payload, idempotencyKey } = data;
+  if (!payload || !idempotencyKey) {
+    throw new functions.https.HttpsError('invalid-argument', 'Payload ou chave de idempotência ausentes.');
+  }
+
+  const uid = context.auth.uid;
+  const idempotencyRef = db.collection('idempotency_keys').doc(idempotencyKey);
+  
+  return await db.runTransaction(async (transaction) => {
+    // Verificação de concorrência / Double Booking
+    const idempotencyDoc = await transaction.get(idempotencyRef);
+    if (idempotencyDoc.exists) {
+      return { success: true, freteId: idempotencyDoc.data().freteId }; 
+    }
+
+    const valorBrutoInput = Number(payload.valorTotal || payload.valorBruto || payload.valorFreteBruto || 0);
+    const valorPedagio = Number(payload.valorPedagio || 0);
+
+    if (valorBrutoInput <= 0) {
+      throw new functions.https.HttpsError('invalid-argument', 'Valor do frete inválido.');
+    }
+
+    // CÁLCULO FINANCEIRO SERVER-SIDE BLINDADO
+    const categoria = (payload.categoria || payload.veiculo || '').toLowerCase().trim();
+    const isHeavy = ['toco', 'truck', 'carreta', 'bitrem', 'carreta_ls', 'bi_trem_cegonha'].some(c => categoria.includes(c));
+    const taxa = isHeavy ? 0.15 : 0.20;
+
+    const baseComissao = Math.max(0, valorBrutoInput - valorPedagio);
+    const valorComissao = Number((baseComissao * taxa).toFixed(2));
+    const valorLiquidoMotorista = Number((valorBrutoInput - valorComissao).toFixed(2));
+
+    if (valorLiquidoMotorista <= 0) {
+      throw new functions.https.HttpsError('invalid-argument', 'Valor líquido motorista resultante inválido.');
+    }
+
+    const generatePin = () => Math.floor(1000 + Math.random() * 9000).toString();
+    const pinColeta = payload.pinColeta || generatePin();
+    const paradas = payload.paradas || [];
+    const pinEntregas = payload.pinEntregas || paradas.map(() => generatePin());
+
+    let cidadeDestinoFormatada = payload.cidadeDestino || payload.destino?.cidade || '';
+    if (!cidadeDestinoFormatada && payload.destino?.endereco) {
+       const partes = payload.destino.endereco.split(',');
+       cidadeDestinoFormatada = partes.length > 2 ? partes[partes.length - 2].trim() : payload.destino.endereco.trim();
+    }
+
+    const dataExpiracao = new Date();
+    dataExpiracao.setMinutes(dataExpiracao.getMinutes() + 15);
+
+    const freteData = {
+      ...payload,
+      clienteId: uid,
+      cidadeDestinoFormatada,
+      status: 'aguardando_pagamento',
+      pagamentoStatus: 'pendente',
+      dispatchStatus: 'retido_pagamento',
+      expiraEm: dataExpiracao.getTime(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+      atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+      pinColeta,
+      pinEntregas,
+      
+      // SOBRESCRITA FINANCEIRA: Ignora qualquer margem injetada pelo front
+      valorTotal: valorBrutoInput,
+      valorBruto: valorBrutoInput,
+      valorFreteBruto: valorBrutoInput,
+      taxaFreto: taxa * 100,
+      valorComissao,
+      lucroPlataforma: valorComissao,
+      valorLiquidoMotorista,
+      valorMotorista: valorLiquidoMotorista,
+      valorPedagio,
+      interessados: payload.interessados || 0
+    };
+
+    // Correção de Schema (Dívida Técnica)
+    delete freteData.interressados;
+
+    const newFreteRef = db.collection('fretes').doc();
+    transaction.set(newFreteRef, freteData);
+    
+    // Bloqueia tentativas duplicadas com esta chave
+    transaction.set(idempotencyRef, { freteId: newFreteRef.id, createdAt: admin.firestore.FieldValue.serverTimestamp() });
+
+    return { success: true, freteId: newFreteRef.id };
+  });
+});
+
+// ========================================================
+// 14. CANCELAR FRETE COM VALIDAÇÃO DE ESTADO (PATCH BLOCO 01)
+// ========================================================
+exports.cancelarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Usuário não autenticado.');
+  const { freteId } = data;
+  if (!freteId) throw new functions.https.HttpsError('invalid-argument', 'FreteId ausente.');
+
+  const freteRef = db.collection('fretes').doc(freteId);
+
+  return await db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(freteRef);
+    if (!snap.exists) throw new functions.https.HttpsError('not-found', 'Frete não encontrado.');
+    
+    const frete = snap.data();
+    if (frete.clienteId !== context.auth.uid) {
+      throw new functions.https.HttpsError('permission-denied', 'Apenas o contratante pode cancelar.');
+    }
+
+    const statusProibidos = ['em_transporte', 'coletando', 'finalizando', 'entregue', 'finalizado', 'cancelado'];
+    if (statusProibidos.includes(frete.status)) {
+      throw new functions.https.HttpsError('failed-precondition', `A viagem está em andamento (status: ${frete.status}) e não pode ser cancelada diretamente.`);
+    }
+
+    transaction.update(freteRef, {
+      status: 'cancelado',
+      dispatchStatus: 'cancelado_pelo_cliente',
+      canceladoEm: admin.firestore.FieldValue.serverTimestamp(),
+      canceladoPor: context.auth.uid,
+      atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    if (frete.motoristaId) {
+      const motoristaOnlineRef = db.collection('motoristas_online').doc(frete.motoristaId);
+      transaction.set(motoristaOnlineRef, {
+         freteAtualId: null,
+         activeTripId: null,
+         currentTripId: null,
+         disponivel: true,
+         atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    }
+
+    return { success: true, freteId };
+  });
+});
+
+// ========================================================
+// 15. AUTO-BID RECALCULATION SERVER-SIDE (PATCH BLOCO 01)
+// ========================================================
+exports.recalcularAutoBid = functions.firestore.document('fretes/{freteId}').onUpdate(async (change, context) => {
+  const antes = change.before.data();
+  const depois = change.after.data();
+
+  // Recalcula as margens caso o cliente altere o valorTotal da oferta via Auto-Bid no Frontend
+  if (depois.valorTotal !== antes.valorTotal && antes.valorTotal !== undefined) {
+     const valorBrutoInput = Number(depois.valorTotal || 0);
+     const valorPedagio = Number(depois.valorPedagio || 0);
+     
+     const categoria = (depois.categoria || depois.veiculo || '').toLowerCase().trim();
+     const isHeavy = ['toco', 'truck', 'carreta', 'bitrem', 'carreta_ls', 'bi_trem_cegonha'].some(c => categoria.includes(c));
+     const taxa = isHeavy ? 0.15 : 0.20;
+
+     const baseComissao = Math.max(0, valorBrutoInput - valorPedagio);
+     const valorComissao = Number((baseComissao * taxa).toFixed(2));
+     const valorLiquidoMotorista = Number((valorBrutoInput - valorComissao).toFixed(2));
+
+     await change.after.ref.update({
+        valorBruto: valorBrutoInput,
+        valorFreteBruto: valorBrutoInput,
+        taxaFreto: taxa * 100,
+        valorComissao: valorComissao,
+        lucroPlataforma: valorComissao,
+        valorLiquidoMotorista: valorLiquidoMotorista,
+        valorMotorista: valorLiquidoMotorista,
+        atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+     });
+  }
+  return null;
 });
