@@ -1,5 +1,5 @@
-import { memo, useEffect, useMemo, useRef } from 'react';
-import { GoogleMap, Marker, Polyline, useJsApiLoader } from '@react-google-maps/api';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { GoogleMap, Marker, Polyline, DirectionsRenderer, useJsApiLoader } from '@react-google-maps/api';
 
 type Coordinates = { lat: number; lng: number; };
 
@@ -12,7 +12,7 @@ interface MapaClienteProps {
   eta?: number | null;
   motoristaId?: string | null;
   vehicleType?: string;
-  realDriversCount?: number; // 🔥 INJETADO BLOCO 05 (Contador Real via RTDB)
+  realDriversCount?: number;
 }
 
 const containerStyle = { width: '100%', height: '100%', minHeight: '420px', borderRadius: '1.5rem' };
@@ -43,6 +43,9 @@ function MapaCliente({
   });
 
   const mapRef = useRef<google.maps.Map | null>(null);
+  const boundsInitialized = useRef(false); // 🔥 CTO FIX: Flag para evitar zoom reset loop
+  const [directionsResult, setDirectionsResult] = useState<google.maps.DirectionsResult | null>(null);
+  
   const speed = useMemo(() => Math.floor(Math.random() * (60 - 30 + 1) + 30), [motoristaPos]);
 
   const routePath = useMemo(() => {
@@ -56,17 +59,39 @@ function MapaCliente({
     return path;
   }, [origem, motoristaPos, destino, paradasExtras, motoristaId]);
 
+  // 🔥 CTO FIX: Zoom inicial ancorado (Não reseta a cada coord recebida do motorista)
   useEffect(() => {
     if (!isLoaded || !mapRef.current || routePath.length === 0 || !window.google || !window.google.maps) return;
     
-    const bounds = new window.google.maps.LatLngBounds();
-    routePath.forEach(pos => bounds.extend(pos));
-    
-    setTimeout(() => {
-      mapRef.current?.fitBounds(bounds, { top: 60, bottom: 60, left: 40, right: 40 });
-    }, 200);
-
+    if (!boundsInitialized.current) {
+       const bounds = new window.google.maps.LatLngBounds();
+       routePath.forEach(pos => bounds.extend(pos));
+       
+       setTimeout(() => {
+         mapRef.current?.fitBounds(bounds, { top: 60, bottom: 60, left: 40, right: 40 });
+         boundsInitialized.current = true;
+       }, 200);
+    }
   }, [isLoaded, routePath]);
+
+  // 🔥 CTO FIX: Inteligência Geográfica para desenhar roteamento nas vias corretas
+  useEffect(() => {
+     if (!isLoaded || !origem || !destino || !window.google) return;
+     
+     const directionsService = new window.google.maps.DirectionsService();
+     const waypoints = paradasExtras?.map(p => ({ location: p, stopover: true })) || [];
+
+     directionsService.route({
+         origin: origem,
+         destination: destino,
+         waypoints: waypoints,
+         travelMode: window.google.maps.TravelMode.DRIVING
+     }, (result, status) => {
+         if (status === window.google.maps.DirectionsStatus.OK && result) {
+             setDirectionsResult(result);
+         }
+     });
+  }, [isLoaded, origem, destino, paradasExtras]);
 
   const getVehicleIcon = (category: string) => {
     if (!isLoaded || !window.google) return null;
@@ -143,7 +168,6 @@ function MapaCliente({
           </div>
         )}
 
-        {/* 🔥 BLOCO 05: UI do Contador Real */}
         {!motoristaId && origem && (
           <div className={`rounded-[1rem] border px-4 py-2 backdrop-blur-md shadow-lg flex items-center gap-2 animate-in slide-in-from-right-8 duration-700 delay-500 ${realDriversCount > 0 ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-amber-500/30 bg-amber-500/10'}`}>
             {realDriversCount > 0 ? (
@@ -164,7 +188,12 @@ function MapaCliente({
       </div>
 
       <GoogleMap mapContainerStyle={containerStyle} center={origem || defaultCenter} zoom={13} onLoad={(map) => { mapRef.current = map; }} options={mapOptions}>
-        {routePath.length >= 2 && <Polyline path={routePath} options={polylineOptions} />}
+        {/* 🔥 CTO FIX: Prefere rota rodoviária renderizada (Directions), fallback para Polyline pura */}
+        {directionsResult ? (
+           <DirectionsRenderer directions={directionsResult} options={{ suppressMarkers: true, polylineOptions: polylineOptions }} />
+        ) : (
+           routePath.length >= 2 && <Polyline path={routePath} options={polylineOptions} />
+        )}
         
         {origem && <Marker position={origem} icon={{ path: window.google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: "#10b981", fillOpacity: 1, strokeWeight: 3, strokeColor: "#ffffff" }} />}
         
