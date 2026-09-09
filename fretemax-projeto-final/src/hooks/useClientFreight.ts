@@ -23,7 +23,7 @@ export const useClientFreight = () => {
   CREATE FREIGHT (CONEXÃO BLINDADA)
   =========================================================
   */
-  const createFreight = useCallback(async ({ freightData, onSuccess, onError }: CreateFreightPayload) => {
+  const createFreight = useCallback(async ({ freightData, onSuccess, onError }: CreateFreightPayload): Promise<string | null> => {
     if (actionLock.current) return null;
     actionLock.current = true;
     setLoadingPayment(true);
@@ -54,7 +54,7 @@ export const useClientFreight = () => {
 
   /*
   =========================================================
-  CANCEL FREIGHT (SEGURANÇA DE REEMBOLSO)
+  CANCEL FREIGHT (SEGURANÇA SERVER-SIDE)
   =========================================================
   */
   const cancelFreight = useCallback(async (freightId: string, onSuccess?: () => void, onError?: (message: string) => void) => {
@@ -66,7 +66,7 @@ export const useClientFreight = () => {
       const response = await clientFreightService.cancelarFrete(freightId);
 
       if (!response.success) {
-        onError?.('Erro ao abortar a operação. Contate o suporte.');
+        onError?.(response.error || 'Erro ao abortar a operação. Contate o suporte.');
         return;
       }
 
