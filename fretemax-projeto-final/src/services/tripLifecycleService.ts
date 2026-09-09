@@ -1,14 +1,12 @@
 // =========================================================
 // NOME DO ARQUIVO: src/services/tripLifecycleService.ts
-// CTO-Log: FASE 4 - Correção de Build (Vercel) e Liquidação (Bloco 4).
-// Status: Importação do DispatchQueueService ajustada (Maiúscula vs Minúscula).
-// Evolução Fase 12 (Escrow): Blindagem atômica injetada no runTransaction.
-// Correção Bloco 4: Injeção do status 'finalizado' no Tracker de Logs da Torre.
-// Correção Bloco 04 (Execução): Preservação de campos financeiros (pagamentoStatus, pagoEm, reservaExpiraEm) no mapeamento genérico de transição.
-// Correção Bloco de Agendamento: Bloqueio do Forced Reset para proteger cargas agendadas durante recusa de motoristas.
+// CTO-Log: FASE 4 - Integração de Segurança Zero Trust (Bloco Backend).
+// Status: Adição do método de ligação (validarPinEAvancarEtapa) com Firebase Functions.
+// As demais operações atômicas locais (runTransaction) permanecem inalteradas.
 // =========================================================
 
 import { doc, serverTimestamp, collection, addDoc, runTransaction } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions'; // NOVO: Conexão segura
 import { db } from '../firebase';
 import { AppTripState, canTransition } from '../state/tripStateMachine';
 import { DriverState } from '../state/driverStateMachine';
@@ -68,6 +66,20 @@ export class TripLifecycleService {
     this.inflight.delete(key);
   }
 
+  // 🔥 CTO FIX: PONTE DE SEGURANÇA PARA A CLOUD FUNCTION
+  static async validarPinEAvancarEtapa(freteId: string, pin: string): Promise<void> {
+    const functions = getFunctions(db.app);
+    const validarPinDaEtapa = httpsCallable(functions, 'validarPinDaEtapa');
+    
+    try {
+      await validarPinDaEtapa({ freteId, pin });
+    } catch (error: any) {
+      console.error('[CTO-Log] Erro na validação de PIN no backend:', error);
+      // O erro do HTTPS Callable traz a mensagem tratada da nuvem direto pro usuário
+      throw new Error(error.message || 'Falha sistêmica ao comunicar com o servidor central.');
+    }
+  }
+
   private static async registrarEventoDeIA(freteId: string, novoStatus: AppTripState | string, contract?: TripStateTransitionContract) {
     try {
       const messagesRef = collection(db, 'fretes', freteId, 'chat');
@@ -89,14 +101,13 @@ export class TripLifecycleService {
         case AppTripState.COLETANDO:
           mensagemLog = "📦 [Torre Operacional]: Veículo em fase de carregamento na doca.";
           break;
-        case AppTripState.EM_TRANSPORTE:
-          mensagemLog = "✅ [Torre Operacional]: Coleta finalizada (PIN validado). Motorista a caminho do Destino Final.";
+        case AppTripState.EM_TRANSPORTE: // Nota: Esse print será substituído pelo print da Cloud Function quando houver PIN
+          mensagemLog = "✅ [Torre Operacional]: Rota confirmada. Motorista em deslocamento logístico.";
           break;
         case AppTripState.ENTREGUE:
           mensagemLog = "🏁 [Torre Operacional]: Rota Finalizada com Sucesso! Valores aguardando liquidação pelo sistema Escrow.";
           break;
         case 'finalizado':
-          // 🔥 CTO FIX: Registro financeiro definitivo (Bloco 4)
           mensagemLog = "💸 [Torre Operacional]: Repasse financeiro (PIX) liquidado com sucesso pela Administração. Operação arquivada.";
           break;
         case AppTripState.DISPONIVEL:
@@ -153,10 +164,8 @@ export class TripLifecycleService {
 
         const data = snapshot.data() as TripDocumentData;
         
-        // 🔥 CTO FIX: Verifica proativamente se é uma carga agendada
         const isAgendado = data.tipoFrete === 'agendado' || data.agendado === true;
 
-        // 🔥 CTO FIX (Escrow Atomic Lock): Impede que dois motoristas acessem ao mesmo tempo
         if (novoStatus === AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO as any) {
             if (data.motoristaId && data.motoristaId !== contract?.motoristaId) {
                 throw new Error("FRETE_JA_ATRIBUIDO");
@@ -182,7 +191,6 @@ export class TripLifecycleService {
 
         wasForcedReset = isForcedReset;
         
-        // Permite a transição para 'finalizado' que é gerenciada externamente pelo Admin
         if (novoStatus !== 'finalizado') {
             const permitido = canTransition(data.status as AppTripState, novoStatus as AppTripState);
             if (!permitido && !isForcedReset) {
@@ -192,7 +200,6 @@ export class TripLifecycleService {
 
         const payloadUpdate: Partial<TripDocumentData> = {};
 
-        // 🔥 CTO FIX: Bypass rigoroso para satisfazer a regra do Firestore (Apenas chaves autorizadas)
         if (novoStatus === AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO as any) {
             payloadUpdate.status = novoStatus;
             payloadUpdate.updatedAt = serverTimestamp() as unknown;
@@ -211,7 +218,6 @@ export class TripLifecycleService {
             payloadUpdate.atualizadoEm = serverTimestamp() as unknown;
             statusCalculado = novoStatus;
         } else {
-            // Comportamento original para todos os outros fluxos operacionais
             const runtime = StateSynchronizationService.synchronize(
               (data.driverState as DriverState) || DriverState.ONLINE,
               novoStatus as AppTripState
@@ -222,8 +228,6 @@ export class TripLifecycleService {
 
             statusCalculado = runtime.tripState;
             
-            // 🔥 CTO FIX: Intercepta o Forced Reset de Agendamento
-            // Impede categoricamente que a recusa do motorista transforme uma carga futura em carga imediata
             if (isForcedReset && novoStatus === AppTripState.DISPONIVEL && isAgendado) {
                 statusCalculado = 'agendado';
                 payloadUpdate.dispatchStatus = 'retido_agendamento';
@@ -285,7 +289,6 @@ export class TripLifecycleService {
 
       const freightPayloadToBroadcast = { ...finalDocumentState } as unknown as FretePayload;
       
-      // CTO FIX: Emite evento de cancelamento tanto para disponíveis quanto agendados
       if ((statusCalculado === AppTripState.DISPONIVEL || statusCalculado === 'agendado') && wasForcedReset) {
          ftiRadar.dispatch({ userId: 'system', eventType: 'DRIVER_CANCELED', data: freightPayloadToBroadcast, timestamp: new Date().toISOString() });
       }
@@ -296,7 +299,6 @@ export class TripLifecycleService {
          ftiRadar.dispatch({ userId: finalDocumentState.motoristaId || 'unknown', eventType: 'TRIP_COMPLETED', data: freightPayloadToBroadcast, timestamp: new Date().toISOString() });
       }
 
-      // O Dispatch Ativo SÓ RODA se for DISPONIVEL
       if (statusCalculado === AppTripState.DISPONIVEL && finalDocumentState.dispatchStatus !== 'aberto_no_feed') {
         try {
           DispatchQueueService.iniciarFila(freightPayloadToBroadcast).catch((err: unknown) => 
