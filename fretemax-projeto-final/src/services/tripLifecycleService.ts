@@ -5,6 +5,7 @@
 // As demais operações atômicas locais (runTransaction) permanecem inalteradas.
 // EXECUÇÃO BLOCO 6 (Prob #1): Correção de ciclo de vida Multi-Stop (Runtime gerado pós-intervenção).
 // EXECUÇÃO BLOCO 6 (Prob #2): Correção de Race Condition no Lock (Trava por freteId exclusivo).
+// EXECUÇÃO BLOCO 6 (Prob #4): Prevenção de duplicidade do evento TRIP_STARTED em multi-stop.
 // =========================================================
 
 import { doc, serverTimestamp, collection, addDoc, runTransaction } from 'firebase/firestore';
@@ -157,6 +158,7 @@ export class TripLifecycleService {
       let statusCalculado = novoStatus;
       let wasForcedReset = false;
       let finalDocumentState: TripDocumentData | null = null;
+      let statusAnterior: string | null = null; // 🔥 CTO FIX [Bloco 6 - Problema #4]: Cache do status pré-mutação
 
       await runTransaction(db, async (transaction) => {
         const snapshot = await transaction.get(freteRef);
@@ -166,6 +168,7 @@ export class TripLifecycleService {
         }
 
         const data = snapshot.data() as TripDocumentData;
+        statusAnterior = data.status as string; // Captura o estado original da base de dados
         
         const isAgendado = data.tipoFrete === 'agendado' || data.agendado === true;
 
@@ -298,9 +301,12 @@ export class TripLifecycleService {
       if ((statusCalculado === AppTripState.DISPONIVEL || statusCalculado === 'agendado') && wasForcedReset) {
          ftiRadar.dispatch({ userId: 'system', eventType: 'DRIVER_CANCELED', data: freightPayloadToBroadcast, timestamp: new Date().toISOString() });
       }
-      if (statusCalculado === AppTripState.EM_TRANSPORTE) {
+      
+      // 🔥 CTO FIX [Bloco 6 - Problema #4]: Disparo restrito de TRIP_STARTED. Garante que só dispare ao sair de COLETANDO, evitando eco em Multi-Stop.
+      if (statusCalculado === AppTripState.EM_TRANSPORTE && statusAnterior === AppTripState.COLETANDO) {
          ftiRadar.dispatch({ userId: finalDocumentState.motoristaId || 'unknown', eventType: 'TRIP_STARTED', data: freightPayloadToBroadcast, timestamp: new Date().toISOString() });
       }
+      
       if (statusCalculado === AppTripState.ENTREGUE || statusCalculado === 'finalizado') {
          ftiRadar.dispatch({ userId: finalDocumentState.motoristaId || 'unknown', eventType: 'TRIP_COMPLETED', data: freightPayloadToBroadcast, timestamp: new Date().toISOString() });
       }
