@@ -8,6 +8,7 @@
 // 11. 🔥 CTO FIX (BLOCO 05): Sincronização da timeline visual do cliente injetada no Firestore.
 // 12. 🔥 CTO FIX (EXECUÇÃO BLOCO 03): Novo Funil de Pré-Pagamento. A carga vai para 'disponivel' após o PIX. Fluxo sem motorista.
 // 13. 🔥 CTO FIX (EXECUÇÃO BLOCO 03.B): Isolamento de Agendamento. Cargas agendadas vão para status 'agendado', imediatas vão para 'disponivel'.
+// 14. 🔥 CTO FIX (EXECUÇÃO BLOCO 8 - Prob #2): Proteção contra Chargeback/Estorno tardio. Aborta viagens operacionais ativas sem cobertura financeira.
 // =========================================================
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
@@ -177,6 +178,14 @@ export default async function handler(req, res) {
         // ==========================================
         } else if (['rejected', 'cancelled', 'refunded', 'charged_back'].includes(paymentData.status)) {
           
+          // 🔥 CTO FIX [Bloco 8 - Prob #2]: Verifica se a viagem já iniciou o ciclo ativo
+          const isOperationalActive = [
+            'disponivel', 'agendado', 'buscando_motorista', 'expandindo_busca',
+            'ofertando', 'aguardando_aceite', 'reservado_aguardando_pagamento',
+            'aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 
+            'em_transporte', 'parado_operacional', 'finalizando', 'validando_comprovante'
+          ].includes(freteData.status);
+
           if (freteData.status === 'aguardando_pagamento') {
             console.log(`[ROLLBACK] Pagamento recusado ou estornado. Expirando reserva.`);
             
@@ -187,7 +196,27 @@ export default async function handler(req, res) {
               atualizadoEm: FieldValue.serverTimestamp()
             });
 
+          } else if (isOperationalActive) {
+            // 🔥 CTO FIX [Bloco 8 - Prob #2]: Aborta viagem operacional ativa que sofreu chargeback tardio
+            console.warn(`[CHARGEBACK TARDIO] Pagamento estornado com viagem em status ativo (${freteData.status}). Abortando operação!`);
+            
+            transaction.update(freteRef, {
+              status: 'cancelado', 
+              pagamentoStatus: paymentData.status,
+              atualizadoEm: FieldValue.serverTimestamp()
+            });
+
+            // Registro forense para a Torre de Controle
+            const chatRef = freteRef.collection('chat').doc();
+            transaction.set(chatRef, {
+              texto: '⚠️ [Torre Operacional]: ALERTA DE SEGURANÇA FINANCEIRA. O pagamento (Escrow) foi estornado, contestado ou rejeitado pela operadora. A operação foi imediatamente abortada por quebra de garantia.',
+              nome: 'Torre de Controle (IA)',
+              tipoUsuario: 'admin',
+              createdAt: FieldValue.serverTimestamp()
+            });
+
           } else {
+            // Viagem já finalizada (entregue) ou cancelada. Apenas atualiza o status financeiro.
             transaction.update(freteRef, { pagamentoStatus: paymentData.status, atualizadoEm: FieldValue.serverTimestamp() });
           }
         }
