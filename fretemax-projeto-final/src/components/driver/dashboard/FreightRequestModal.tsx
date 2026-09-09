@@ -1,6 +1,6 @@
 // =========================================================
 // NOME DO ARQUIVO: src/components/driver/dashboard/FreightRequestModal.tsx
-// CTO-Log: Auditoria 10/10.
+// CTO-Log: Auditoria 10/10. Sem intervenção requerida no Bloco 4. Mantido conforme exigência.
 // Status: "TypeError: Cannot read properties of undefined" ERADICADO.
 // Correção (Polimento): Tarja Visual MULTI-DROP e injeção de Informação Ouro (Tipo de Carga e Observações).
 // =========================================================
