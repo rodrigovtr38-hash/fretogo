@@ -5,6 +5,7 @@
 // O Backend agora respeita 100% o modelo "Mural/Feed". A carga NUNCA expira sozinha na tela.
 // Delegação total de estado para TripLifecycleService.
 // Correção Bloco de Agendamento: Adição de Guard Clause contra Dispatch Imediato de Cargas Agendadas.
+// EXECUÇÃO BLOCO 9: Proteção contra Vazamento de Fila Assíncrona (Timeout Zumbi) e Restauro Seguro de Estado.
 // =========================================================
 
 import { doc, getDoc } from 'firebase/firestore';
@@ -110,17 +111,37 @@ export class DispatchQueueService {
       // Aguarda 30 segundos pela resposta do motorista antes de iterar
       setTimeout(async () => {
         try {
-          // Delega o avanço da fila. processarFila fará a leitura inicial de segurança
-          // e abortará silenciosamente se o status tiver evoluído.
-          await DispatchQueueService.processarFila(frete, motoristas, {
-            index: state.index + 1,
-            tentativa: state.tentativa + 1,
-          });
+          // 🔥 CTO FIX [Bloco 9]: Confirma o estado atual ANTES de avançar para matar threads zumbis.
+          const checkSnap = await getDoc(doc(db, 'fretes', frete.id));
+          if (!checkSnap.exists()) return;
+          const checkData = checkSnap.data();
+
+          // Verifica se a viagem ainda está de fato aguardando ESTE motorista específico.
+          if (checkData.status === AppTripState.AGUARDANDO_ACEITE && checkData.motoristaAtualDestaque === motorista.id) {
+            console.log(`[DISPATCH] Timeout: Motorista ${motorista.id} ignorou a oferta. Restaurando viagem ${frete.id}.`);
+            
+            // Restaura o estado para DISPONIVEL (limpando o motoristaAtualDestaque associado via TripLifecycleService).
+            // Enviamos 'aberto_no_feed' temporariamente para impedir que o TripLifecycleService 
+            // dispare um iniciarFila() paralelo (fork), já que nós mesmos prosseguiremos a fila manualmente abaixo.
+            const restaurado = await TripLifecycleService.alterarStatusViagem(frete.id, AppTripState.DISPONIVEL, {
+              dispatchStatus: 'aberto_no_feed'
+            });
+
+            if (restaurado) {
+              await DispatchQueueService.processarFila(frete, motoristas, {
+                index: state.index + 1,
+                tentativa: state.tentativa + 1,
+              });
+            }
+          } else {
+            // Se o status mudou (ex: recusado antes do timeout, aceito por outro, cancelado),
+            // a thread zumbi morre silenciosamente aqui sem corromper a operação.
+            console.log(`[DISPATCH] Timeout zumbi ignorado. Viagem ${frete.id} não pertence mais ao motorista ${motorista.id}.`);
+          }
         } catch (error: unknown) {
           if (error instanceof Error) {
             console.error('[DISPATCH_WATCHDOG_RACE_ERROR]', error.message);
           }
-          await DispatchQueueService.processarFila(frete, motoristas, { index: state.index + 1, tentativa: state.tentativa + 1 });
         }
       }, DRIVER_RESPONSE_TIMEOUT);
       
