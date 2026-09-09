@@ -4,15 +4,14 @@ import { collection, addDoc, serverTimestamp, onSnapshot, doc, Timestamp, update
 import { getDatabase, ref, onValue, query, orderByChild, equalTo } from 'firebase/database';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, XCircle, MessageCircle, Building2, User, Package, CalendarDays, Plus, Trash2, Flame, DollarSign, Activity, Eye, BrainCircuit, BarChart3, TrendingUp, AlertOctagon, Download, FileText, Lock, Scale, Clock3, Clock, Chrome, RefreshCcw } from 'lucide-react'; 
+import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, MessageCircle, Building2, Package, CalendarDays, Plus, Trash2, Flame, DollarSign, Activity, Eye, BrainCircuit, BarChart3, TrendingUp, AlertOctagon, Download, FileText, Lock, Scale, Clock3, Clock, Chrome } from 'lucide-react'; 
 import MapaCliente from '../components/MapaCliente';
 import ChatFrete from '../components/ChatFrete';
 import ClientStatusCard from '../components/client/ClientStatusCard';
 import ClientCancelModal from '../components/client/ClientCancelModal';
 import { paymentService } from '../services/paymentService'; 
-import { clientFreightService } from '../services/clientFreightService';
+import { useClientFreight } from '../hooks/useClientFreight';
 
-import { AppTripState as TripState } from '../state/tripStateMachine'; 
 import { mapsLoader } from '../services/mapsLoader'; 
 import { NotificationService } from '../services/notificationService'; 
 
@@ -56,7 +55,7 @@ export default function Cliente() {
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [loadingPayment, setLoadingPayment] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0);
-  const [isCancelling, setIsCancelling] = useState(false);
+  const [localCancelling, setLocalCancelling] = useState(false); // Para UX local de estorno no banco
   const [toast, setToast] = useState<{ msg: string; type: 'error' | 'success' | 'warning'; } | null>(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [isAutoFilled, setIsAutoFilled] = useState(false);
@@ -95,6 +94,8 @@ export default function Cliente() {
 
   const coordsCache = useRef<Record<string, Coords>>({});
   const isProcessingPayment = useRef(false);
+
+  const { createFreight, cancelFreight } = useClientFreight();
 
   const loadingMessages = [
     "Calculando melhor rota...",
@@ -449,7 +450,7 @@ export default function Cliente() {
     }
   };
 
-  // FLUXO DE OFERTA ONE-CLICK: Cria a carga e imediatamente chama o Mercado Pago
+  // FLUXO DE OFERTA ONE-CLICK: Cria a carga via Server-Side e chama Mercado Pago
   const handleConfirmarEPagar = async () => {
     if (loadingRoute || loadingPayment || isProcessingPayment.current) return;
     
@@ -482,7 +483,7 @@ export default function Cliente() {
     let createdFreteId = currentOrderId;
 
     try {
-      // 1. Criar o frete no banco (se ainda não foi criado)
+      // 1. Criar o frete no banco através da Cloud Function Blindada
       if (!createdFreteId) {
         const c1 = await getValidCoords([coleta.rua, coleta.num, coleta.bairro, coleta.cidade, coleta.uf, coleta.cep, 'Brasil'].filter(Boolean).join(', '));
         
@@ -494,21 +495,12 @@ export default function Cliente() {
         const destinoFinal = coordsEntregas[coordsEntregas.length - 1];
         const documentoLimpo = documento.replace(/\D/g, ''); 
         
-        const pinColeta = Math.floor(1000 + Math.random() * 9000).toString();
-        const pinEntregas = entregas.map(() => Math.floor(1000 + Math.random() * 9000).toString());
-
         const parsedDate = tipoFrete === 'agendado' && dataAgendada ? new Date(dataAgendada) : null;
         const firebaseTimestamp = parsedDate ? Timestamp.fromDate(parsedDate) : null;
 
-        const isHeavy = ['toco', 'truck', 'carreta', 'bitrem'].includes(vehicle);
-        const taxaPlataforma = isHeavy ? 0.15 : 0.20;
-        const valorFreteBruto = valorOfertaNum; 
         const valorPedagioOperacao = calculoFinanceiro.tollCost;
         
-        const baseComissao = Math.max(0, valorFreteBruto - valorPedagioOperacao);
-        const lucroPlataforma = baseComissao * taxaPlataforma; 
-        const valorLiquidoMotorista = valorFreteBruto - lucroPlataforma; 
-
+        // 🔥 CTO FIX ZERO TRUST: Envia apenas os fatos. O backend calcula comissão, lucro e chaves criptográficas de segurança (PINs).
         const payload = {
           clienteId: currentUser.uid,
           categoria: vehicle,
@@ -531,11 +523,7 @@ export default function Cliente() {
           tipoMaterial: tipoMaterial,
           qtdVolumes: qtdVolumes,
           observacoes: observacoes,
-          valorTotal: valorFreteBruto, 
-          valorFreteBruto: valorFreteBruto,
-          valorMotorista: Number(valorLiquidoMotorista.toFixed(2)), 
-          valorLiquidoMotorista: Number(valorLiquidoMotorista.toFixed(2)),
-          lucroPlataforma: Number(lucroPlataforma.toFixed(2)),
+          valorTotal: valorOfertaNum, // Envia o valor bruto inserido pelo embarcador
           cidadeOrigem: coleta.bairro, 
           cidadeDestino: destinoFinal.bairro,
           enderecoColetaTexto: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`, 
@@ -547,30 +535,31 @@ export default function Cliente() {
           origemLng: c1.lng, 
           destinoLat: destinoFinal.lat, 
           destinoLng: destinoFinal.lng, 
-          pinColeta, 
-          pinEntregas, 
           multiplasEntregas: entregas.length > 1,
           tipoFrete,
           dataAgendada: firebaseTimestamp,
           visualizacoes: 0,
           motoristasNotificados: 0,
-          interressados: 0,
+          interessados: 0, 
         };
 
-        const result = await clientFreightService.criarFrete(payload);
+        const freteId = await createFreight({
+           freightData: payload,
+           onError: (msg) => {
+              throw new Error(msg);
+           }
+        });
 
-        if (result.success && result.freteId) {
-          createdFreteId = result.freteId;
-          localStorage.setItem('fretogo_current_order', createdFreteId);
-          setCurrentOrderId(createdFreteId);
-        } else {
-           throw new Error(result.error || 'Falha estrutural ao registrar carga.');
-        }
+        if (!freteId) throw new Error('Falha estrutural ao registrar carga no servidor.');
+        
+        createdFreteId = freteId;
+        localStorage.setItem('fretogo_current_order', createdFreteId);
+        setCurrentOrderId(createdFreteId);
       }
 
-      // 2. Acionar serviço de pagamento instantaneamente
+      // 2. Acionar serviço de pagamento instantaneamente (O backend lá validará a quantia exata)
       const paymentPayload = {
-        valor: valorOfertaNum,
+        valor: valorOfertaNum, // Passado aqui apenas para compatibilidade, o paymentService usará a database.
         descricao: `Postagem de Carga - ${vehicle ? VEHICLE_CONFIG[vehicle]?.nome : 'FretoGo'}`,
         clienteId: currentUser.uid,
         freteId: createdFreteId as string
@@ -597,14 +586,14 @@ export default function Cliente() {
     }
   };
 
-  // Mantido especificamente para quando o usuário retorna do MP ou tenta pagar novamente na tela de Busca
+  // Mantido para retry na tela de Busca
   const handlePagarReserva = async () => {
     if (!currentOrderId || !orderData) return;
     try {
       setLoadingPayment(true);
       
       const payload = {
-        valor: orderData.valorFreteBruto || 0,
+        valor: orderData.valorTotal || orderData.valorFreteBruto || 0,
         descricao: `Postagem de Carga - ${orderData.veiculo ? VEHICLE_CONFIG[orderData.veiculo as VehicleType]?.nome : 'FretoGo'}`,
         clienteId: auth.currentUser?.uid || 'cliente',
         freteId: currentOrderId
@@ -653,29 +642,18 @@ export default function Cliente() {
     try {
       showToast('Recalculando e injetando nova oferta...', 'warning');
       
-      const isHeavy = ['toco', 'truck', 'carreta', 'bitrem'].includes(orderData.veiculo || '');
-      const taxaPlataforma = isHeavy ? 0.15 : 0.20;
-      
-      const novoBruto = (orderData.valorFreteBruto || 0) + valorAdicional;
-      const valorPedagioOperacao = orderData.valorPedagio || 0;
-      
-      const baseComissao = Math.max(0, novoBruto - valorPedagioOperacao);
-      const novoLucro = baseComissao * taxaPlataforma;
-      const novoLiquido = novoBruto - novoLucro;
-
+      // 🔥 CTO FIX ZERO TRUST: O cliente manda apenas o novo valor BRUTO desejado.
+      // A Cloud Function no backend intercepta o onUpdate e recalcula comissão e margem livre de interceptação.
+      const novoBruto = (orderData.valorTotal || orderData.valorFreteBruto || 0) + valorAdicional;
       const dataExpiracao = new Date();
       dataExpiracao.setMinutes(dataExpiracao.getMinutes() + 15);
 
       await updateDoc(doc(db, 'fretes', currentOrderId), {
         valorTotal: novoBruto,
-        valorFreteBruto: novoBruto,
-        valorMotorista: Number(novoLiquido.toFixed(2)),
-        valorLiquidoMotorista: Number(novoLiquido.toFixed(2)),
-        lucroPlataforma: Number(novoLucro.toFixed(2)),
         status: 'disponivel',
         prioridade: true,
         ofertaExpiraEm: Timestamp.fromDate(dataExpiracao),
-        createdAt: serverTimestamp()
+        updatedAt: serverTimestamp()
       });
       
       showToast(`Sucesso! Oferta aumentada em R$ ${valorAdicional}.`, 'success');
@@ -685,8 +663,8 @@ export default function Cliente() {
   };
 
   const handleCancelarPedido = async () => {
-    if (!currentOrderId || isCancelling) return;
-    setIsCancelling(true);
+    if (!currentOrderId || localCancelling) return;
+    setLocalCancelling(true);
     
     try {
       if (orderData?.pagamentoStatus === 'aprovado' || orderData?.transactionId) {
@@ -699,21 +677,24 @@ export default function Cliente() {
          const data = await res.json();
          if (!res.ok) throw new Error(data.error || data.detalhe || 'Erro na devolução.');
          showToast('Estorno realizado! O PIX retornou para sua conta.', 'success');
+         setShowCancelModal(false);
+         resetFlow();
       } else {
-         await updateDoc(doc(db, 'fretes', currentOrderId), {
-            status: 'cancelado',
-            canceladoEm: serverTimestamp()
+         // 🔥 CTO FIX ZERO TRUST: Aciona o hook que consome a CF de cancelamento do servidor com machine-state real.
+         await cancelFreight(currentOrderId, () => {
+            showToast('Operação cancelada com sucesso.', 'success');
+            setShowCancelModal(false);
+            resetFlow();
+         }, (errorMsg) => {
+            throw new Error(errorMsg);
          });
-         showToast('Operação cancelada e excluída.', 'success');
       }
-      setShowCancelModal(false);
-      resetFlow(); 
 
     } catch (error: any) { 
       showToast(error.message, 'error'); 
       setShowCancelModal(false);
     } finally { 
-      setIsCancelling(false); 
+      setLocalCancelling(false); 
     }
   };
 
@@ -1431,7 +1412,7 @@ export default function Cliente() {
         </div>
       )}
 
-      <ClientCancelModal open={showCancelModal} isCancelling={isCancelling} onClose={() => setShowCancelModal(false)} onConfirm={handleCancelarPedido} />
+      <ClientCancelModal open={showCancelModal} isCancelling={localCancelling} onClose={() => setShowCancelModal(false)} onConfirm={handleCancelarPedido} />
     </div>
   );
 }
