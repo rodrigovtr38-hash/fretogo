@@ -1,8 +1,8 @@
 // =========================================================
-// NOME DO ARQUIVO: src/components/motorista/DriverDashboardLayout.tsx
+// NOME DO ARQUIVO: src/components/driver/dashboard/DriverDashboardLayout.tsx
 // CTO-Log: Container Mestre unificado. Fase 2 Homologada.
+// CTO-Log [Bloco 4]: Expansão de Tipagem e Tratamento Anti-Zumbi (try/catch modal exit).
 // Status: Auditoria completa. Sem erros de importação ou vazamentos de re-render.
-// Correção: Expansão da Interface OperationalFreight para aceitar SSOT integral.
 // =========================================================
 
 import { useCallback, useState } from 'react';
@@ -17,6 +17,8 @@ export interface OperationalFreight {
   status?: string;
   prioridade?: boolean;
   agendado?: boolean;
+  tipoFrete?: string;    // 🔥 CTO FIX: Contrato restabelecido
+  expiraEm?: any;        // 🔥 CTO FIX: Adição da tipagem consumida pela view
   categoria?: DriverCategory;
   veiculo?: string;
   clienteNome?: string;
@@ -80,20 +82,26 @@ export default function DriverDashboardLayout({
     try {
       setProcessingAction(true);
       await onAcceptFreight(selectedFreight);
+    } catch (error) {
+      console.error('[CTO-Log] Erro no fluxo de aceite. Removendo motorista do deadlock:', error);
+      onCloseFreight(); // 🔥 CTO FIX [Problema 2]: Fecha o Modal Zumbi em caso de falha externa
     } finally {
       setProcessingAction(false);
     }
-  }, [selectedFreight, processingAction, onAcceptFreight]);
+  }, [selectedFreight, processingAction, onAcceptFreight, onCloseFreight]);
 
   const handleReject = useCallback(async () => {
     if (!selectedFreight || processingAction) return;
     try {
       setProcessingAction(true);
       await onRejectFreight(selectedFreight);
+    } catch (error) {
+      console.error('[CTO-Log] Erro na rejeição:', error);
+      onCloseFreight();
     } finally {
       setProcessingAction(false);
     }
-  }, [selectedFreight, processingAction, onRejectFreight]);
+  }, [selectedFreight, processingAction, onRejectFreight, onCloseFreight]);
 
   const openWhatsAppSupport = () => {
     window.open('https://wa.me/5511946099840?text=Olá,%20preciso%20de%20suporte%20operacional%20no%20app%20Fretogo.', '_blank');
