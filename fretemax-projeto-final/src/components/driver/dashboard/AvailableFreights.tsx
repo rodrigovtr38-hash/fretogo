@@ -2,6 +2,7 @@
 // NOME DO ARQUIVO: src/components/driver/dashboard/AvailableFreights.tsx
 // CTO-Log: FASE 3 - Auditoria UX Feed.
 // Correção: Remoção do botão de favoritar. Injeção de Tipo de Carga e Volumes.
+// CTO-Log [Bloco 4]: Anti-Ghosting, Correção de Alarme por ID e Padronização de CTA.
 // =========================================================
 
 import { useEffect, useRef, useState } from 'react';
@@ -38,9 +39,9 @@ export default function AvailableFreights({
   loading = false,
   onSelectFreight,
 }: AvailableFreightsProps) {
-  const prevFreightsLength = useRef(freights.length);
   const [tick, setTick] = useState(0);
   const viewedFreights = useRef<Set<string>>(new Set());
+  const prevTopFreightId = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isOnline) return;
@@ -50,14 +51,19 @@ export default function AvailableFreights({
 
   useEffect(() => {
     if (isOnline && freights.length > 0) {
+      let hasNewFreight = false;
+      const currentTopFreight = freights[0];
+
       freights.forEach(freight => {
         if (!viewedFreights.current.has(freight.id)) {
           viewedFreights.current.add(freight.id);
           dispatchRealtimeService.registrarVisualizacao(freight.id);
+          hasNewFreight = true; // 🔥 CTO FIX: Detecta novidade pelo ID único
         }
       });
 
-      if (freights.length > prevFreightsLength.current) {
+      // 🔥 CTO FIX: Dispara notificação se há uma carga nova no set, ou se a carga do topo mudou
+      if (hasNewFreight || (currentTopFreight && currentTopFreight.id !== prevTopFreightId.current)) {
         try {
           const beep = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
           beep.play().catch(() => console.warn('[UX] Bloqueio nativo evitado.'));
@@ -70,8 +76,10 @@ export default function AvailableFreights({
           }
         } catch (e) {}
       }
+      prevTopFreightId.current = currentTopFreight ? currentTopFreight.id : null;
+    } else if (freights.length === 0) {
+      prevTopFreightId.current = null;
     }
-    prevFreightsLength.current = freights.length;
   }, [freights, isOnline]);
 
   const now = Date.now();
@@ -80,14 +88,19 @@ export default function AvailableFreights({
     if (freight.agendado || freight.tipoFrete === 'agendado') {
         return false; 
     }
+
+    // 🔥 CTO FIX [Problema 1]: Anti-Ghosting. Esconde instantaneamente fretes já aceitos
+    if (freight.status && !['disponivel', 'buscando_motorista'].includes(freight.status)) {
+        return false;
+    }
     
-    // 🔥 CTO FIX: Lê a data de expiração real gerada no backend (Bloco 03)
+    // CTO FIX: Lê a data de expiração real gerada no backend
     if (freight.expiraEm) {
         const expirationTime = freight.expiraEm.toMillis ? freight.expiraEm.toMillis() : new Date(freight.expiraEm).getTime();
         return now < expirationTime;
     }
     
-    return true; // Fallback se o backend por algum motivo não gerar expiraEm
+    return true; 
   });
 
   return (
@@ -242,7 +255,8 @@ export default function AvailableFreights({
                     `}
                   >
                     <CheckCircle2 size={18} />
-                    {isHot ? 'Capturar Urgente' : 'Analisar Operação'}
+                    {/* 🔥 CTO FIX [Problema 3]: Padronização realista de CTA */}
+                    Revisar Oferta
                   </button>
                 </div>
               </div>
