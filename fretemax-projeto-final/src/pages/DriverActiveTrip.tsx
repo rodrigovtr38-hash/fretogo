@@ -1,8 +1,8 @@
 // =========================================================
 // NOME DO ARQUIVO: src/pages/DriverActiveTrip.tsx
 // CTO-Log: Auditoria Final - Bloco 6 (Operação & Contingência).
-// Correção Executada: Aplicação Zero Trust (FOTO -> PIN) e trava anti-falsificação.
-// Status: O PIN só é injetado na interface após o upload confirmado da foto da respectiva etapa.
+// Correção Executada: Bypass substituído por Autenticação em Nuvem (Zero Trust).
+// NOTA: A UI (JSX) foi totalmente preservada. Apenas a lógica interna de handlePinSubmit sofreu upgrade para acionar a Cloud Function através do TripLifecycleService.
 // =========================================================
 
 import { useState, useEffect } from 'react';
@@ -16,6 +16,7 @@ import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
 import { locationRealtimeService } from '../services/locationRealtimeService'; 
 import { locationService } from '../services/locationService'; 
 import { AppTripState } from '../state/tripStateMachine';
+import { TripLifecycleService } from '../services/tripLifecycleService'; // NOVO IMPORT OBRIGATÓRIO
 
 interface DriverActiveTripProps { freteId?: string; }
 
@@ -217,13 +218,11 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     }
   };
 
+  // 🔥 CTO FIX: DELEGAÇÃO DE AUTORIDADE PARA A NUVEM. O cliente perde o poder decisório.
   const handlePinSubmit = async () => {
     if (frete.bloqueioPin || actionLoading) return;
     setActionLoading(true);
     setPinError('');
-
-    const isColeta = frete.status === AppTripState.COLETANDO;
-    const currentPin = isColeta ? frete.pinColeta : (frete.pinEntregas || [])[paradaAtualIndex];
 
     if (!isFotoConfirmada) {
       setPinError('ERRO: A foto de evidência é OBRIGATÓRIA antes de validar o PIN.');
@@ -232,36 +231,15 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     }
 
     try {
-      if (pinValue !== currentPin) { 
-        const errosAtuais = (frete.tentativasPin || 0) + 1;
-        
-        if (errosAtuais >= 3) {
-          await dispatchRealtimeService.atualizarTripRealtime(frete.id, { tentativasPin: errosAtuais, bloqueioPin: true });
-          setPinError('SISTEMA BLOQUEADO: Limite de 3 tentativas excedido. Contate a Torre.');
-        } else {
-          await dispatchRealtimeService.atualizarTripRealtime(frete.id, { tentativasPin: errosAtuais });
-          setPinError(`PIN incorreto. Restam ${3 - errosAtuais} tentativas.`); 
-        }
-        setActionLoading(false); 
-        return; 
-      }
-      
-      await dispatchRealtimeService.atualizarTripRealtime(frete.id, { tentativasPin: 0 });
-
-      if (isColeta) {
-        await dispatchRealtimeService.atualizarStatusTrip(frete.id, AppTripState.EM_TRANSPORTE);
-      } else {
-        if (paradaAtualIndex + 1 < paradas.length) {
-           await dispatchRealtimeService.atualizarTripRealtime(frete.id, { paradaAtualIndex: paradaAtualIndex + 1 });
-        } else {
-           await dispatchRealtimeService.atualizarStatusTrip(frete.id, AppTripState.FINALIZANDO);
-        }
-      }
+      // Toda a checagem que estava aqui foi transferida para TripSecurity.ts (Cloud Functions).
+      // A UI simplesmente solicita o avanço com base na chave e aguarda a permissão do servidor.
+      await TripLifecycleService.validarPinEAvancarEtapa(frete.id, pinValue);
       
       setIsPinModalOpen(false); 
       setPinValue('');
-    } catch (e) { 
-      setPinError('Erro sistêmico ao validar. Tente novamente.'); 
+    } catch (e: any) { 
+      // Recebemos o texto de "Restam 2 tentativas" diretamente da Cloud Function
+      setPinError(e.message || 'Erro sistêmico ao validar. Tente novamente.'); 
     } finally { 
       setActionLoading(false); 
     }
