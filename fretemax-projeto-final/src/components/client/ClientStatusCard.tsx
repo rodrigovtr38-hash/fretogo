@@ -1,9 +1,3 @@
-// =========================================================
-// NOME DO ARQUIVO: src/components/client/ClientStatusCard.tsx
-// CTO-Log: Auditoria de Polimento (Fase de Escala).
-// Status: O Cofre de Segurança (Zero Trust) foi ativado. Os PINs não são mais revelados até que a foto do local chegue da nuvem.
-// =========================================================
-
 import { useState, useEffect } from 'react';
 import { Radar, Truck, User, Package, Lock, AlertTriangle, TrendingUp, Timer, Navigation, Star, CheckCircle2, DollarSign, Plus, RefreshCw, XCircle, Activity, FileText } from 'lucide-react';
 
@@ -70,7 +64,11 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
   else if (status === 'chegou_coleta') { safeStatus = 'Aguardando no Local'; statusColor = 'text-indigo-400'; bgColor = 'bg-indigo-500/10 border-indigo-500/30'; isPulsing = false; }
   else if (status === 'coletando') { safeStatus = 'Carregando Veículo'; statusColor = 'text-amber-400'; bgColor = 'bg-amber-500/10 border-amber-500/30'; }
   else if (status === 'em_transporte') { safeStatus = 'Carga em Trânsito'; statusColor = 'text-emerald-400'; bgColor = 'bg-emerald-500/10 border-emerald-500/30'; }
+  // 🔥 CTO FIX: Tratando 'parado_operacional' apropriadamente
+  else if (status === 'parado_operacional') { safeStatus = 'Parada Operacional / Doca'; statusColor = 'text-indigo-400'; bgColor = 'bg-indigo-500/10 border-indigo-500/30'; isPulsing = true; }
   else if (status === 'finalizando' || status === 'entregue' || status === 'finalizado') { safeStatus = 'Entrega Concluída'; statusColor = 'text-emerald-400'; bgColor = 'bg-emerald-500/10 border-emerald-500/30'; isPulsing = false; }
+  // 🔥 CTO FIX: Fallback seguro para sub-estados da StateMachine que o App possa omitir
+  else if (status) { safeStatus = 'Operação Ativa'; isPulsing = true; } 
 
   const isDataReady = typeof distancia === 'number' && typeof valorTotal === 'number' && valorTotal > 0;
   
@@ -81,34 +79,37 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
     ? Number(orderData.etaMinutes) 
     : isDataReady ? Math.max(10, Math.round(distancia * 1.5)) : 0;
 
+  // 🔥 CTO FIX: Construção de Timeline Dinâmica baseada no total de Paradas da Viagem (até 5 Drops + Coleta)
+  const totalEntregas = orderData?.pinEntregas?.length || 1;
+  const etapasRoteiro = [
+    { title: 'A Caminho', icon: <Navigation size={14} /> },
+    { title: 'Coletando', icon: <Package size={14} /> }
+  ];
+
+  for (let i = 0; i < totalEntregas; i++) {
+     etapasRoteiro.push({
+        title: totalEntregas > 1 ? `Entrega ${i + 1}` : 'Entregue',
+        icon: i === totalEntregas - 1 ? <CheckCircle2 size={14} /> : <Truck size={14} />
+     });
+  }
+
   const getTimelineStepStatus = (stepIndex: number) => {
-    const statusSequence = [
-      ['aceito', 'indo_coleta', 'chegou_coleta'],
-      ['coletando'],
-      ['em_transporte', 'parado_operacional'],
-      ['finalizando', 'entregue', 'finalizado']
-    ];
-    
-    let currentStepIndex = -1;
-    for (let i = 0; i < statusSequence.length; i++) {
-      if (statusSequence[i].includes(status)) {
-        currentStepIndex = i;
-        break;
-      }
+    let activeIndex = 0;
+    if (['aceito', 'indo_coleta', 'chegou_coleta'].includes(status)) activeIndex = 0;
+    else if (status === 'coletando') activeIndex = 1;
+    else if (['em_transporte', 'parado_operacional'].includes(status)) {
+        // Offset de +2 por conta do "A Caminho" e "Coletando"
+        activeIndex = 2 + paradaAtualIndex;
+    }
+    else if (['finalizando', 'entregue', 'finalizado'].includes(status)) {
+        activeIndex = etapasRoteiro.length; // Finalizado 
     }
 
-    if (currentStepIndex === -1) return 'pending'; 
-    if (stepIndex < currentStepIndex) return 'completed';
-    if (stepIndex === currentStepIndex) return 'active';
+    if (activeIndex === etapasRoteiro.length) return 'completed';
+    if (stepIndex < activeIndex) return 'completed';
+    if (stepIndex === activeIndex) return 'active';
     return 'pending';
   };
-
-  const steps = [
-    { title: 'A Caminho', icon: <Navigation size={14} /> },
-    { title: 'Coletando', icon: <Package size={14} /> },
-    { title: 'Em Trânsito', icon: <Truck size={14} /> },
-    { title: 'Entregue', icon: <CheckCircle2 size={14} /> }
-  ];
 
   return (
     <div className="rounded-[2.5rem] border border-white/10 bg-slate-900/80 p-6 md:p-8 shadow-2xl backdrop-blur-xl animate-in fade-in duration-300">
@@ -181,12 +182,12 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
 
       <div className="space-y-4">
         
-        {/* Timeline Viva */}
+        {/* Timeline Viva (Multi-Drop Dinâmica) */}
         {motoristaNome && !isTimeExpired && (
           <div className="mb-6 py-4">
             <div className="flex items-center justify-between relative">
               <div className="absolute top-1/2 left-0 w-full h-1 bg-slate-800 -translate-y-1/2 z-0"></div>
-              {steps.map((step, idx) => {
+              {etapasRoteiro.map((step, idx) => {
                 const stepStatus = getTimelineStepStatus(idx);
                 return (
                   <div key={idx} className="relative z-10 flex flex-col items-center gap-2">
