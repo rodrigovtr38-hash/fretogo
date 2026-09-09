@@ -5,6 +5,7 @@
 // Modificação Recente: Transição final (ENTREGUE) e salvamento de chave PIX 
 // delegados para a Cloud Function 'liquidarViagemMotorista' para contornar bloqueio de rules.
 // EXECUÇÃO BLOCO 2: Telemetria forçada via useEffect e UX adaptativo para múltiplas paradas.
+// EXECUÇÃO BLOCO 5: Prevenção de Concorrência GPS, View Cancelado e Alerta Silencioso Tratado.
 // =========================================================
 
 import { useState, useEffect } from 'react';
@@ -90,17 +91,9 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     return () => unsubscribe();
   }, [freteId]);
 
-  // 🔥 CTO FIX: TELEMETRIA ATIVA FORÇADA. 
-  // Garante que o tracker vincule a posição ao frete ativo sem depender de clique no botão do mapa.
-  useEffect(() => {
-    const driverId = auth.currentUser?.uid;
-    if (driverId && frete?.id) {
-       const isOperacional = frete.status !== AppTripState.FINALIZANDO && frete.status !== AppTripState.ENTREGUE && frete.status !== 'finalizado' && frete.status !== AppTripState.CANCELADO;
-       if (isOperacional) {
-          locationRealtimeService.start(driverId, frete.id);
-       }
-    }
-  }, [frete?.id, frete?.status]);
+  // 🔥 CTO FIX [Bloco 5]: Removed manual duplicated `locationRealtimeService.start` block.
+  // A telemetria agora é governada EXCLUSIVAMENTE pelo hook `useDriverRealtime` mestre,
+  // prevenindo batery drain e ghosting (Race Condition no Firebase).
 
   const paradas = frete?.paradas || [];
   const paradaAtualIndex = frete?.paradaAtualIndex || 0;
@@ -161,10 +154,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
          originCoords = await locationService.getCurrentLocation();
       }
 
-      const driverId = auth.currentUser?.uid;
-      if (driverId && frete?.id) {
-        locationRealtimeService.start(driverId, frete.id);
-      }
+      // 🔥 CTO FIX [Bloco 5]: Duplicated `locationRealtimeService.start` removed from here.
 
       let url = '';
       const queryAddr = encodeURIComponent(enderecoAlvoTexto || '');
@@ -187,6 +177,8 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       window.open(url, '_blank');
     } catch (error) {
       console.error('[CTO-Log] Falha na abertura da navegação.', error);
+      // 🔥 CTO FIX [Bloco 5]: Correção do P2 (Alerta silencioso de GPS desligado)
+      alert("Não foi possível obter sua localização. Verifique seu GPS e tente novamente.");
     } finally {
       setActionLoading(false);
     }
@@ -308,6 +300,28 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     const msg = `Olá, sou o motorista parceiro da FretoGo. Estou a caminho para a corrida #${frete.id.slice(0,8).toUpperCase()}.`;
     window.open(`https://wa.me/55${numero}?text=${encodeURIComponent(msg)}`, '_blank');
   };
+
+  // 🔥 CTO FIX [Bloco 5]: Tela Exclusiva (Escape) para Situação de Viagem Cancelada
+  if (frete.status === AppTripState.CANCELADO || String(frete.status) === 'cancelado') {
+    return (
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="rounded-[2.5rem] border-2 border-red-500/30 bg-slate-900 shadow-[0_0_50px_rgba(239,68,68,0.15)] p-8">
+         <div className="flex justify-center mb-6">
+           <div className="w-20 h-20 bg-red-500/10 rounded-full border border-red-500/30 flex items-center justify-center">
+             <XCircle size={40} className="text-red-400" />
+           </div>
+         </div>
+         <h2 className="text-center text-3xl font-black text-white uppercase italic tracking-tighter mb-2">Operação Abortada</h2>
+         <p className="text-center text-slate-400 text-sm mb-8">Esta viagem foi cancelada e devolvida à Torre de Controle.</p>
+         
+         <button 
+           onClick={() => window.location.reload()} 
+           className="w-full flex items-center justify-center gap-2 bg-slate-800 h-16 font-black uppercase tracking-[0.2em] rounded-[1.5rem] transition-all hover:bg-slate-700 active:scale-95 text-white border border-slate-700 shadow-inner"
+         >
+           Voltar ao Radar
+         </button>
+      </motion.div>
+    );
+  }
 
   if (frete.status === AppTripState.FINALIZANDO) {
     return (
