@@ -4,6 +4,7 @@
 // Correção Executada: Bypass substituído por Autenticação em Nuvem (Zero Trust).
 // Modificação Recente: Transição final (ENTREGUE) e salvamento de chave PIX 
 // delegados para a Cloud Function 'liquidarViagemMotorista' para contornar bloqueio de rules.
+// EXECUÇÃO BLOCO 2: Telemetria forçada via useEffect e UX adaptativo para múltiplas paradas.
 // =========================================================
 
 import { useState, useEffect } from 'react';
@@ -11,7 +12,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { db, auth, storage } from '../firebase'; 
 import { doc, onSnapshot, DocumentData } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage'; 
-import { getFunctions, httpsCallable } from 'firebase/functions'; // NOVO IMPORT
+import { getFunctions, httpsCallable } from 'firebase/functions'; 
 import { LockKeyhole, AlertTriangle, Loader2, MapPin, Radio, Navigation, Scale, Camera, Wallet, CheckCircle2, MessageCircle, FileText, Check, XCircle, Info, UploadCloud } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
@@ -88,6 +89,18 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     });
     return () => unsubscribe();
   }, [freteId]);
+
+  // 🔥 CTO FIX: TELEMETRIA ATIVA FORÇADA. 
+  // Garante que o tracker vincule a posição ao frete ativo sem depender de clique no botão do mapa.
+  useEffect(() => {
+    const driverId = auth.currentUser?.uid;
+    if (driverId && frete?.id) {
+       const isOperacional = frete.status !== AppTripState.FINALIZANDO && frete.status !== AppTripState.ENTREGUE && frete.status !== 'finalizado' && frete.status !== AppTripState.CANCELADO;
+       if (isOperacional) {
+          locationRealtimeService.start(driverId, frete.id);
+       }
+    }
+  }, [frete?.id, frete?.status]);
 
   const paradas = frete?.paradas || [];
   const paradaAtualIndex = frete?.paradaAtualIndex || 0;
@@ -486,9 +499,11 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
               {actionLoading ? <Loader2 className="animate-spin" size={24}/> : 'Iniciar Coleta'}
             </button>
           )}
+
+          {/* 🔥 CTO FIX: Botões Orientados à Ação para Múltiplas Paradas */}
           {[AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE].includes(frete.status) && (
             <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full flex items-center justify-center h-16 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.4)] bg-cyan-500 hover:bg-cyan-400">
-              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : `Registrar Evidência / PIN`}
+              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : frete.status === AppTripState.COLETANDO ? 'Registrar Evidência de Coleta' : `Cheguei na Entrega ${paradaAtualIndex + 1} - Registrar PIN`}
             </button>
           )}
         </div>
