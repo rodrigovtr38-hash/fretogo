@@ -1,19 +1,21 @@
-// src/hooks/useDriverRealtime.ts
+// =========================================================
+// NOME DO ARQUIVO: src/hooks/useDriverRealtime.ts
+// CTO-Log: Injeção de Permissões e GPS Blindado
+// EXECUÇÃO BLOCO 2: Prevenção de GPS Kill em Unmount e adição de contexto freteId.
+// =========================================================
+
 import { useEffect, useRef } from 'react';
 import { locationRealtimeService } from '../services/locationRealtimeService';
-
-/* =========================================================
-   HOOK: CTO-LOG - Injeção de Permissões e GPS Blindado
-========================================================= */
 
 export const useDriverRealtime = (
   driverId?: string,
   isOnline?: boolean,
+  freteId?: string, // 🔥 CTO FIX: Adicionado suporte ao contexto de túnel da viagem
 ) => {
   const initializedRef = useRef(false);
   const activeDriverRef = useRef<string | undefined>();
 
-  // CTO-LOG: Solicitação de permissão de notificação no carregamento.
+  // Solicitação de permissão de notificação no carregamento.
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       if (Notification.permission === 'default') {
@@ -30,7 +32,7 @@ export const useDriverRealtime = (
     }
 
     /*
-     * StrictMode protection.
+     * StrictMode protection & Redundancy Prevention.
      */
     if (initializedRef.current && activeDriverRef.current === driverId && isOnline) {
       return;
@@ -39,12 +41,10 @@ export const useDriverRealtime = (
     activeDriverRef.current = driverId;
     initializedRef.current = true;
 
-    // 🔥 CTO FIX: Se o motorista está ONLINE, 
-    // a telemetria GPS TEM que estar ligada e transmitindo. 
-    // Sem isso, a Vercel não acha ele na caixa de busca e dá SEM_MOTORISTA.
+    // Se o motorista está ONLINE, a telemetria GPS TEM que estar ligada e transmitindo. 
     if (isOnline) {
-      console.log('📡 Motorista ONLINE - Iniciando Telemetria GPS e Alertas');
-      locationRealtimeService.start();
+      console.log(`📡 Motorista ONLINE - Iniciando Telemetria GPS e Alertas${freteId ? ` (Frete: ${freteId})` : ''}`);
+      locationRealtimeService.start(driverId, freteId);
     } else {
       console.log('🛑 Motorista OFFLINE - Cortando Telemetria');
       locationRealtimeService.stop();
@@ -52,12 +52,13 @@ export const useDriverRealtime = (
 
     return () => {
       /*
-       * Cleanup seguro para evitar vazamento de memória e bateria.
+       * 🔥 CTO FIX: REMOVIDO locationRealtimeService.stop() do unmount incondicional.
+       * A troca entre telas (Ex: Dashboard <-> ActiveTrip) causava a morte da telemetria.
+       * O rastreamento agora persiste na memória e só é parado se 'isOnline' vier como falso.
        */
       if (activeDriverRef.current === driverId) {
-        locationRealtimeService.stop();
         initializedRef.current = false;
       }
     };
-  }, [driverId, isOnline]);
+  }, [driverId, isOnline, freteId]);
 };
