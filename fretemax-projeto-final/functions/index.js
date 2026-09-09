@@ -13,6 +13,7 @@
 // 9. 🔥 CTO FIX (BLOCO 10): Watchdog de Liberação de Agendamentos (O "Relógio").
 // 10. 🔥 CTO FIX (BLOCO 10): Watchdog de Expiração Absoluta (Garbage Collector do expiraEm).
 // 11. 🔥 CTO FIX: Injeção da Validação Zero Trust para Foto + PIN.
+// 12. 🔥 CTO FIX: Injeção de Liquidação Centralizada de Viagem (Bypass Firestore Rules).
 // =========================================================
 
 const functions = require('firebase-functions');
@@ -773,5 +774,66 @@ exports.validarPinDaEtapa = functions.runWith(runtimeOpts).https.onCall(async (d
     });
 
     return { success: true, novoStatus: payloadUpdate.status };
+  });
+});
+
+// ========================================================
+// 12. LIQUIDAÇÃO DE VIAGEM (Bypass Seguro de Firestore Rules)
+// ========================================================
+exports.liquidarViagemMotorista = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
+  // 1. Autenticação Obrigatória
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuário não autenticado.');
+  }
+
+  const { freteId, chavePix } = data;
+  if (!freteId || !chavePix) {
+    throw new functions.https.HttpsError('invalid-argument', 'FreteId ou chave PIX ausentes.');
+  }
+
+  const freteRef = db.collection('fretes').doc(freteId);
+
+  // 2. Transação Atômica de Liquidação
+  return await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(freteRef);
+    if (!snapshot.exists) {
+      throw new functions.https.HttpsError('not-found', 'Ordem operacional não encontrada.');
+    }
+
+    const frete = snapshot.data();
+
+    // Validação da Identidade
+    if (frete.motoristaId !== context.auth.uid) {
+      throw new functions.https.HttpsError('permission-denied', 'Você não é o motorista autorizado desta operação.');
+    }
+
+    // Trava de Dupla Execução
+    if (frete.status === 'entregue' || frete.status === 'finalizado') {
+      throw new functions.https.HttpsError('failed-precondition', 'Esta viagem já foi liquidada ou está finalizada.');
+    }
+
+    // Trava de Estágio Correto
+    if (frete.status !== 'finalizando') {
+      throw new functions.https.HttpsError('failed-precondition', 'O status atual não permite liquidação. Finalize todas as entregas com PIN antes de solicitar o pagamento.');
+    }
+
+    // Execução Autorizada: Atualiza status para 'entregue' e persiste a chave PIX
+    transaction.update(freteRef, {
+      status: 'entregue',
+      chavePixMotorista: chavePix,
+      liquidadoEm: admin.firestore.FieldValue.serverTimestamp(),
+      atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    // Auditoria de Log (Chat FTI)
+    const messagesRef = freteRef.collection('chat').doc();
+    transaction.set(messagesRef, {
+      texto: `💸 [Torre Operacional]: Motorista solicitou liquidação (PIX). Status alterado para ENTREGUE. Escrow aguardando liberação.`,
+      nome: 'Torre de Controle (Financeiro)',
+      tipoUsuario: 'admin',
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    return { success: true, novoStatus: 'entregue' };
   });
 });
