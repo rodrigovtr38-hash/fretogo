@@ -12,6 +12,7 @@
 // 8. 🔥 CTO FIX (BLOCO 02): Watchdog de Reservas. Ceifador autônomo para fretes sem pagamento após 5 minutos.
 // 9. 🔥 CTO FIX (BLOCO 10): Watchdog de Liberação de Agendamentos (O "Relógio").
 // 10. 🔥 CTO FIX (BLOCO 10): Watchdog de Expiração Absoluta (Garbage Collector do expiraEm).
+// 11. 🔥 CTO FIX: Injeção da Validação Zero Trust para Foto + PIN.
 // =========================================================
 
 const functions = require('firebase-functions');
@@ -125,7 +126,7 @@ exports.getCoords = functions.runWith(runtimeOpts).https.onCall(async (data, con
 
       const err = new functions.https.HttpsError(
         'not-found', 
-        `Google Status: ${googleStatus}${googleErrorMsg} \vert{} Payload Completo:${payloadString}`
+        `Google Status: ${googleStatus}${googleErrorMsg} | Payload Completo:${payloadString}`
       );
 
       console.error('[GETCOORDS][6-THROW-EXECUTADO] not-found (Google não retornou status OK ou sem results[0])', JSON.stringify({ googleStatus, googleErrorMsg }));
@@ -192,7 +193,7 @@ exports.getDistance = functions.runWith(runtimeOpts).https.onCall(async (data, c
     if (res.data.status !== 'OK' || !res.data.rows[0]?.elements[0]) {
       const googleStatus = res.data.status || 'STATUS_DESCONHECIDO';
       const googleErrorMsg = res.data.error_message || 'Nenhuma mensagem detalhada do Google';
-      const err = new functions.https.HttpsError('failed-precondition', `Google Distance API Recusou: [${googleStatus}] \vert{} Detalhe:${googleErrorMsg}`);
+      const err = new functions.https.HttpsError('failed-precondition', `Google Distance API Recusou: [${googleStatus}] | Detalhe:${googleErrorMsg}`);
 
       console.error('[GETDISTANCE][6-THROW-EXECUTADO] failed-precondition (status != OK ou sem rows[0].elements[0])', JSON.stringify({ googleStatus, googleErrorMsg }));
       console.error('[GETDISTANCE][7-STACK]', err.stack);
@@ -650,4 +651,127 @@ exports.watchdogLimpezaFretesExpirados = functions.runWith(runtimeOpts).pubsub.s
   await batch.commit();
   console.log(`[WATCHDOG EXPIRAÇÃO] ${fretesExpirados.size} carga(s) abandonada(s) ou não alocada(s) foi(ram) encerrada(s) por TTL (expiraEm).`);
   return null;
+});
+
+// ========================================================
+// 11. VALIDAÇÃO DE PIN E FOTO (ZERO TRUST - SEGURANÇA MESTRE)
+// ========================================================
+exports.validarPinDaEtapa = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
+  // 1. Autenticação e Inputs
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuário não autenticado.');
+  }
+
+  const { freteId, pin } = data;
+  if (!freteId || !pin) {
+    throw new functions.https.HttpsError('invalid-argument', 'Frete ou PIN não informados.');
+  }
+
+  const freteRef = db.collection('fretes').doc(freteId);
+
+  // 2. Transação Atômica (Evita concorrência e dupla validação)
+  return await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(freteRef);
+    if (!snapshot.exists) {
+      throw new functions.https.HttpsError('not-found', 'Ordem operacional não encontrada.');
+    }
+
+    const frete = snapshot.data();
+
+    // Validação de Identidade (Apenas o motorista dono da carga pode validar)
+    if (frete.motoristaId !== context.auth.uid) {
+      throw new functions.https.HttpsError('permission-denied', 'Você não é o motorista autorizado desta viagem.');
+    }
+
+    // Trava de Bruteforce
+    if (frete.bloqueioPin) {
+      throw new functions.https.HttpsError('permission-denied', 'SISTEMA BLOQUEADO: Limite de tentativas excedido. Contate a Torre.');
+    }
+
+    let pinCorreto = '';
+    let etapaAtualKey = '';
+    let isColeta = false;
+
+    // 3. Roteamento de Etapas (Coleta vs Múltiplas Entregas)
+    if (frete.status === 'coletando') {
+      isColeta = true;
+      pinCorreto = frete.pinColeta;
+      etapaAtualKey = 'coleta';
+    } else if (frete.status === 'em_transporte' || frete.status === 'entregue') {
+      const paradaAtualIndex = frete.paradaAtualIndex || 0;
+      const paradas = frete.paradas || [];
+      
+      if (paradaAtualIndex >= paradas.length && paradas.length > 0) {
+         throw new functions.https.HttpsError('failed-precondition', 'Todas as paradas já foram concluídas.');
+      }
+      
+      pinCorreto = frete.pinEntregas ? frete.pinEntregas[paradaAtualIndex] : null;
+      etapaAtualKey = `parada_${paradaAtualIndex}`;
+    } else {
+      throw new functions.https.HttpsError('failed-precondition', 'O status atual da viagem não permite validação de PIN.');
+    }
+
+    // 4. Validação de Evidência Fotográfica (Zero Trust)
+    if (!frete.fotosPod || !frete.fotosPod[etapaAtualKey]) {
+      throw new functions.https.HttpsError('failed-precondition', 'Acesso negado. A foto da evidência ainda não consta no servidor central.');
+    }
+
+    // 5. Motor de Combate a Força Bruta (Tentativas Locais)
+    if (pin !== pinCorreto) {
+      const errosAtuais = (frete.tentativasPin || 0) + 1;
+      
+      if (errosAtuais >= 3) {
+        transaction.update(freteRef, { tentativasPin: errosAtuais, bloqueioPin: true });
+        throw new functions.https.HttpsError('permission-denied', 'SISTEMA BLOQUEADO: Limite de 3 tentativas excedido. Contate a Torre.');
+      } else {
+        transaction.update(freteRef, { tentativasPin: errosAtuais });
+        throw new functions.https.HttpsError('invalid-argument', `PIN incorreto. Restam ${3 - errosAtuais} tentativas.`);
+      }
+    }
+
+    // 6. SUCESSO - Consumo do PIN e Avanço de Etapa
+    const payloadUpdate = {
+      tentativasPin: 0,
+      atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+    };
+    
+    let mensagemLog = '';
+
+    if (isColeta) {
+      payloadUpdate.status = 'em_transporte';
+      payloadUpdate.pinColeta = null; // PIN CONSUMIDO E INVALIDADO
+      mensagemLog = "✅ [Torre Operacional]: Coleta finalizada (PIN validado no servidor). Motorista a caminho do Destino Final.";
+    } else {
+      const paradaAtualIndex = frete.paradaAtualIndex || 0;
+      const paradas = frete.paradas || [];
+      const totalParadas = paradas.length > 0 ? paradas.length : 1;
+
+      // Consome o PIN desta entrega sem apagar os PINs das entregas seguintes
+      const pinEntregasAtualizados = [...(frete.pinEntregas || [])];
+      pinEntregasAtualizados[paradaAtualIndex] = null;
+      payloadUpdate.pinEntregas = pinEntregasAtualizados;
+
+      if (paradaAtualIndex + 1 < totalParadas) {
+        payloadUpdate.paradaAtualIndex = paradaAtualIndex + 1;
+        payloadUpdate.status = 'em_transporte';
+        mensagemLog = `✅ [Torre Operacional]: Entrega da Parada ${paradaAtualIndex + 1} validada (PIN consumido). Iniciando trajeto para o próximo ponto.`;
+      } else {
+        payloadUpdate.status = 'finalizando';
+        mensagemLog = "🏁 [Torre Operacional]: Rota Logística Finalizada (Último PIN validado). Aguardando liquidação.";
+      }
+    }
+
+    transaction.update(freteRef, payloadUpdate);
+
+    // 7. Registro Autônomo da Torre Operacional no Chat
+    const messagesRef = freteRef.collection('chat').doc();
+    transaction.set(messagesRef, {
+      texto: mensagemLog,
+      nome: 'Torre de Controle (Segurança)',
+      tipoUsuario: 'admin',
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    return { success: true, novoStatus: payloadUpdate.status };
+  });
 });
