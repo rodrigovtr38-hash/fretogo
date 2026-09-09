@@ -2,6 +2,7 @@
 // NOME DO ARQUIVO: src/services/realtimeOrchestrator.ts
 // CTO-Log: Auditoria de Orquestração (LOTE 7)
 // Status: Variáveis fantasma removidas e payload tipado para deploy verde.
+// EXECUÇÃO BLOCO 7 (Prob #3): Eliminação de Event Loss via Lock Booleano. Implementação de Promise Chain para processamento sequencial.
 // =========================================================
 
 import { firebaseRealtimeService } from './firebaseRealtimeService';
@@ -12,7 +13,7 @@ import { AppTripState } from '../state/tripStateMachine';
 
 class RealtimeOrchestrator {
   private _initialized = false;
-  private _syncing = false;
+  private _syncQueue: Promise<void> = Promise.resolve(); // 🔥 CTO FIX: Fila de processamento sequencial
   private _eventsRegistered = false;
 
   // Exposto para garantir que a Vercel não acuse a variável como inutilizada
@@ -45,25 +46,29 @@ class RealtimeOrchestrator {
 
   private registerEvents(): void {
     // Ajuste de Payload: Tipagem restrita substituindo o uso de 'any'
-    eventBusService.on(AppEvents.TRIP_STATUS_CHANGED, async (payload: Record<string, unknown> | null) => {
-      if (this._syncing || !payload) return;
+    eventBusService.on(AppEvents.TRIP_STATUS_CHANGED, (payload: Record<string, unknown> | null) => {
+      if (!payload) return;
       
-      this._syncing = true; // LOCK: Impede eventos sobrepostos
-      try {
-        const tripStateRecebido = payload.status as AppTripState;
-        const driverStateRecebido = (payload.state as DriverState) || DriverState.OCUPADO;
+      // 🔥 CTO FIX [Bloco 7 - Prob #3]: Substituição do Lock booleano (que descartava eventos) por uma Promise Chain.
+      // O evento B vai para a fila do Microtask e aguarda o término do evento A, impedindo dessincronização por rede móvel instável.
+      this._syncQueue = this._syncQueue.then(async () => {
+        try {
+          const tripStateRecebido = payload.status as AppTripState;
+          const driverStateRecebido = (payload.state as DriverState) || DriverState.OCUPADO;
 
-        const syncResult = StateSynchronizationService.synchronize(
-          driverStateRecebido,
-          tripStateRecebido
-        );
-        
-        eventBusService.emit(AppEvents.STATE_SYNCED, syncResult);
-      } catch (error: unknown) {
-        console.error('[CTO-Log] SYNC ERROR:', error);
-      } finally {
-        this._syncing = false; // RELEASE: Libera para o próximo evento
-      }
+          const syncResult = StateSynchronizationService.synchronize(
+            driverStateRecebido,
+            tripStateRecebido
+          );
+          
+          eventBusService.emit(AppEvents.STATE_SYNCED, syncResult);
+        } catch (error: unknown) {
+          console.error('[CTO-Log] SYNC ERROR:', error);
+        }
+      }).catch(err => {
+        // Blindagem para garantir que a chain não quebre definitivamente em caso de exceção severa.
+        console.error('[CTO-Log] SYNC QUEUE CHAIN ERROR:', err);
+      });
     });
   }
 }
