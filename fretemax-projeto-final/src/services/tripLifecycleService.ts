@@ -4,6 +4,7 @@
 // Status: Adição do método de ligação (validarPinEAvancarEtapa) com Firebase Functions.
 // As demais operações atômicas locais (runTransaction) permanecem inalteradas.
 // EXECUÇÃO BLOCO 6 (Prob #1): Correção de ciclo de vida Multi-Stop (Runtime gerado pós-intervenção).
+// EXECUÇÃO BLOCO 6 (Prob #2): Correção de Race Condition no Lock (Trava por freteId exclusivo).
 // =========================================================
 
 import { doc, serverTimestamp, collection, addDoc, runTransaction } from 'firebase/firestore';
@@ -145,7 +146,8 @@ export class TripLifecycleService {
   }
 
   static async alterarStatusViagem(freteId: string, novoStatus: AppTripState | string, contract?: TripStateTransitionContract): Promise<boolean> {
-    const lockKey = `trip-${freteId}-${novoStatus}`;
+    // 🔥 CTO FIX [Bloco 6 - Problema #2]: O Lock agora é na viagem, independente do status pretendido. Previne race conditions de comandos simultâneos.
+    const lockKey = `trip-${freteId}`;
 
     if (!this.acquire(lockKey)) return false;
 
