@@ -2,6 +2,7 @@
 // NOME DO ARQUIVO: src/services/driverRealtimeListener.ts
 // CTO-Log: Fase 3 - Homologação Operacional Distribuída
 // Status: Validação atômica do State Machine mantida para evitar concorrência.
+// EXECUÇÃO BLOCO 2: Prevenção de duplicidade de listeners e liberação de loop para Multi-Paradas.
 // =========================================================
 
 import { eventBusService, AppEvents } from './eventBusService';
@@ -18,9 +19,14 @@ type DriverRealtimePayload = {
 
 class DriverRealtimeListener {
   private currentState = DriverState.OFFLINE;
+  private currentFreteId?: string;
+  private isInitialized = false;
 
   initialize() {
+    // 🔥 CTO FIX: Evita memory leak de múltiplos binds no React StrictMode
+    if (this.isInitialized) return;
     eventBusService.on(AppEvents.DRIVER_STATUS_CHANGED, this.handleDriverUpdate.bind(this));
+    this.isInitialized = true;
   }
 
   private handleDriverUpdate(payload: DriverRealtimePayload) {
@@ -32,7 +38,14 @@ class DriverRealtimeListener {
       /* ===================================
          IGNORA DUPLICADO E RENOVA
       =================================== */
-      if (this.currentState === nextState) return;
+      if (this.currentState === nextState && this.currentFreteId === payload.freteAtualId) {
+         // 🔥 CTO FIX: A trava incondicional matava o fluxo de Múltiplas Paradas. 
+         // O sistema agora permite re-trigger do status EM_TRANSPORTE, 
+         // necessário para processar as continuidades pós-entrega intermediária.
+         if (nextState !== DriverState.EM_TRANSPORTE) {
+             return;
+         }
+      }
 
       /* ===================================
          VALIDAÇÃO STATE MACHINE SEGURA
@@ -47,6 +60,7 @@ class DriverRealtimeListener {
 
       console.log(`[CTO-Log] DRIVER STATE: ${this.currentState} -> ${nextState}`);
       this.currentState = nextState;
+      this.currentFreteId = payload.freteAtualId;
 
       /* ===================================
          EVENTS DISPATCHER
