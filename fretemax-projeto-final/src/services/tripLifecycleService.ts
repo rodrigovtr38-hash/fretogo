@@ -3,6 +3,7 @@
 // CTO-Log: FASE 4 - Integração de Segurança Zero Trust (Bloco Backend).
 // Status: Adição do método de ligação (validarPinEAvancarEtapa) com Firebase Functions.
 // As demais operações atômicas locais (runTransaction) permanecem inalteradas.
+// EXECUÇÃO BLOCO 6 (Prob #1): Correção de ciclo de vida Multi-Stop (Runtime gerado pós-intervenção).
 // =========================================================
 
 import { doc, serverTimestamp, collection, addDoc, runTransaction } from 'firebase/firestore';
@@ -218,25 +219,28 @@ export class TripLifecycleService {
             payloadUpdate.atualizadoEm = serverTimestamp() as unknown;
             statusCalculado = novoStatus;
         } else {
-            const runtime = StateSynchronizationService.synchronize(
-              (data.driverState as DriverState) || DriverState.ONLINE,
-              novoStatus as AppTripState
-            );
-
+            // 🔥 CTO FIX [Bloco 6 - Problema #1]: Cálculo de Múltiplas Paradas primeiro, Sincronização depois.
             let paradaAtualIndex = (data.paradaAtualIndex as number) || 0;
             const totalParadas = data.paradas && Array.isArray(data.paradas) ? data.paradas.length : 1;
 
-            statusCalculado = runtime.tripState;
-            
+            statusCalculado = novoStatus as string;
+
             if (isForcedReset && novoStatus === AppTripState.DISPONIVEL && isAgendado) {
                 statusCalculado = 'agendado';
                 payloadUpdate.dispatchStatus = 'retido_agendamento';
             }
 
+            // Interceptação: Se a viagem tentar finalizar, mas houver mais paradas.
             if (novoStatus === AppTripState.ENTREGUE && paradaAtualIndex + 1 < totalParadas) {
               paradaAtualIndex += 1;
               statusCalculado = AppTripState.EM_TRANSPORTE; 
             }
+
+            // Geramos o runtime apenas DEPOIS de decidir o verdadeiro status (statusCalculado)
+            const runtime = StateSynchronizationService.synchronize(
+              (data.driverState as DriverState) || DriverState.ONLINE,
+              statusCalculado as AppTripState
+            );
 
             payloadUpdate.status = statusCalculado;
             payloadUpdate.paradaAtualIndex = paradaAtualIndex;
