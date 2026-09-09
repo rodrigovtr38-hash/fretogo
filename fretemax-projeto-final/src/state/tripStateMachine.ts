@@ -2,6 +2,7 @@
 // NOME DO ARQUIVO: src/state/tripStateMachine.ts
 // CTO-Log: Auditoria Final - Bloco 2 (Segurança de Cancelamento)
 // Ajuste: Manutenção do estado. As regras estão sólidas e refletem o fluxo corretamente.
+// EXECUÇÃO BLOCO 8 (Prob #1): Correção P0 de Conflito de Aceite. Adição da transição direta para ACEITO a partir dos estados do Radar/Dispatch (BUSCANDO_MOTORISTA, EXPANDINDO_BUSCA, OFERTANDO) espelhando o novo fluxo de Pré-Pagamento.
 // =========================================================
 
 export enum AppTripState {
@@ -60,11 +61,14 @@ export const VALID_TRANSITIONS: Record<string, string[]> = {
   [AppTripState.AGENDADO]: [AppTripState.DISPONIVEL, AppTripState.ACEITO, AppTripState.CANCELADO],
 
   [AppTripState.DISPONIVEL]: [AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, AppTripState.ACEITO, AppTripState.BUSCANDO_MOTORISTA, AppTripState.SEM_MOTORISTA, AppTripState.CANCELADO, AppTripState.EXPIRADO],
-  [AppTripState.BUSCANDO_MOTORISTA]: [AppTripState.EXPANDINDO_BUSCA, AppTripState.OFERTANDO, AppTripState.SEM_MOTORISTA, AppTripState.CANCELADO],
-  [AppTripState.EXPANDINDO_BUSCA]: [AppTripState.OFERTANDO, AppTripState.SEM_MOTORISTA, AppTripState.CANCELADO],
+  
+  // 🔥 CTO FIX [Bloco 8 - Prob #1]: Inclusão de ACEITO na esteira de Dispatch
+  [AppTripState.BUSCANDO_MOTORISTA]: [AppTripState.EXPANDINDO_BUSCA, AppTripState.OFERTANDO, AppTripState.SEM_MOTORISTA, AppTripState.CANCELADO, AppTripState.ACEITO],
+  [AppTripState.EXPANDINDO_BUSCA]: [AppTripState.OFERTANDO, AppTripState.SEM_MOTORISTA, AppTripState.CANCELADO, AppTripState.ACEITO],
   [AppTripState.SEM_MOTORISTA]: [AppTripState.CANCELADO, AppTripState.DISPONIVEL], 
 
-  [AppTripState.OFERTANDO]: [AppTripState.MOTORISTA_ENCONTRADO, AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, AppTripState.AGUARDANDO_ACEITE, AppTripState.REDISPATCH, AppTripState.TIMEOUT, AppTripState.CANCELADO],
+  // 🔥 CTO FIX [Bloco 8 - Prob #1]: Inclusão de ACEITO na esteira de Dispatch
+  [AppTripState.OFERTANDO]: [AppTripState.MOTORISTA_ENCONTRADO, AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, AppTripState.AGUARDANDO_ACEITE, AppTripState.REDISPATCH, AppTripState.TIMEOUT, AppTripState.CANCELADO, AppTripState.ACEITO],
   [AppTripState.MOTORISTA_ENCONTRADO]: [AppTripState.AGUARDANDO_ACEITE, AppTripState.ACEITO, AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, AppTripState.REDISPATCH],
   [AppTripState.AGUARDANDO_ACEITE]: [AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, AppTripState.ACEITO, AppTripState.TIMEOUT, AppTripState.REDISPATCH, AppTripState.CANCELADO],
   [AppTripState.TIMEOUT]: [AppTripState.REDISPATCH, AppTripState.SEM_MOTORISTA, AppTripState.DISPONIVEL],
