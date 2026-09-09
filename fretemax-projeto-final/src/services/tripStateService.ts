@@ -3,6 +3,7 @@
 // CTO-Log: API de Consumo Rápido da Máquina de Estados (LOTE 7)
 // Status: Compressão de sintaxe.
 // Evolução Fase 5: Reconhecimento do estado de Reserva.
+// EXECUÇÃO BLOCO 6 (Prob #5): Inclusão de CANCELADO_CLIENTE e CANCELADO_MOTORISTA em isFinished.
 // =========================================================
 
 import { AppTripState, canTransition } from '../state/tripStateMachine';
@@ -36,7 +37,8 @@ export class TripStateService {
   isFinished(): boolean {
     return [
       AppTripState.ENTREGUE, AppTripState.CANCELADO, AppTripState.EXPIRADO,
-      AppTripState.ERRO_PAGAMENTO, AppTripState.SEM_MOTORISTA
+      AppTripState.ERRO_PAGAMENTO, AppTripState.SEM_MOTORISTA,
+      AppTripState.CANCELADO_CLIENTE, AppTripState.CANCELADO_MOTORISTA
     ].includes(this.currentState);
   }
 
