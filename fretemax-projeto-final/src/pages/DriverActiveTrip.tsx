@@ -2,7 +2,8 @@
 // NOME DO ARQUIVO: src/pages/DriverActiveTrip.tsx
 // CTO-Log: Auditoria Final - Bloco 6 (Operação & Contingência).
 // Correção Executada: Bypass substituído por Autenticação em Nuvem (Zero Trust).
-// NOTA: A UI (JSX) foi totalmente preservada. Apenas a lógica interna de handlePinSubmit sofreu upgrade para acionar a Cloud Function através do TripLifecycleService.
+// Modificação Recente: Transição final (ENTREGUE) e salvamento de chave PIX 
+// delegados para a Cloud Function 'liquidarViagemMotorista' para contornar bloqueio de rules.
 // =========================================================
 
 import { useState, useEffect } from 'react';
@@ -10,13 +11,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { db, auth, storage } from '../firebase'; 
 import { doc, onSnapshot, DocumentData } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage'; 
+import { getFunctions, httpsCallable } from 'firebase/functions'; // NOVO IMPORT
 import { LockKeyhole, AlertTriangle, Loader2, MapPin, Radio, Navigation, Scale, Camera, Wallet, CheckCircle2, MessageCircle, FileText, Check, XCircle, Info, UploadCloud } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
 import { locationRealtimeService } from '../services/locationRealtimeService'; 
 import { locationService } from '../services/locationService'; 
 import { AppTripState } from '../state/tripStateMachine';
-import { TripLifecycleService } from '../services/tripLifecycleService'; // NOVO IMPORT OBRIGATÓRIO
+import { TripLifecycleService } from '../services/tripLifecycleService'; 
 
 interface DriverActiveTripProps { freteId?: string; }
 
@@ -267,19 +269,21 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     }
   };
 
+  // 🔥 CTO FIX: LIQUIDAÇÃO CENTRALIZADA NO BACKEND. O Frontend apenas solicita via Cloud Function.
   const handleLiquidacaoSubmit = async () => {
     if (!chavePix.trim()) { alert("Digite sua chave PIX para receber!"); return; }
     
     setActionLoading(true);
     try {
-      await dispatchRealtimeService.salvarChavePix(frete.id, chavePix);
-      await dispatchRealtimeService.atualizarStatusTrip(frete.id, AppTripState.ENTREGUE);
+      const functions = getFunctions(db.app);
+      const liquidarViagemMotorista = httpsCallable(functions, 'liquidarViagemMotorista');
+      await liquidarViagemMotorista({ freteId: frete.id, chavePix: chavePix });
       
       const adminPhone = "5511999999999"; 
       const msg = `Olá, finalizei a corrida #${frete.id.slice(0,8).toUpperCase()}.\nMinha chave PIX é: ${chavePix}\nO canhoto já foi enviado no app. Fico no aguardo do repasse.`;
       window.open(`https://wa.me/${adminPhone}?text=${encodeURIComponent(msg)}`, '_blank');
-    } catch (error) {
-      alert("Falha na comunicação. Tente novamente.");
+    } catch (error: any) {
+      alert(error.message || "Falha na comunicação. Tente novamente.");
     } finally { 
       setActionLoading(false); 
     }
