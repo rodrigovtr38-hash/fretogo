@@ -9,6 +9,7 @@
 // EXECUÇÃO BLOCO 7 (Prob #1): Remoção do estado obsoleto RESERVADO_AGUARDANDO_PAGAMENTO da regra de aceite. Trava de concorrência movida para ACEITO com expansão de pipeline.
 // EXECUÇÃO BLOCO 7 (Prob #2): Expansão da regra de isForcedReset para garantir limpeza de motorista em CANCELADO_MOTORISTA, REDISPATCH e ERRO.
 // EXECUÇÃO BLOCO 7 (Prob #4): Correção do log de Torre de Controle para registrar Entregas Parciais (Multi-Stop) preservando o status EM_TRANSPORTE.
+// EXECUÇÃO BLOCO 8 (Prob #1): Expansão de Contrato Logístico (veiculo, placa, foto, avaliacao) e Trava Atômica para RESERVA.
 // =========================================================
 
 import { doc, serverTimestamp, collection, addDoc, runTransaction } from 'firebase/firestore';
@@ -35,6 +36,10 @@ export interface TripDocumentData {
   dispatchStatus?: string;
   tipoFrete?: string;
   agendado?: boolean;
+  veiculo?: string | null; // NOVO: Bloco 8
+  placa?: string | null;   // NOVO: Bloco 8
+  foto?: string | null;    // NOVO: Bloco 8
+  avaliacao?: number | null; // NOVO: Bloco 8
   [key: string]: unknown;
 }
 
@@ -48,6 +53,11 @@ export interface TripStateTransitionContract {
   motoristaNome?: string | null;
   motoristaZap?: string | null;
   motoristaTelefone?: string | null;
+  // 🔥 CTO FIX [Bloco 8]: Atributos visuais cruciais para a UI (Tela 03)
+  veiculo?: string | null;
+  placa?: string | null;
+  foto?: string | null;
+  avaliacao?: number | null;
   reservadoEm?: number;
   reservaExpiraEm?: number;
   pagamentoStatus?: string;
@@ -179,8 +189,8 @@ export class TripLifecycleService {
         
         const isAgendado = data.tipoFrete === 'agendado' || data.agendado === true;
 
-        // 🔥 CTO FIX [Bloco 7 - Problema #1]: Bloqueio de Concorrência atômico garantindo aceite direto, bloqueando dupla atribuição.
-        if (novoStatus === AppTripState.ACEITO) {
+        // 🔥 CTO FIX [Bloco 8]: Bloqueio de Concorrência atômico garantindo dupla proteção: tanto para o Aceite Direto quanto para a Reserva!
+        if (novoStatus === AppTripState.ACEITO || novoStatus === AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO) {
             if (data.motoristaId && data.motoristaId !== contract?.motoristaId) {
                 throw new Error("FRETE_JA_ATRIBUIDO");
             }
@@ -265,6 +275,13 @@ export class TripLifecycleService {
               if (contract.motoristaNome !== undefined) payloadUpdate.motoristaNome = contract.motoristaNome;
               if (contract.motoristaZap !== undefined) payloadUpdate.motoristaZap = contract.motoristaZap;
               if (contract.motoristaTelefone !== undefined) payloadUpdate.motoristaTelefone = contract.motoristaTelefone;
+              
+              // 🔥 CTO FIX [Bloco 8]: Gravação dos metadados visuais do veículo/motorista
+              if (contract.veiculo !== undefined) payloadUpdate.veiculo = contract.veiculo;
+              if (contract.placa !== undefined) payloadUpdate.placa = contract.placa;
+              if (contract.foto !== undefined) payloadUpdate.foto = contract.foto;
+              if (contract.avaliacao !== undefined) payloadUpdate.avaliacao = contract.avaliacao;
+
               if (contract.alertaInsucesso !== undefined) payloadUpdate.alertaInsucesso = contract.alertaInsucesso;
               if (contract.motivoCancelamento !== undefined) payloadUpdate.motivoCancelamento = contract.motivoCancelamento;
               if (contract.entregueEm !== undefined) payloadUpdate.entregueEm = contract.entregueEm;
@@ -284,6 +301,11 @@ export class TripLifecycleService {
               payloadUpdate.motoristaAtualDestaque = null;
               payloadUpdate.motoristaLat = null;
               payloadUpdate.motoristaLng = null;
+              // Limpeza dos atributos visuais em caso de reset do frete
+              payloadUpdate.veiculo = null;
+              payloadUpdate.placa = null;
+              payloadUpdate.foto = null;
+              payloadUpdate.avaliacao = null;
             }
         }
 
