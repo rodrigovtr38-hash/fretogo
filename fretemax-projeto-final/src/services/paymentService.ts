@@ -4,6 +4,7 @@
 // Evolução Fase 5: Remoção da sobrescrita otimista do TripState.
 // EXECUÇÃO BLOCO 01 (ETAPA 2): Fonte autoritativa (Zero Trust) injetada. 
 // O payload da API recebe apenas o valor real guardado e calculado pelo backend.
+// EXECUÇÃO BLOCO 10: Fechamento Crítico de Segurança. Remoção do Sandbox via LocalStorage. Homologação estrita via Identity.
 // =========================================================
 
 import {
@@ -71,14 +72,14 @@ class PaymentService {
         eventBusService.emit(AppEvents.PAYMENT_FAILED, payload);
       }
 
-      // 🔥 CTO FIX: MODO DE TESTE EXPLÍCITO / SANDBOX (Bloco 05-B)
+      // 🔥 CTO FIX: MODO DE TESTE EXPLÍCITO / SANDBOX (Bloco 10)
+      // Remoção completa e absoluta da leitura do localStorage.
       const AUTHORIZED_SANDBOX_ACCOUNTS = ['contato@fretogo.com.br', 'rodrigovtr38@gmail.com'];
       const currentUserEmail = auth.currentUser?.email;
-      const isSandboxMode = (currentUserEmail && AUTHORIZED_SANDBOX_ACCOUNTS.includes(currentUserEmail)) ||
-                            (typeof window !== 'undefined' && localStorage.getItem('FRETOGO_SANDBOX') === 'true');
+      const isSandboxMode = !!(currentUserEmail && AUTHORIZED_SANDBOX_ACCOUNTS.includes(currentUserEmail));
 
       if (isSandboxMode) {
-        console.log('[CTO-Log] 🧪 MODO SANDBOX ATIVADO. Simulando aprovação para:', currentUserEmail || 'Tester com Flag Local');
+        console.log('[CTO-Log] 🧪 MODO SANDBOX ATIVADO. Simulando aprovação para Administrador:', currentUserEmail);
         const txId = 'QA_BYPASS_' + Date.now();
         
         await runTransaction(db, async (transaction) => {
