@@ -1,3 +1,5 @@
+// src/pages/Cliente.tsx
+
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, Timestamp, updateDoc } from 'firebase/firestore'; 
@@ -122,6 +124,7 @@ export default function Cliente() {
   const [distanciaReal, setDistanciaReal] = useState(0);
   
   const [simViews, setSimViews] = useState(0);
+  const [liveEta, setLiveEta] = useState<number | null>(null);
   
   const [origemGPS, setOrigemGPS] = useState<Coords | null>(null);
   const [destinoGPS, setDestinoGPS] = useState<Coords | null>(null);
@@ -658,7 +661,7 @@ export default function Cliente() {
         status: 'disponivel',
         motoristaId: null,
         motoristaNome: null,
-        motoristaTelefone: null,
+        motoristaZap: null,
         motoristaVeiculo: null,
         motoristaPlaca: null,
         reservadoEm: null,
@@ -1327,6 +1330,8 @@ export default function Cliente() {
                         vehicleType={orderData?.veiculo || vehicle}
                         operationalMessage={orderData?.status ? orderData.status.replace('_', ' ') : undefined}
                         realDriversCount={realDriversCount} 
+                        paradaAtualIndex={orderData?.paradaAtualIndex}
+                        onRouteUpdate={(eta) => setLiveEta(eta)}
                       />
                     ) : (
                       <div className="absolute inset-0 flex flex-col items-center justify-center text-blue-500"><Loader2 className="h-8 w-8 animate-spin mb-3"/></div>
@@ -1357,6 +1362,8 @@ export default function Cliente() {
                     onSmartPricing={handleSmartPricing}
                     onRepublicar={handleRepublicar}
                     onCancelar={() => setShowCancelModal(true)}
+                    // @ts-ignore - liveEta será declarado na interface do card no próximo commit
+                    liveEta={liveEta}
                   />
               </div>
 
