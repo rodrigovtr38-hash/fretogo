@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Radar, Truck, User, Package, Lock, AlertTriangle, TrendingUp, Timer, Navigation, Star, CheckCircle2, DollarSign, Plus, RefreshCw, XCircle, Activity, FileText } from 'lucide-react';
+import { Radar, Truck, User, Package, Lock, AlertTriangle, TrendingUp, Timer, Navigation, Star, CheckCircle2, DollarSign, Plus, RefreshCw, XCircle, Activity, FileText, Camera } from 'lucide-react';
 
 interface ClientStatusCardProps {
   orderData: any;
