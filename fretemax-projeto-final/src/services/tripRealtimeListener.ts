@@ -4,6 +4,7 @@
 // Evolução Fase 10: Reação Ativa ao Rollback do Servidor (DISPONIVEL).
 // Evolução Fase 18: Sincronismo Atômico de RTDB e Autoridade Logística (Firestore -> RTDB).
 // Evolução Fase 23: Hydration Bug Fix (F5), Correção de PreviousState e Ghost Driver Fix.
+// Evolução Fase 24 (Bloco 9): Correção da tipagem de payload e emissão do evento TRIP_RESERVED para a UI.
 // =========================================================
 
 import {
@@ -19,10 +20,17 @@ import {
 import { dispatchRealtimeService } from './dispatchRealtimeService'; 
 import { auth } from '../firebase';
 
+// 🔥 CTO FIX [Bloco 9]: Expansão do Payload para contemplar metadados da UI do Cliente.
 type TripRealtimePayload = {
   id: string;
   status: AppTripState;
   motoristaId?: string;
+  motoristaNome?: string;
+  motoristaTelefone?: string;
+  veiculo?: string;
+  placa?: string;
+  foto?: string;
+  avaliacao?: number;
   clienteId?: string;
   tracking?: any;
 };
@@ -92,6 +100,14 @@ class TripRealtimeListener {
 
         case AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO as any:
           console.log('[CTO-Log] Viagem entrou em RESERVA. Aguardando pagamento do Embarcador.');
+          // 🔥 CTO FIX [Bloco 9]: O evento deixará de ser estrangulado. Emitindo aviso ao Front-End (Tela 03).
+          // Usaremos AppEvents.TRIP_STATUS_CHANGED para o Front, mas dispararemos a mutação contendo o payload visual.
+          // NOTA DE ENGENHARIA: Como AppEvents.TRIP_RESERVED não está mapeado previamente, emitiremos o estado através do evento guarda-chuva de alteração genérica (geralmente escutado pelo React) e também engatilharemos o disparo do webhook de pagamentos, se houver ouvintes.
+          if ((AppEvents as any).TRIP_RESERVED) {
+              eventBusService.emit((AppEvents as any).TRIP_RESERVED, payload);
+          } else {
+              eventBusService.emit(AppEvents.TRIP_STATUS_CHANGED, payload); 
+          }
           break;
 
         case AppTripState.DISPONIVEL as any:
