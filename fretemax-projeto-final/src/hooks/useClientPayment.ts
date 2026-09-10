@@ -2,6 +2,7 @@
 // NOME DO ARQUIVO: src/hooks/useClientPayment.ts
 // CTO-Log: Refinamento de Hook (Bloco 3).
 // Nota Arquitetural: Na arquitetura atual, Cliente.tsx executa o bypass direto à API. Este hook é mantido hígido para integrações modulares futuras (PWA/Mobile).
+// EXECUÇÃO BLOCO 10: Injeção obrigatória do freteId real no payload para viabilizar testes Sandbox e pagamentos legítimos.
 // =========================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -14,6 +15,7 @@ type CreatePixPaymentPayload = {
     name: string;
     phone: string;
   };
+  freteId: string; // 🔥 CTO FIX: Passa a ser obrigatório receber o freteId de quem chama o hook.
 };
 
 const PAYMENT_TIMEOUT = 1000 * 60 * 15; 
@@ -37,7 +39,7 @@ export const useClientPayment = () => {
         valor: payload.amount,
         descricao: payload.description,
         clienteId: payload.customer.name, 
-        freteId: '' // Dependência a ser injetada via contexto na V2
+        freteId: payload.freteId // 🔥 CTO FIX: Injeção do dado dinâmico. Fim do "chumbamento" vazio.
       });
 
       if (!response.success) throw new Error(response.error);
