@@ -4,6 +4,7 @@
 // Evolução Fase 5: Motorista agora assume a Reserva (RESERVADO_AGUARDANDO_PAGAMENTO) antes do Aceite Real.
 // Evolução Fase 6: Liberação do motorista (Destravamento da Reserva + Start GPS) interligada ao Webhook Financeiro.
 // Evolução Fase 12 (Escrow): Ajuste para Timeout de 5 Minutos. Expiração de frete direciona para EXPIRADO (não retorna ao radar automaticamente).
+// EXECUÇÃO BLOCO 8 (Prob #2): Expansão de payload (veiculo, placa, foto) na esteira de aceite.
 // =========================================================
 
 import { increment } from 'firebase/firestore';
@@ -59,15 +60,21 @@ class DispatchRealtimeService {
     }
   }
 
-  async aceitarCorrida(driverId: string, freteId: string, driverData?: { nome?: string, whatsapp?: string }) {
+  // 🔥 CTO FIX [Bloco 8]: Expansão do tipo driverData para capturar e enviar Veículo, Placa e Foto.
+  async aceitarCorrida(driverId: string, freteId: string, driverData?: { nome?: string, whatsapp?: string, veiculo?: string, placa?: string, foto?: string, avaliacao?: number }) {
     try {
       const now = Date.now();
       const expiraEm = now + 5 * 60 * 1000; // 🔥 CTO FIX: 5 Minutos cravados.
 
+      // 🔥 CTO FIX [Bloco 8]: Injeção dos dados visuais do motorista no contrato de Lifecycle.
       const sucesso = await TripLifecycleService.alterarStatusViagem(freteId, AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, { 
         motoristaId: driverId,
         motoristaNome: driverData?.nome || 'Motorista',
         motoristaTelefone: driverData?.whatsapp || '',
+        veiculo: driverData?.veiculo || null,
+        placa: driverData?.placa || null,
+        foto: driverData?.foto || null,
+        avaliacao: driverData?.avaliacao || 5.0,
         reservadoEm: now,
         reservaExpiraEm: expiraEm,
         pagamentoStatus: 'pendente'
@@ -110,8 +117,11 @@ class DispatchRealtimeService {
         motoristaNome: null,
         motoristaTelefone: null,
         motoristaZap: null,
-        motoristaLat: null,
-        motoristaLng: null,
+        // Limpeza dos novos campos em caso de timeout
+        veiculo: null,
+        placa: null,
+        foto: null,
+        avaliacao: null,
         alertaInsucesso: true,
         isRecusa: true,
         motivoCancelamento: 'O cliente não realizou o pagamento no prazo de 5 minutos.'
