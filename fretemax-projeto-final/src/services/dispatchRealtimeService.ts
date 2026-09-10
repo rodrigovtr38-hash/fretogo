@@ -5,10 +5,11 @@
 // Evolução Fase 6: Liberação do motorista (Destravamento da Reserva + Start GPS) interligada ao Webhook Financeiro.
 // Evolução Fase 12 (Escrow): Ajuste para Timeout de 5 Minutos. Expiração de frete direciona para EXPIRADO (não retorna ao radar automaticamente).
 // EXECUÇÃO BLOCO 8 (Prob #2): Expansão de payload (veiculo, placa, foto) na esteira de aceite.
+// EXECUÇÃO BLOCO 11 (CTO FIX): Leitura de Pagamento Pré-Aceite. Bypass direto para ACEITO se pagamentoStatus já for 'aprovado'. Fim da sobrescrita cega.
 // =========================================================
 
-import { increment } from 'firebase/firestore';
-import { auth } from '../firebase';
+import { increment, doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '../firebase';
 import { firebaseRealtimeService } from './firebaseRealtimeService';
 import { locationRealtimeService } from './locationRealtimeService';
 import { DriverState } from '../state/driverStateMachine';
@@ -60,14 +61,29 @@ class DispatchRealtimeService {
     }
   }
 
-  // 🔥 CTO FIX [Bloco 8]: Expansão do tipo driverData para capturar e enviar Veículo, Placa e Foto.
+  // 🔥 CTO FIX [Blocos 8 e 11]: Expansão visual e Roteamento de Estado Baseado em Pagamento.
   async aceitarCorrida(driverId: string, freteId: string, driverData?: { nome?: string, whatsapp?: string, veiculo?: string, placa?: string, foto?: string, avaliacao?: number }) {
     try {
-      const now = Date.now();
-      const expiraEm = now + 5 * 60 * 1000; // 🔥 CTO FIX: 5 Minutos cravados.
+      // 1. Consulta obrigatória (Zero Trust): Ler o estado atual do frete antes de mutá-lo.
+      const freteRef = doc(db, 'fretes', freteId);
+      const freteSnap = await getDoc(freteRef);
 
-      // 🔥 CTO FIX [Bloco 8]: Injeção dos dados visuais do motorista no contrato de Lifecycle.
-      const sucesso = await TripLifecycleService.alterarStatusViagem(freteId, AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, { 
+      if (!freteSnap.exists()) {
+        throw new Error('FRETE_NAO_ENCONTRADO');
+      }
+
+      const freteData = freteSnap.data();
+      const isPago = freteData.pagamentoStatus === 'aprovado';
+
+      const now = Date.now();
+      const expiraEm = now + 5 * 60 * 1000; // 5 Minutos cravados de timeout (se necessário).
+
+      // 2. Roteamento Dinâmico de Máquina de Estados
+      const nextTripState = isPago ? AppTripState.ACEITO : AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO;
+      const nextDriverState = isPago ? DriverState.ACEITOU : DriverState.RESERVADO;
+
+      // 3. Injeção dos dados visuais do motorista e alteração de status.
+      const sucesso = await TripLifecycleService.alterarStatusViagem(freteId, nextTripState, { 
         motoristaId: driverId,
         motoristaNome: driverData?.nome || 'Motorista',
         motoristaTelefone: driverData?.whatsapp || '',
@@ -76,16 +92,18 @@ class DispatchRealtimeService {
         foto: driverData?.foto || null,
         avaliacao: driverData?.avaliacao || 5.0,
         reservadoEm: now,
-        reservaExpiraEm: expiraEm,
-        pagamentoStatus: 'pendente'
+        // 🔥 CTO FIX: Se já estiver pago, não há expiração de reserva e não sobrescrevemos o status financeiro.
+        reservaExpiraEm: isPago ? null : expiraEm,
+        ...(isPago ? {} : { pagamentoStatus: 'pendente' }) 
       });
 
       if (!sucesso) {
         throw new Error('FRETE_JA_ATRIBUIDO');
       }
 
+      // 4. Atualiza o radar do motorista com o estado correto.
       await firebaseRealtimeService.updateDriverRealtime(driverId, {
-        state: DriverState.RESERVADO, 
+        state: nextDriverState, 
         freteAtualId: freteId,
         activeTripId: freteId, 
         disponivel: false,
