@@ -1231,10 +1231,9 @@ export default function Cliente() {
 
         {step === 'busca' && orderData && (
           <div className="mx-auto w-full animate-in fade-in slide-in-from-bottom-8 duration-700">
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-8">
-              
-              <div className="flex flex-col gap-8">
-                
+
+            {/* 1 e 2: Cabeçalho/Status e Informações (Largura Total) */}
+            <div className="flex flex-col gap-6 mb-8">
                 {orderData?.status === 'aguardando_pagamento' && (
                   <div className="bg-blue-600 rounded-[2.5rem] p-8 shadow-2xl text-white mb-2 relative overflow-hidden">
                     <h3 className="text-3xl font-black mb-4 flex items-center gap-3">
@@ -1282,6 +1281,7 @@ export default function Cliente() {
                       <p className="text-2xl font-black text-white mt-1">{orderData?.qtdVolumes || '--'} un</p>
                       <p className="text-[10px] text-slate-400 uppercase font-bold mt-1">Volumes (Qtd)</p>
                     </div>
+                    
                     <div className="bg-slate-800/40 rounded-2xl p-4 border border-slate-700/30">
                       <FileText className="w-5 h-5 text-purple-400 mb-2"/>
                       <p className="text-sm font-black text-white mt-2 truncate">{orderData?.tipoMaterial || 'Diversos'}</p>
@@ -1308,8 +1308,15 @@ export default function Cliente() {
                       )}
                     </div>
                   </div>
+                </div>
+            </div>
 
-                  <div className="h-[400px] w-full rounded-[2.5rem] overflow-hidden border border-slate-200 shadow-xl relative mt-8">
+            {/* 3 e 4: Área Principal (Mapa, Painel Operacional e Chat) */}
+            <div className="flex flex-col lg:flex-row gap-8">
+              
+              {/* Coluna Principal: Mapa e Chat (Mobile: Order 2 - Baixo | Desktop: Order 1 - Esquerda) */}
+              <div className="flex-1 flex flex-col gap-6 order-2 lg:order-1 min-w-0">
+                  <div className="h-[400px] w-full rounded-[2.5rem] overflow-hidden border border-slate-200 shadow-xl relative">
                     {mapsReady ? (
                       <MapaCliente 
                         origem={origemGPS} 
@@ -1335,22 +1342,22 @@ export default function Cliente() {
                       </div>
                     )}
                   </div>
-                </div>
 
-                {['aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 'em_transporte', 'chegou_entrega', 'entregando', 'finalizado'].includes(orderData?.status || '') && (
-                  <div className="mt-4 pt-4 border-t border-slate-200">
-                     <ChatFrete freteId={currentOrderId!} tipoUsuario="cliente" nome={nome || 'Embarcador'} />
-                  </div>
-                )}
+                  {['aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 'em_transporte', 'chegou_entrega', 'entregando', 'finalizado'].includes(orderData?.status || '') && (
+                    <div className="w-full pt-2">
+                       <ChatFrete freteId={currentOrderId!} tipoUsuario="cliente" nome={nome || 'Embarcador'} />
+                    </div>
+                  )}
               </div>
 
-              <div className="flex flex-col gap-6">
-                <ClientStatusCard 
-                  orderData={orderData} 
-                  onSmartPricing={handleSmartPricing}
-                  onRepublicar={handleRepublicar}
-                  onCancelar={() => setShowCancelModal(true)}
-                />
+              {/* Coluna Operacional: Status, Escrow, Radar (Mobile: Order 1 - Cima | Desktop: Order 2 - Direita) */}
+              <div className="w-full lg:w-[380px] shrink-0 order-1 lg:order-2">
+                  <ClientStatusCard 
+                    orderData={orderData} 
+                    onSmartPricing={handleSmartPricing}
+                    onRepublicar={handleRepublicar}
+                    onCancelar={() => setShowCancelModal(true)}
+                  />
               </div>
 
             </div>
