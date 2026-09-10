@@ -4,7 +4,7 @@ import { collection, addDoc, serverTimestamp, onSnapshot, doc, Timestamp, update
 import { getDatabase, ref, onValue, query, orderByChild, equalTo } from 'firebase/database';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, MessageCircle, Building2, Package, CalendarDays, Plus, Trash2, Flame, DollarSign, Activity, Eye, BrainCircuit, BarChart3, TrendingUp, AlertOctagon, Download, FileText, Lock, Scale, Clock3, Clock, Chrome, Camera, Image as ImageIcon, User, CheckCircle2 } from 'lucide-react'; 
+import { ArrowLeft, Zap, Truck, Loader2, CheckCircle, MapPin, AlertTriangle, ShieldCheck, Building2, Package, CalendarDays, Plus, Trash2, Flame, DollarSign, Activity, Eye, BrainCircuit, BarChart3, TrendingUp, AlertOctagon, Download, FileText, Lock, Scale, Clock3, Clock, Chrome, User } from 'lucide-react'; 
 import MapaCliente from '../components/MapaCliente';
 import ChatFrete from '../components/ChatFrete';
 import ClientStatusCard from '../components/client/ClientStatusCard';
@@ -54,6 +54,8 @@ interface OrderData {
   transactionId?: string; 
   valorPedagio?: number; 
   distanciaRealKm?: number; 
+  tipoFrete?: string;
+  dataAgendada?: any;
 }
 
 type VehicleType = 'moto' | 'carro' | 'utilitarios' | 'toco' | 'truck' | 'carreta' | 'bitrem';
@@ -423,19 +425,6 @@ export default function Cliente() {
     return () => unsubscribe();
   }, [currentOrderId]);
 
-  // Gatekeeper: Calcula e mapeia a etapa ativa atual da viagem
-  const etapaAtual = useMemo(() => {
-    if (!orderData) return -1;
-    const status = orderData.status;
-    if (['buscando_motorista', 'disponivel', 'aguardando_pagamento', 'cancelado'].includes(status)) return -1;
-    if (['aceito', 'indo_coleta', 'chegou_coleta', 'coletando'].includes(status)) return 0;
-    if (['em_transporte', 'chegou_entrega', 'entregando'].includes(status)) {
-       return (orderData.paradaAtualIndex || 0) + 1;
-    }
-    if (status === 'finalizado') return 999;
-    return 0;
-  }, [orderData?.status, orderData?.paradaAtualIndex]);
-
   const getValidCoords = async (addressStr: string): Promise<Coords> => {
     if (coordsCache.current[addressStr]) {
       return coordsCache.current[addressStr];
@@ -781,75 +770,6 @@ export default function Cliente() {
     }
     return undefined;
   }, [orderData?.motoristaLat, orderData?.motoristaLng]);
-
-  const handleEnviarPinChat = async (pin: string, etapaId: string) => {
-    if (!currentOrderId || !pin) return;
-    try {
-      await addDoc(collection(db, 'fretes', currentOrderId, 'chat'), {
-        texto: `Atenção Motorista, a etapa foi confirmada. O PIN de liberação para a ${etapaId} é: ${pin}`,
-        nome: nome || 'Embarcador',
-        tipoUsuario: 'cliente',
-        createdAt: serverTimestamp(),
-      });
-      showToast(`PIN da ${etapaId} enviado no chat!`, 'success');
-    } catch (error) {
-      showToast('Erro ao enviar mensagem automática no chat.', 'error');
-    }
-  };
-
-  // Função interna para renderizar dinamicamente a UI de etapas (Multi-Stop & Visual Control)
-  const renderEtapaTimeline = ({title, isLast, isActive, isPast, pin, foto, etapaId}: {title: string, isLast: boolean, isActive: boolean, isPast: boolean, pin?: string, foto?: string, etapaId: string}) => {
-    return (
-      <div key={title} className={`relative p-5 rounded-2xl border ${isActive ? 'bg-slate-900 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.15)]' : isPast ? 'bg-slate-900/50 border-emerald-500/20 opacity-70' : 'bg-slate-900/30 border-white/5 opacity-50'} flex flex-col gap-4 transition-all`}>
-         <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {isPast ? <CheckCircle2 className="text-emerald-500 h-6 w-6" /> : isActive ? <span className="relative flex h-4 w-4"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span><span className="relative inline-flex rounded-full h-4 w-4 bg-cyan-500"></span></span> : <Lock className="text-slate-600 h-5 w-5" />}
-              <h4 className={`text-sm font-black uppercase tracking-widest ${isActive ? 'text-cyan-400' : isPast ? 'text-emerald-500' : 'text-slate-500'}`}>
-                {title} {isLast && <span className="ml-2 text-[9px] bg-amber-500/20 text-amber-400 px-2 py-1 rounded-md">FINALIZAÇÃO</span>}
-              </h4>
-            </div>
-            {isActive && <span className="text-[10px] bg-cyan-950 text-cyan-400 border border-cyan-500/30 px-3 py-1 rounded-full uppercase font-bold">Em Andamento</span>}
-         </div>
-
-         {isPast && (
-            <div className="mt-2 pl-9">
-               <p className="text-[10px] uppercase font-bold text-slate-500">Etapa concluída com sucesso.</p>
-            </div>
-         )}
-
-         {isActive && (
-           <div className="mt-2 pl-9">
-              {!foto ? (
-                <div className="flex flex-col items-start gap-2 bg-slate-950/50 p-4 rounded-xl border border-white/5">
-                  <Camera className="text-slate-500 h-6 w-6 mb-1" />
-                  <p className="text-xs text-slate-400 font-medium">Aguardando motorista enviar a foto da etapa...</p>
-                  <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">O PIN será liberado logo após a foto ser confirmada no sistema.</p>
-                </div>
-              ) : (
-                <div className="flex flex-col md:flex-row gap-6 items-start">
-                   <div className="flex flex-col gap-2">
-                     <p className="text-[10px] uppercase font-bold text-slate-400 flex items-center gap-1"><ImageIcon size={14}/> Evidência Recebida</p>
-                     <a href={foto} target="_blank" rel="noreferrer" className="block relative group overflow-hidden rounded-xl border border-slate-700 w-32 h-32 bg-slate-800">
-                        <img src={foto} alt={`Evidência ${title}`} className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity" />
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Eye className="text-white h-6 w-6" />
-                        </div>
-                     </a>
-                   </div>
-                   <div className="flex-1 w-full bg-cyan-950/30 p-4 rounded-xl border border-cyan-500/20">
-                      <p className="text-[10px] font-black uppercase text-cyan-500 mb-2">PIN de Liberação Disponível</p>
-                      <p className="text-3xl font-mono font-black text-white tracking-[0.2em] mb-4">{pin || '---'}</p>
-                      <button onClick={() => handleEnviarPinChat(pin || '', etapaId)} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-lg">
-                         <MessageCircle size={16} /> Enviar no Chat
-                      </button>
-                   </div>
-                </div>
-              )}
-           </div>
-         )}
-      </div>
-    );
-  };
 
   if (!authReady) {
     return (
@@ -1370,8 +1290,22 @@ export default function Cliente() {
                     
                     <div className="bg-slate-800/40 rounded-2xl p-4 border border-slate-700/30">
                       <CalendarDays className="w-5 h-5 text-amber-400 mb-2"/>
-                      <p className="text-xl font-black text-white mt-2">{formatTimeAgo(orderData.createdAt)}</p>
-                      <p className="text-[10px] text-slate-400 uppercase font-bold mt-1">No ar</p>
+                      {orderData?.tipoFrete === 'agendado' && orderData?.dataAgendada ? (
+                        <>
+                          <p className="text-lg font-black text-white mt-2 leading-tight">
+                            {orderData.dataAgendada?.toDate 
+                              ? orderData.dataAgendada.toDate().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) 
+                              : new Date(orderData.dataAgendada).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+                            }
+                          </p>
+                          <p className="text-[10px] text-purple-400 uppercase font-bold mt-1">Agendado para</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-xl font-black text-white mt-2">{formatTimeAgo(orderData?.createdAt)}</p>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold mt-1">No ar</p>
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -1403,74 +1337,8 @@ export default function Cliente() {
                   </div>
                 </div>
 
-                {orderData?.motoristaNome && (
-                  <div className="bg-slate-900 rounded-3xl p-6 border border-slate-800 flex items-center gap-4">
-                     <div className="h-14 w-14 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-500/30">
-                        <User className="h-7 w-7 text-blue-400" />
-                     </div>
-                     <div>
-                        <p className="text-[10px] uppercase font-bold tracking-widest text-slate-400">Motorista Parceiro</p>
-                        <p className="text-xl font-black text-white">{orderData.motoristaNome}</p>
-                        {orderData.veiculo && <p className="text-xs font-bold text-slate-500 uppercase mt-1">{VEHICLE_CONFIG[orderData.veiculo as VehicleType]?.nome} • {orderData.motoristaPlaca || 'Placa não cadastrada'}</p>}
-                     </div>
-                  </div>
-                )}
-
-                <div className="bg-slate-950 rounded-3xl p-6 md:p-8 border border-white/5">
-                    <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
-                       <FileText size={18} className="text-cyan-400" /> Resumo Logístico
-                    </h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                       <div>
-                         <p className="text-[10px] uppercase font-bold text-slate-500 mb-1">Veículo Solicitado</p>
-                         <p className="text-sm font-bold text-white">{orderData?.veiculo ? VEHICLE_CONFIG[orderData.veiculo as VehicleType]?.nome : '---'}</p>
-                       </div>
-                       <div>
-                         <p className="text-[10px] uppercase font-bold text-slate-500 mb-1">Distância Oficial</p>
-                         <p className="text-sm font-bold text-white">{orderData?.distanciaRealKm?.toFixed(1) || '--'} km</p>
-                       </div>
-                       <div>
-                         <p className="text-[10px] uppercase font-bold text-slate-500 mb-1">Mercadoria</p>
-                         <p className="text-sm font-bold text-white">{orderData?.tipoMaterial || '---'}</p>
-                       </div>
-                       <div>
-                         <p className="text-[10px] uppercase font-bold text-slate-500 mb-1">Peso / Volume</p>
-                         <p className="text-sm font-bold text-white">{orderData?.pesoKg || orderData?.peso || '---'} / {orderData?.qtdVolumes || '---'}</p>
-                       </div>
-                    </div>
-                </div>
-
                 {['aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 'em_transporte', 'chegou_entrega', 'entregando', 'finalizado'].includes(orderData?.status || '') && (
-                  <div className="mt-4 pt-4 border-t border-white/5">
-                     <div className="mb-6 bg-slate-950 border border-slate-800 rounded-3xl p-6 shadow-inner">
-                        <h3 className="text-sm font-black uppercase tracking-widest text-white mb-6 flex items-center gap-2">
-                           <Activity size={18} className="text-cyan-400" /> Jornada da Operação
-                        </h3>
-                        <div className="space-y-4">
-                          {renderEtapaTimeline({
-                             title: "Coleta",
-                             isLast: false,
-                             isActive: etapaAtual === 0,
-                             isPast: etapaAtual > 0,
-                             pin: orderData?.pinColeta,
-                             foto: orderData?.fotosPod?.coleta,
-                             etapaId: "Coleta"
-                          })}
-
-                          {(Array.isArray(orderData?.pinEntregas) ? orderData.pinEntregas : [orderData?.pinEntregas]).filter(Boolean).map((pin, idx, arr) => (
-                            renderEtapaTimeline({
-                               title: `Entrega ${idx + 1}`,
-                               isLast: idx === arr.length - 1,
-                               isActive: etapaAtual === idx + 1,
-                               isPast: etapaAtual > idx + 1,
-                               pin: pin as string,
-                               foto: orderData?.fotosPod?.[`entrega_${idx}`],
-                               etapaId: `Entrega ${idx + 1}`
-                            })
-                          ))}
-                        </div>
-                     </div>
-
+                  <div className="mt-4 pt-4 border-t border-slate-200">
                      <ChatFrete freteId={currentOrderId!} tipoUsuario="cliente" nome={nome || 'Embarcador'} />
                   </div>
                 )}
