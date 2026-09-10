@@ -13,6 +13,9 @@ interface MapaClienteProps {
   motoristaId?: string | null;
   vehicleType?: string;
   realDriversCount?: number;
+  // 🔥 CTO FIX: Props adicionadas para roteamento dinâmico
+  paradaAtualIndex?: number;
+  onRouteUpdate?: (eta: number, distance: number) => void;
 }
 
 const containerStyle = { width: '100%', height: '100%', minHeight: '420px', borderRadius: '1.5rem' };
@@ -34,7 +37,9 @@ function MapaCliente({
   operationalMessage = 'Roteirizando caminhos otimizados...', 
   motoristaId, 
   vehicleType = 'utilitario',
-  realDriversCount = 0
+  realDriversCount = 0,
+  paradaAtualIndex,
+  onRouteUpdate
 }: MapaClienteProps) {
   
   const { isLoaded } = useJsApiLoader({
@@ -43,10 +48,16 @@ function MapaCliente({
   });
 
   const mapRef = useRef<google.maps.Map | null>(null);
-  const boundsInitialized = useRef(false); // 🔥 CTO FIX: Flag para evitar zoom reset loop
+  const boundsInitialized = useRef(false);
+  const onRouteUpdateRef = useRef(onRouteUpdate);
   const [directionsResult, setDirectionsResult] = useState<google.maps.DirectionsResult | null>(null);
   
   const speed = useMemo(() => Math.floor(Math.random() * (60 - 30 + 1) + 30), [motoristaPos]);
+
+  // Atualiza a ref do callback sem disparar o useEffect principal
+  useEffect(() => {
+      onRouteUpdateRef.current = onRouteUpdate;
+  }, [onRouteUpdate]);
 
   const routePath = useMemo(() => {
     const path: Coordinates[] = [];
@@ -59,7 +70,6 @@ function MapaCliente({
     return path;
   }, [origem, motoristaPos, destino, paradasExtras, motoristaId]);
 
-  // 🔥 CTO FIX: Zoom inicial ancorado (Não reseta a cada coord recebida do motorista)
   useEffect(() => {
     if (!isLoaded || !mapRef.current || routePath.length === 0 || !window.google || !window.google.maps) return;
     
@@ -74,24 +84,91 @@ function MapaCliente({
     }
   }, [isLoaded, routePath]);
 
-  // 🔥 CTO FIX: Inteligência Geográfica para desenhar roteamento nas vias corretas
+  // 🔥 CTO FIX: Consolida todos os pontos de destino em um único array limpo
+  const allStops = useMemo(() => {
+      const stops: Coordinates[] = [];
+      if (paradasExtras && paradasExtras.length > 0) {
+          stops.push(...paradasExtras);
+      }
+      if (destino) {
+          const last = stops[stops.length - 1];
+          if (!last || last.lat !== destino.lat || last.lng !== destino.lng) {
+              stops.push(destino);
+          }
+      }
+      return stops;
+  }, [paradasExtras, destino]);
+
+  const motoristaLat = motoristaPos?.lat;
+  const motoristaLng = motoristaPos?.lng;
+
+  // 🔥 CTO FIX: Inteligência do Roteador (Quem é a Origem e Quem é o Destino AGORA)
+  const activeRouting = useMemo(() => {
+      if (!origem || !destino) return null;
+
+      // 1. Cenário pré-aceite: Motorista não existe. Desenha a rota inteira Origem -> Destinos
+      if (!motoristaLat || !motoristaLng || !motoristaId) {
+          return {
+              origin: origem,
+              destination: allStops[allStops.length - 1] || destino,
+              waypoints: allStops.slice(0, -1).map(p => ({ location: p, stopover: true }))
+          };
+      }
+
+      // 2. Cenário Pós-Aceite: Rota viva partindo do motorista
+      const posAtual = { lat: motoristaLat, lng: motoristaLng };
+      const msg = (operationalMessage || '').toLowerCase();
+      const isGoingToPickup = msg.includes('aceito') || msg.includes('indo') || msg.includes('coleta');
+
+      if (isGoingToPickup) {
+          // O motorista está a caminho da Coleta
+          return { origin: posAtual, destination: origem, waypoints: [] };
+      }
+
+      // O motorista está a caminho de uma Entrega específica
+      const pIndex = paradaAtualIndex || 0;
+      const currentDrop = allStops[pIndex] || allStops[allStops.length - 1] || destino;
+
+      return { origin: posAtual, destination: currentDrop, waypoints: [] };
+
+  }, [origem, destino, motoristaLat, motoristaLng, motoristaId, allStops, operationalMessage, paradaAtualIndex]);
+
+  // 🔥 CTO FIX: Chamada Real ao Google Maps baseada na rota ativa calculada
   useEffect(() => {
-     if (!isLoaded || !origem || !destino || !window.google) return;
+     if (!isLoaded || !activeRouting || !window.google) return;
      
      const directionsService = new window.google.maps.DirectionsService();
-     const waypoints = paradasExtras?.map(p => ({ location: p, stopover: true })) || [];
 
      directionsService.route({
-         origin: origem,
-         destination: destino,
-         waypoints: waypoints,
+         origin: activeRouting.origin,
+         destination: activeRouting.destination,
+         waypoints: activeRouting.waypoints,
          travelMode: window.google.maps.TravelMode.DRIVING
      }, (result, status) => {
          if (status === window.google.maps.DirectionsStatus.OK && result) {
              setDirectionsResult(result);
+
+             // Extrai a matemática viária e despacha pro componente pai
+             if (result.routes && result.routes.length > 0) {
+                 const route = result.routes[0];
+                 let distMeters = 0;
+                 let durSeconds = 0;
+
+                 route.legs.forEach(leg => {
+                     if (leg.distance) distMeters += leg.distance.value;
+                     if (leg.duration) durSeconds += leg.duration.value;
+                 });
+
+                 const etaMinutes = Math.ceil(durSeconds / 60);
+                 const distanceKm = Number((distMeters / 1000).toFixed(1));
+
+                 if (onRouteUpdateRef.current) {
+                     onRouteUpdateRef.current(etaMinutes, distanceKm);
+                 }
+             }
          }
      });
-  }, [isLoaded, origem, destino, paradasExtras]);
+  }, [isLoaded, activeRouting]);
 
   const getVehicleIcon = (category: string) => {
     if (!isLoaded || !window.google) return null;
@@ -188,7 +265,7 @@ function MapaCliente({
       </div>
 
       <GoogleMap mapContainerStyle={containerStyle} center={origem || defaultCenter} zoom={13} onLoad={(map) => { mapRef.current = map; }} options={mapOptions}>
-        {/* 🔥 CTO FIX: Prefere rota rodoviária renderizada (Directions), fallback para Polyline pura */}
+        
         {directionsResult ? (
            <DirectionsRenderer directions={directionsResult} options={{ suppressMarkers: true, polylineOptions: polylineOptions }} />
         ) : (
