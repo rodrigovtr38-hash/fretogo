@@ -1,10 +1,3 @@
-// =========================================================
-// NOME DO ARQUIVO: src/state/tripStateMachine.ts
-// CTO-Log: Auditoria Final - Bloco 2 (Segurança de Cancelamento)
-// Ajuste: Manutenção do estado. As regras estão sólidas e refletem o fluxo corretamente.
-// EXECUÇÃO BLOCO 8 (Prob #1): Correção P0 de Conflito de Aceite. Adição da transição direta para ACEITO a partir dos estados do Radar/Dispatch (BUSCANDO_MOTORISTA, EXPANDINDO_BUSCA, OFERTANDO) espelhando o novo fluxo de Pré-Pagamento.
-// =========================================================
-
 export enum AppTripState {
   /* ===================================================== PAGAMENTO */
   AGUARDANDO_PAGAMENTO = 'aguardando_pagamento',
@@ -36,6 +29,8 @@ export enum AppTripState {
   /* ===================================================== TRANSPORTE */
   EM_TRANSPORTE = 'em_transporte',
   PARADO_OPERACIONAL = 'parado_operacional',
+  CHEGOU_ENTREGA = 'chegou_entrega',
+  ENTREGANDO = 'entregando',
 
   /* ===================================================== FINALIZAÇÃO */
   FINALIZANDO = 'finalizando',
@@ -62,12 +57,10 @@ export const VALID_TRANSITIONS: Record<string, string[]> = {
 
   [AppTripState.DISPONIVEL]: [AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, AppTripState.ACEITO, AppTripState.BUSCANDO_MOTORISTA, AppTripState.SEM_MOTORISTA, AppTripState.CANCELADO, AppTripState.EXPIRADO],
   
-  // 🔥 CTO FIX [Bloco 8 - Prob #1]: Inclusão de ACEITO na esteira de Dispatch
   [AppTripState.BUSCANDO_MOTORISTA]: [AppTripState.EXPANDINDO_BUSCA, AppTripState.OFERTANDO, AppTripState.SEM_MOTORISTA, AppTripState.CANCELADO, AppTripState.ACEITO],
   [AppTripState.EXPANDINDO_BUSCA]: [AppTripState.OFERTANDO, AppTripState.SEM_MOTORISTA, AppTripState.CANCELADO, AppTripState.ACEITO],
   [AppTripState.SEM_MOTORISTA]: [AppTripState.CANCELADO, AppTripState.DISPONIVEL], 
 
-  // 🔥 CTO FIX [Bloco 8 - Prob #1]: Inclusão de ACEITO na esteira de Dispatch
   [AppTripState.OFERTANDO]: [AppTripState.MOTORISTA_ENCONTRADO, AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, AppTripState.AGUARDANDO_ACEITE, AppTripState.REDISPATCH, AppTripState.TIMEOUT, AppTripState.CANCELADO, AppTripState.ACEITO],
   [AppTripState.MOTORISTA_ENCONTRADO]: [AppTripState.AGUARDANDO_ACEITE, AppTripState.ACEITO, AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, AppTripState.REDISPATCH],
   [AppTripState.AGUARDANDO_ACEITE]: [AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, AppTripState.ACEITO, AppTripState.TIMEOUT, AppTripState.REDISPATCH, AppTripState.CANCELADO],
@@ -83,12 +76,14 @@ export const VALID_TRANSITIONS: Record<string, string[]> = {
   [AppTripState.CHEGOU_COLETA]: [AppTripState.COLETANDO, AppTripState.CANCELADO, AppTripState.REDISPATCH, AppTripState.DISPONIVEL],
   [AppTripState.COLETANDO]: [AppTripState.EM_TRANSPORTE, AppTripState.CANCELADO, AppTripState.REDISPATCH, AppTripState.DISPONIVEL],
   
-  [AppTripState.EM_TRANSPORTE]: [AppTripState.PARADO_OPERACIONAL, AppTripState.FINALIZANDO, AppTripState.ENTREGUE, AppTripState.ERRO, AppTripState.REDISPATCH, AppTripState.DISPONIVEL],
+  [AppTripState.EM_TRANSPORTE]: [AppTripState.CHEGOU_ENTREGA, AppTripState.PARADO_OPERACIONAL, AppTripState.FINALIZANDO, AppTripState.ENTREGUE, AppTripState.ERRO, AppTripState.REDISPATCH, AppTripState.DISPONIVEL],
+  [AppTripState.CHEGOU_ENTREGA]: [AppTripState.ENTREGANDO, AppTripState.CANCELADO, AppTripState.REDISPATCH, AppTripState.DISPONIVEL],
+  [AppTripState.ENTREGANDO]: [AppTripState.FINALIZANDO, AppTripState.ENTREGUE, AppTripState.EM_TRANSPORTE, AppTripState.CANCELADO, AppTripState.REDISPATCH, AppTripState.DISPONIVEL],
   [AppTripState.PARADO_OPERACIONAL]: [AppTripState.EM_TRANSPORTE, AppTripState.ERRO],
   
   [AppTripState.FINALIZANDO]: [AppTripState.VALIDANDO_COMPROVANTE, AppTripState.ENTREGUE, AppTripState.ERRO],
   [AppTripState.VALIDANDO_COMPROVANTE]: [AppTripState.ENTREGUE, AppTripState.ERRO],
-  [AppTripState.ENTREGUE]: [],
+  [AppTripState.ENTREGUE]: [AppTripState.EM_TRANSPORTE],
   
   [AppTripState.CANCELADO]: [],
   [AppTripState.CANCELADO_CLIENTE]: [],
@@ -106,9 +101,9 @@ export const isFinalState = (status: string): boolean => {
 };
 
 export const isActiveState = (status: string): boolean => {
-  return [AppTripState.BUSCANDO_MOTORISTA, AppTripState.EXPANDINDO_BUSCA, AppTripState.OFERTANDO, AppTripState.AGUARDANDO_ACEITE, AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.CHEGOU_COLETA, AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE, AppTripState.PARADO_OPERACIONAL, AppTripState.FINALIZANDO, AppTripState.VALIDANDO_COMPROVANTE].includes(status as AppTripState);
+  return [AppTripState.BUSCANDO_MOTORISTA, AppTripState.EXPANDINDO_BUSCA, AppTripState.OFERTANDO, AppTripState.AGUARDANDO_ACEITE, AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.CHEGOU_COLETA, AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE, AppTripState.CHEGOU_ENTREGA, AppTripState.ENTREGANDO, AppTripState.PARADO_OPERACIONAL, AppTripState.FINALIZANDO, AppTripState.VALIDANDO_COMPROVANTE].includes(status as AppTripState);
 };
 
 export const isOperationalState = (status: string): boolean => {
-  return [AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.CHEGOU_COLETA, AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE, AppTripState.PARADO_OPERACIONAL, AppTripState.FINALIZANDO].includes(status as AppTripState);
+  return [AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.CHEGOU_COLETA, AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE, AppTripState.CHEGOU_ENTREGA, AppTripState.ENTREGANDO, AppTripState.PARADO_OPERACIONAL, AppTripState.FINALIZANDO].includes(status as AppTripState);
 };
