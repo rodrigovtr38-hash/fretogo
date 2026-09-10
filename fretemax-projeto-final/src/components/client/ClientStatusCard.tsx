@@ -6,6 +6,7 @@ interface ClientStatusCardProps {
   onSmartPricing: (valorAdicional: number) => void;
   onRepublicar: () => void;
   onCancelar: () => void;
+  liveEta?: number | null;
 }
 
 const formatDistance = (km: number | undefined | null) => {
@@ -14,18 +15,23 @@ const formatDistance = (km: number | undefined | null) => {
   return `${km.toFixed(1)} km`;
 };
 
-export default function ClientStatusCard({ orderData, onSmartPricing, onRepublicar, onCancelar }: ClientStatusCardProps) {
+export default function ClientStatusCard({ orderData, onSmartPricing, onRepublicar, onCancelar, liveEta }: ClientStatusCardProps) {
   const status = orderData?.status;
   const motoristaNome = orderData?.motoristaNome;
   const veiculo = orderData?.veiculo;
   const placa = orderData?.placa;
   const motoristaTelefone = orderData?.motoristaTelefone;
+  const motoristaZap = orderData?.motoristaZap;
+  const motoristaFoto = orderData?.motoristaFoto;
+  const motoristaAvaliacao = orderData?.motoristaAvaliacao;
   const valorTotal = orderData?.valorTotal;
   const pinColeta = orderData?.pinColeta;
   const pinEntregas = orderData?.pinEntregas;
   const paradaAtualIndex = orderData?.paradaAtualIndex || 0;
   const multiplasEntregas = orderData?.multiplasEntregas || false;
   
+  const contatoWhatsapp = motoristaZap || motoristaTelefone;
+
   const tipoFrete = orderData?.tipoFrete || 'imediato';
   const isAgendado = tipoFrete === 'agendado';
 
@@ -95,9 +101,11 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
   const displayDistance = isDataReady ? formatDistance(distancia) : 'Calculando...';
   const displayPrice = isDataReady ? `R$ ${valorTotal.toFixed(2).replace('.', ',')}` : '---';
 
-  const etaMinutes = orderData?.etaMinutes 
-    ? Number(orderData.etaMinutes) 
-    : isDataReady ? Math.max(10, Math.round(distancia * 1.5)) : 0;
+  const etaMinutes = typeof liveEta === 'number'
+    ? liveEta
+    : orderData?.etaMinutes 
+      ? Number(orderData.etaMinutes) 
+      : isDataReady ? Math.max(10, Math.round(distancia * 1.5)) : 0;
 
   const entregasArray = Array.isArray(pinEntregas) ? pinEntregas : (pinEntregas ? [pinEntregas] : []);
   const totalEntregas = entregasArray.length || 1;
@@ -239,10 +247,14 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
             <div className="flex items-center gap-4 min-w-0">
               <div className="relative shrink-0">
                 <div className="w-14 h-14 rounded-full bg-slate-800 overflow-hidden border-2 border-blue-500/50 flex items-center justify-center">
-                  <User size={24} className="text-blue-400" />
+                  {motoristaFoto ? (
+                    <img src={motoristaFoto} alt={motoristaNome} className="w-full h-full object-cover" />
+                  ) : (
+                    <User size={24} className="text-blue-400" />
+                  )}
                 </div>
                 <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-amber-500 text-slate-900 text-[9px] font-black px-1.5 py-0.5 rounded flex items-center gap-0.5 border border-slate-900 shadow-md">
-                  5.0 <Star size={8} fill="currentColor"/>
+                  {motoristaAvaliacao || '5.0'} <Star size={8} fill="currentColor"/>
                 </div>
               </div>
               <div className="min-w-0">
@@ -259,9 +271,9 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
                       {placa}
                     </span>
                   )}
-                  {motoristaTelefone && (
-                    <a href={`https://wa.me/55${motoristaTelefone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold text-emerald-400 uppercase bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> {motoristaTelefone}
+                  {contatoWhatsapp && (
+                    <a href={`https://wa.me/55${contatoWhatsapp.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold text-emerald-400 uppercase bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> {contatoWhatsapp}
                     </a>
                   )}
                 </div>
