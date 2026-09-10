@@ -18,6 +18,8 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
   const status = orderData?.status;
   const motoristaNome = orderData?.motoristaNome;
   const veiculo = orderData?.veiculo;
+  const placa = orderData?.placa;
+  const motoristaTelefone = orderData?.motoristaTelefone;
   const valorTotal = orderData?.valorTotal;
   const pinColeta = orderData?.pinColeta;
   const pinEntregas = orderData?.pinEntregas;
@@ -248,10 +250,20 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
                 <p className="text-lg font-black truncate text-white leading-tight">
                   {motoristaNome}
                 </p>
-                <div className="flex items-center gap-2 mt-1.5">
+                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                   <span className="text-[10px] font-bold text-slate-300 uppercase bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700">
                     {veiculo?.replace('_', ' ') || 'Veículo'}
                   </span>
+                  {placa && (
+                    <span className="text-[10px] font-black text-slate-900 uppercase bg-amber-400 px-2 py-0.5 rounded shadow-sm tracking-widest">
+                      {placa}
+                    </span>
+                  )}
+                  {motoristaTelefone && (
+                    <a href={`https://wa.me/55${motoristaTelefone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold text-emerald-400 uppercase bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> {motoristaTelefone}
+                    </a>
+                  )}
                 </div>
               </div>
             </div>
