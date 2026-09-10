@@ -23,6 +23,9 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
   const pinEntregas = orderData?.pinEntregas;
   const paradaAtualIndex = orderData?.paradaAtualIndex || 0;
   const multiplasEntregas = orderData?.multiplasEntregas || false;
+  
+  const tipoFrete = orderData?.tipoFrete || 'imediato';
+  const isAgendado = tipoFrete === 'agendado';
 
   const distancia = orderData?.distanciaRealKm || orderData?.distanciaTotalKm || orderData?.distancia;
 
@@ -30,16 +33,32 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
   const [timeLeft, setTimeLeft] = useState(TEMPO_FEED_SEGUNDOS);
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (status === 'disponivel' && timeLeft > 0) {
-      interval = setInterval(() => {
-        setTimeLeft((prev) => prev - 1);
-      }, 1000);
-    } else if (status !== 'disponivel') {
+    if (isAgendado || status !== 'disponivel') {
       setTimeLeft(TEMPO_FEED_SEGUNDOS);
+      return;
     }
+
+    const startTimestamp = orderData?.createdAt?.seconds 
+        ? orderData.createdAt.seconds * 1000 
+        : orderData?.createdAt 
+            ? new Date(orderData.createdAt).getTime() 
+            : Date.now();
+
+    const calculateTimeLeft = () => {
+      const now = Date.now();
+      const elapsed = Math.floor((now - startTimestamp) / 1000);
+      const remaining = TEMPO_FEED_SEGUNDOS - elapsed;
+      return remaining > 0 ? remaining : 0;
+    };
+
+    setTimeLeft(calculateTimeLeft());
+
+    const interval = setInterval(() => {
+      setTimeLeft(calculateTimeLeft());
+    }, 1000);
+
     return () => clearInterval(interval);
-  }, [status, timeLeft]);
+  }, [status, orderData?.createdAt, isAgendado, TEMPO_FEED_SEGUNDOS]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -47,7 +66,7 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  const isTimeExpired = (status === 'disponivel' && timeLeft === 0) || status === 'sem_motorista' || status === 'expirado';
+  const isTimeExpired = !isAgendado && status === 'disponivel' && timeLeft === 0 || status === 'sem_motorista' || status === 'expirado';
 
   let safeStatus = 'Sincronizando operação...';
   let statusColor = 'text-cyan-400';
@@ -57,6 +76,7 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
   if (isTimeExpired) { safeStatus = 'Baixa Procura (Mural)'; statusColor = 'text-amber-400'; bgColor = 'bg-amber-500/10 border-amber-500/30'; isPulsing = false; }
   else if (status === 'aguardando_pagamento') { safeStatus = 'Aguardando Escrow'; isPulsing = true; }
   else if (status === 'reservado_aguardando_pagamento') { safeStatus = 'Aguardando Seu Pagamento'; statusColor = 'text-emerald-400'; bgColor = 'bg-emerald-500/10 border-emerald-500/30'; isPulsing = true; }
+  else if (isAgendado && (status === 'disponivel' || status === 'buscando_motorista')) { safeStatus = 'Aguardando Janela de Busca'; statusColor = 'text-purple-400'; bgColor = 'bg-purple-500/10 border-purple-500/30'; isPulsing = false; }
   else if (status === 'disponivel' || status === 'buscando_motorista') { safeStatus = 'Radar Ativo no Feed'; isPulsing = true; }
   else if (status === 'cancelado') { safeStatus = 'Operação Abortada'; statusColor = 'text-red-400'; bgColor = 'bg-red-500/10 border-red-500/30'; isPulsing = false; }
   else if (status === 'aceito') { safeStatus = 'Motorista a Caminho'; statusColor = 'text-blue-400'; bgColor = 'bg-blue-500/10 border-blue-500/30'; }
@@ -77,7 +97,6 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
     ? Number(orderData.etaMinutes) 
     : isDataReady ? Math.max(10, Math.round(distancia * 1.5)) : 0;
 
-  // Prevenção estrita contra strings passadas como array de entregas
   const entregasArray = Array.isArray(pinEntregas) ? pinEntregas : (pinEntregas ? [pinEntregas] : []);
   const totalEntregas = entregasArray.length || 1;
 
@@ -110,9 +129,8 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
     return 'pending';
   };
 
-  // State calculations for Escrow
   const isColetaCompleted = ['em_transporte', 'parado_operacional', 'chegou_entrega', 'entregando', 'entregue', 'finalizando', 'finalizado'].includes(status);
-  const isColetaActive = !isColetaCompleted && !['disponivel', 'buscando_motorista', 'sem_motorista', 'expirado', 'aguardando_pagamento', 'reservado_aguardando_pagamento', 'cancelado'].includes(status);
+  const isColetaActive = motoristaNome && !isColetaCompleted && !['disponivel', 'buscando_motorista', 'sem_motorista', 'expirado', 'aguardando_pagamento', 'reservado_aguardando_pagamento', 'cancelado'].includes(status);
   const fotoColeta = orderData?.fotosPod?.coleta;
 
   return (
@@ -121,7 +139,7 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
       <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className={`p-3.5 rounded-[1.5rem] border relative ${bgColor}`}>
-             {isPulsing && <div className="absolute inset-0 rounded-[1.5rem] border-2 border-cyan-500 opacity-20 animate-ping"></div>}
+             {isPulsing && <div className={`absolute inset-0 rounded-[1.5rem] border-2 opacity-20 animate-ping ${isAgendado ? 'border-purple-500' : 'border-cyan-500'}`}></div>}
             {isTimeExpired ? (
               <AlertTriangle className="h-7 w-7 text-amber-400" />
             ) : (
@@ -138,7 +156,7 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
           </div>
         </div>
 
-        {status === 'disponivel' && !isTimeExpired && (
+        {status === 'disponivel' && !isTimeExpired && !isAgendado && (
           <div className="flex items-center gap-3 bg-slate-950/80 border border-cyan-500/20 px-4 py-2.5 rounded-2xl">
             <Timer className="text-cyan-400 animate-pulse" size={20} />
             <div>
@@ -253,13 +271,17 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
         {!motoristaNome && !isTimeExpired && (
           <div className="rounded-2xl border border-white/5 bg-slate-950/50 p-4 flex items-center justify-between transition-colors hover:bg-slate-950/80">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="p-2.5 bg-blue-500/10 rounded-xl text-blue-400 shrink-0">
-                <User size={20} />
+              <div className={`p-2.5 rounded-xl shrink-0 ${isAgendado ? 'bg-purple-500/10 text-purple-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                {isAgendado ? <Timer size={20} /> : <User size={20} />}
               </div>
               <div className="min-w-0">
-                <span className="text-[9px] font-black uppercase tracking-wider text-slate-500 block">Profissional Designado</span>
-                <p className="text-sm font-bold truncate mt-0.5 text-white animate-pulse">
-                  Buscando parceiros no raio...
+                <span className="text-[9px] font-black uppercase tracking-wider text-slate-500 block">
+                    {isAgendado ? 'Status de Agendamento' : 'Profissional Designado'}
+                </span>
+                <p className={`text-sm font-bold truncate mt-0.5 text-white ${!isAgendado ? 'animate-pulse' : ''}`}>
+                  {isAgendado 
+                    ? `Operação programada para ${orderData?.dataAgendada ? new Date(orderData.dataAgendada?.toDate ? orderData.dataAgendada.toDate() : orderData.dataAgendada).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : 'data futura'}`
+                    : 'Buscando parceiros no raio...'}
                 </p>
               </div>
             </div>
@@ -295,12 +317,13 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
         {/* =======================================================
             COFRE ZERO TRUST: Revelação Baseada em Evidência
             ======================================================= */}
-        {(pinColeta || entregasArray.length > 0) && motoristaNome && (
+        {(pinColeta || entregasArray.length > 0) && (
           <div className="rounded-[1.5rem] border border-cyan-500/30 bg-cyan-950/30 p-5 mt-6 relative overflow-hidden shadow-inner">
             <div className="absolute top-0 left-0 w-1 h-full bg-cyan-500"></div>
             <p className="text-[10px] font-black uppercase tracking-widest text-cyan-400 flex items-center gap-2 mb-4">
               <Lock size={14} /> Escrow de Segurança
             </p>
+            
             <div className="flex flex-col gap-3">
               
               {/* BLOCO: COLETA */}
@@ -315,7 +338,13 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
                         {isColetaCompleted ? <CheckCircle2 size={20} className="text-emerald-500" /> : isColetaActive ? <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" /> : <Lock size={16} className="text-slate-600" />}
                     </div>
                     
-                    {isColetaCompleted ? (
+                    {!motoristaNome ? (
+                        <div className="flex flex-col items-center justify-center gap-2 bg-slate-950/50 p-4 rounded-xl border border-white/5 border-dashed">
+                            <Lock size={20} className="text-slate-500" />
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Aguardando Motorista</p>
+                            <p className="text-[9px] text-slate-500 text-center max-w-[200px]">O PIN será protegido até que o motorista registre a foto da carga.</p>
+                        </div>
+                    ) : isColetaCompleted ? (
                        <div className="flex items-center gap-3">
                            {fotoColeta && <img src={fotoColeta} alt="Coleta Concluída" className="w-12 h-12 rounded object-cover border border-emerald-500/30" />}
                            <div>
@@ -360,12 +389,11 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
                  
                  if (['finalizando', 'entregue', 'finalizado'].includes(status)) {
                     dropState = 'completed';
-                 } else if (['em_transporte', 'parado_operacional', 'chegou_entrega', 'entregando'].includes(status)) {
+                 } else if (motoristaNome && ['em_transporte', 'parado_operacional', 'chegou_entrega', 'entregando'].includes(status)) {
                     if (index < paradaAtualIndex) dropState = 'completed';
                     else if (index === paradaAtualIndex) dropState = 'active';
                  }
                  
-                 // Fallback que blinda falhas de padronização entre APIs e Clients (parada_X vs entrega_X)
                  const fotoDrop = orderData?.fotosPod?.[`parada_${index}`] || orderData?.fotosPod?.[`entrega_${index}`];
 
                  return (
@@ -379,7 +407,12 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
                              {dropState === 'completed' ? <CheckCircle2 size={20} className="text-emerald-500" /> : dropState === 'active' ? <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" /> : <Lock size={16} className="text-slate-600" />}
                          </div>
                          
-                         {dropState === 'completed' ? (
+                         {!motoristaNome ? (
+                             <div className="bg-slate-950/30 p-3 rounded-xl border border-white/5 text-center flex flex-col items-center gap-1">
+                                 <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1"><Lock size={10}/> Bloqueada</p>
+                                 <p className="text-[8px] text-slate-600 uppercase font-bold">Aguardando motorista</p>
+                             </div>
+                         ) : dropState === 'completed' ? (
                             <div className="flex items-center gap-3">
                                 {fotoDrop && <img src={fotoDrop} alt={`Entrega ${index + 1} Concluída`} className="w-12 h-12 rounded object-cover border border-emerald-500/30" />}
                                 <div>
@@ -418,7 +451,6 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
                      </div>
                  );
               })}
-
             </div>
           </div>
         )}
