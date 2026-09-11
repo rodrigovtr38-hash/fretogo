@@ -1,163 +1,343 @@
 // =========================================================
-// NOME DO ARQUIVO: src/services/dispatchQueueService.ts
+// NOME DO ARQUIVO: src/services/dispatchRealtimeService.ts
+// CTO-Log: FASE 4 - Reconstrução Controlada (Etapa 3).
+// Evolução Fase 5: Motorista agora assume a Reserva (RESERVADO_AGUARDANDO_PAGAMENTO) antes do Aceite Real.
+// Evolução Fase 6: Liberação do motorista (Destravamento da Reserva + Start GPS) interligada ao Webhook Financeiro.
+// Evolução Fase 12 (Escrow): Ajuste para Timeout de 5 Minutos. Expiração de frete direciona para EXPIRADO (não retorna ao radar automaticamente).
+// EXECUÇÃO BLOCO 8 (Prob #2): Expansão de payload (veiculo, placa, foto) na esteira de aceite.
+// EXECUÇÃO BLOCO 11 (CTO FIX): Leitura de Pagamento Pré-Aceite. Bypass direto para ACEITO se pagamentoStatus já for 'aprovado'. Fim da sobrescrita cega.
 // =========================================================
 
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../firebase';
-import { 
-  buscarMotoristasCompativeis, 
-  enviarOfertaMotorista, 
-  FretePayload, 
-  MotoristaMatch 
-} from './matchingEngine';
+import { increment, doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '../firebase';
+import { firebaseRealtimeService } from './firebaseRealtimeService';
+import { locationRealtimeService } from './locationRealtimeService';
+import { DriverState } from '../state/driverStateMachine';
 import { AppTripState } from '../state/tripStateMachine';
 import { TripLifecycleService } from './tripLifecycleService';
 
-const DRIVER_RESPONSE_TIMEOUT = 30000; 
-const MAX_REDISPATCH_ATTEMPTS = 10;
-const FEED_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutos de vida no Mural de Ofertas
-
-interface QueueState {
-  index: number;
-  tentativa: number;
-}
-
-export class DispatchQueueService {
-  
-  // 🔥 CTO FIX: Gatilho de expiração de Mural / Feed
-  static agendarExpiracaoFeed(freteId: string) {
-    setTimeout(async () => {
-      try {
-        const snap = await getDoc(doc(db, 'fretes', freteId));
-        if (!snap.exists()) return;
-        
-        const data = snap.data();
-
-        // Extração robusta do timestamp criado
-        const createdAt = data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt || Date.now());
-        const timeInFeed = Date.now() - createdAt;
-
-        // Tolerância de 5 segundos pra não matar cargas na borda do relógio
-        if (data.status === AppTripState.DISPONIVEL && timeInFeed >= (FEED_TIMEOUT_MS - 5000)) {
-          console.log(`[DISPATCH] ⏰ Timeout de 10 minutos atingido. Expirando frete ${freteId}.`);
-          await TripLifecycleService.alterarStatusViagem(freteId, AppTripState.EXPIRADO, {
-            motivoCancelamento: 'Tempo limite no Feed expirado (10 minutos).'
-          });
-        }
-      } catch (error) {
-        console.error('[EXPIRACAO_FEED_ERROR]', error);
-      }
-    }, FEED_TIMEOUT_MS);
-  }
-
-  static async iniciarFila(frete: FretePayload) {
+class DispatchRealtimeService {
+  async setDriverOnline(driverId: string) {
     try {
-      const isAgendado = (frete as any).tipoFrete === 'agendado' || (frete as any).agendado === true;
-      if (isAgendado) {
-        console.warn(`[DISPATCH] 🛡️ Carga ${frete.id} é AGENDADA. Abortando dispatch imediato para respeitar o tempo de coleta.`);
-        return;
-      }
-
-      const motoristas = await buscarMotoristasCompativeis(frete);
-
-      // Joga para o Mural (Feed Aberto) se não achar motorista
-      if (!motoristas || motoristas.length === 0) {
-        console.warn(`[DISPATCH] 🛡️ Sem motoristas imediatos. Mantendo carga ${frete.id} VIVA no Feed Público (10 minutos).`);
-        await TripLifecycleService.alterarStatusViagem(frete.id, AppTripState.DISPONIVEL, {
-          dispatchStatus: 'aberto_no_feed',
-          filaTotal: 0
-        });
-        
-        DispatchQueueService.agendarExpiracaoFeed(frete.id);
-        return;
-      }
-
-      await TripLifecycleService.alterarStatusViagem(frete.id, AppTripState.DISPONIVEL, {
-        dispatchStatus: 'em_andamento',
-        filaTotal: motoristas.length
+      await firebaseRealtimeService.updateDriverRealtime(driverId, {
+        online: true,
+        disponivel: true,
+        state: DriverState.ONLINE,
+        atualizadoEm: Date.now(),
       });
-
-      console.log(`[DISPATCH] Iniciando fila para ${motoristas.length} motoristas. Carga: ${frete.id}`);
-      await DispatchQueueService.processarFila(frete, motoristas, { index: 0, tentativa: 1 });
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error('[DISPATCH_QUEUE_ERROR]', error.message);
-      }
+    } catch (error) {
+      console.error('ERRO DRIVER ONLINE:', error);
     }
   }
 
-  static async processarFila(frete: FretePayload, motoristas: MotoristaMatch[], state: QueueState) {
+  async setDriverOffline(driverId: string) {
     try {
-      const freteSnap = await getDoc(doc(db, 'fretes', frete.id));
-      if (!freteSnap.exists()) return;
-      
-      const data = freteSnap.data();
+      await firebaseRealtimeService.updateDriverRealtime(driverId, {
+        online: false,
+        disponivel: false,
+        state: DriverState.OFFLINE,
+        atualizadoEm: Date.now(),
+      });
+      locationRealtimeService.stop();
+    } catch (error) {
+      console.error('ERRO DRIVER OFFLINE:', error);
+    }
+  }
 
-      // Se a carga já foi aceita ou cancelada, interrompe a fila.
-      if (data.status !== AppTripState.DISPONIVEL && data.status !== AppTripState.AGUARDANDO_ACEITE) {
-        return;
+  async enviarOfertaRealtime(driverId: string, payload: Record<string, unknown>) {
+    try {
+      await firebaseRealtimeService.updateDriverRealtime(driverId, {
+        novaOferta: {
+          ...payload,
+          status: 'pendente',
+          criadaEm: Date.now(),
+          expiraEm: Date.now() + 45000, 
+        },
+        state: DriverState.RECEBENDO_OFERTA,
+        atualizadoEm: Date.now(),
+      });
+    } catch (error) {
+      console.error('ERRO OFERTA REALTIME:', error);
+    }
+  }
+
+  // 🔥 CTO FIX [Blocos 8 e 11]: Expansão visual e Roteamento de Estado Baseado em Pagamento.
+  async aceitarCorrida(driverId: string, freteId: string, driverData?: { nome?: string, whatsapp?: string, veiculo?: string, placa?: string, foto?: string, avaliacao?: number }) {
+    try {
+      // 1. Consulta obrigatória (Zero Trust): Ler o estado atual do frete antes de mutá-lo.
+      const freteRef = doc(db, 'fretes', freteId);
+      const freteSnap = await getDoc(freteRef);
+
+      if (!freteSnap.exists()) {
+        throw new Error('FRETE_NAO_ENCONTRADO');
       }
 
-      if (state.index >= motoristas.length || state.tentativa > MAX_REDISPATCH_ATTEMPTS) {
-        console.warn(`[DISPATCH] Fila esgotada. Carga ${frete.id} despachada para Feed Público (10 minutos).`);
-        await TripLifecycleService.alterarStatusViagem(frete.id, AppTripState.DISPONIVEL, {
-          dispatchStatus: 'aberto_no_feed'
-        });
-        
-        DispatchQueueService.agendarExpiracaoFeed(frete.id);
-        return;
+      const freteData = freteSnap.data();
+      if (freteData.pagamentoStatus !== 'aprovado') {
+        throw new Error('PAGAMENTO_NAO_CONFIRMADO');
       }
 
-      const motorista = motoristas[state.index];
-      const enviado = await enviarOfertaMotorista(motorista.id, frete);
+      const now = Date.now();
 
-      if (!enviado) {
-        await DispatchQueueService.processarFila(frete, motoristas, { index: state.index + 1, tentativa: state.tentativa + 1 });
-        return;
-      }
-
-      const sucesso = await TripLifecycleService.alterarStatusViagem(frete.id, AppTripState.AGUARDANDO_ACEITE, {
-        motoristaAtualDestaque: motorista.id,
-        motoristaAtualNome: motorista.nome,
-        dispatchIndex: state.index,
-        dispatchTentativa: state.tentativa
+      // 2. Fretes no Feed já estão pagos: o aceite vincula o motorista diretamente à viagem.
+      const sucesso = await TripLifecycleService.alterarStatusViagem(freteId, AppTripState.ACEITO, { 
+        motoristaId: driverId,
+        motoristaNome: driverData?.nome || 'Motorista',
+        motoristaTelefone: driverData?.whatsapp || '',
+        veiculo: driverData?.veiculo || null,
+        placa: driverData?.placa || null,
+        foto: driverData?.foto || null,
+        avaliacao: driverData?.avaliacao || 5.0,
+        reservadoEm: now,
+        reservaExpiraEm: null
       });
 
-      if (!sucesso) return;
-
-      setTimeout(async () => {
-        try {
-          const checkSnap = await getDoc(doc(db, 'fretes', frete.id));
-          if (!checkSnap.exists()) return;
-          const checkData = checkSnap.data();
-
-          if (checkData.status === AppTripState.AGUARDANDO_ACEITE && checkData.motoristaAtualDestaque === motorista.id) {
-            console.log(`[DISPATCH] Timeout: Motorista ${motorista.id} ignorou a oferta. Restaurando viagem ${frete.id}.`);
-            
-            const restaurado = await TripLifecycleService.alterarStatusViagem(frete.id, AppTripState.DISPONIVEL, {
-              dispatchStatus: 'aberto_no_feed'
-            });
-
-            if (restaurado) {
-              await DispatchQueueService.processarFila(frete, motoristas, {
-                index: state.index + 1,
-                tentativa: state.tentativa + 1,
-              });
-            }
-          } else {
-            console.log(`[DISPATCH] Timeout zumbi ignorado. Viagem ${frete.id} não pertence mais ao motorista ${motorista.id}.`);
-          }
-        } catch (error: unknown) {
-          if (error instanceof Error) {
-            console.error('[DISPATCH_WATCHDOG_RACE_ERROR]', error.message);
-          }
-        }
-      }, DRIVER_RESPONSE_TIMEOUT);
-      
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error('[PROCESSAR_FILA_ERROR]', error.message);
+      if (!sucesso) {
+        throw new Error('FRETE_JA_ATRIBUIDO');
       }
+
+      // 3. Atualiza o radar do motorista com o estado correto.
+      await firebaseRealtimeService.updateDriverRealtime(driverId, {
+        state: DriverState.ACEITOU,
+        freteAtualId: freteId,
+        activeTripId: freteId, 
+        disponivel: false,
+        atualizadoEm: Date.now(),
+      });
+
+    } catch (error) {
+      console.error('ERRO ACEITE DE CORRIDA:', error);
+      throw error;
+    }
+  }
+
+  // 🔥 CTO FIX: Aborta a viagem automaticamente e liberta o motorista se o cliente demorar a pagar (Timeout de 5 minutos).
+  async cancelarReservaPorTimeout(driverId: string, freteId: string) {
+    try {
+      // 1. Limpa o Motorista (Volta pro Radar Livre)
+      await firebaseRealtimeService.updateDriverRealtime(driverId, {
+        state: DriverState.ONLINE, 
+        freteAtualId: null,
+        activeTripId: null,
+        currentTripId: null,
+        disponivel: true,
+        atualizadoEm: Date.now(),
+      });
+
+      // 2. Devolve o Frete do Cliente para "DISPONIVEL" (Retorna pro Feed)
+      await TripLifecycleService.alterarStatusViagem(freteId, AppTripState.DISPONIVEL, {
+        motoristaId: null,
+        motoristaNome: null,
+        motoristaTelefone: null,
+        motoristaZap: null,
+        // Limpeza dos novos campos em caso de timeout
+        veiculo: null,
+        placa: null,
+        foto: null,
+        avaliacao: null,
+        alertaInsucesso: true,
+        isRecusa: true,
+        motivoCancelamento: 'O cliente não realizou o pagamento no prazo de 5 minutos.'
+      });
+
+      locationRealtimeService.stop();
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('FRETOGO_TRIP_FINISHED'));
+    } catch (error) {
+      console.error('ERRO AO CANCELAR RESERVA POR TIMEOUT:', error);
+      throw error;
+    }
+  }
+
+  async confirmarLiberacaoMotorista(freteId: string, motoristaId?: string) {
+    try {
+      const currentUid = auth.currentUser?.uid;
+      
+      if (!currentUid) return;
+
+      if (motoristaId && currentUid !== motoristaId) {
+        console.warn(`[CTO-Log] Liberação ignorada: O motorista local (${currentUid}) não é o titular desta reserva.`);
+        return;
+      }
+
+      await firebaseRealtimeService.updateDriverRealtime(currentUid, {
+        state: DriverState.ACEITOU,
+        freteAtualId: freteId,
+        activeTripId: freteId, 
+        disponivel: false,
+        atualizadoEm: Date.now(),
+      });
+
+      console.log(`[CTO-Log] Operação ${freteId} liberada pelo Escrow! Motorista ${currentUid} destravado (ACEITOU).`);
+    } catch (error) {
+      console.error('[CTO-Log] ERRO AO CONFIRMAR LIBERAÇÃO DO MOTORISTA:', error);
+    }
+  }
+
+  async concluirViagemELiberarMotorista(driverId: string, freteId: string) {
+    try {
+      await firebaseRealtimeService.updateDriverRealtime(driverId, {
+        state: DriverState.ONLINE, 
+        freteAtualId: null,
+        activeTripId: null, 
+        currentTripId: null, 
+        disponivel: true,
+        atualizadoEm: Date.now(),
+      });
+
+      await TripLifecycleService.alterarStatusViagem(freteId, AppTripState.ENTREGUE, {
+        entregueEm: Date.now()
+      });
+
+      locationRealtimeService.stop();
+      
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('FRETOGO_TRIP_FINISHED'));
+      }
+    } catch (error) {
+      console.error('ERRO AO CONCLUIR VIAGEM:', error);
+      throw error;
+    }
+  }
+
+  async cancelarViagemMotorista(driverId: string, freteId: string, motivo: string) {
+    try {
+      await firebaseRealtimeService.updateDriverRealtime(driverId, {
+        state: DriverState.ONLINE, 
+        freteAtualId: null,
+        activeTripId: null,
+        currentTripId: null,
+        disponivel: true,
+        atualizadoEm: Date.now(),
+      });
+
+      await TripLifecycleService.alterarStatusViagem(freteId, AppTripState.DISPONIVEL, {
+        isRecusa: true,
+        motivoCancelamento: motivo,
+        canceladoPorMotoristaEm: Date.now()
+      });
+
+      locationRealtimeService.stop();
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('FRETOGO_TRIP_FINISHED'));
+      }
+    } catch (error) {
+      console.error('ERRO AO ABORTAR VIAGEM:', error);
+      throw error;
+    }
+  }
+
+  async iniciarColeta(driverId: string) {
+    try {
+      await firebaseRealtimeService.updateDriverRealtime(driverId, {
+        state: DriverState.INDO_COLETA,
+        atualizadoEm: Date.now(),
+      });
+    } catch (error) {
+      console.error('ERRO INICIAR COLETA:', error);
+    }
+  }
+
+  async chegouColeta(driverId: string) {
+    try {
+      await firebaseRealtimeService.updateDriverRealtime(driverId, {
+        state: DriverState.CHEGOU_COLETA,
+        atualizadoEm: Date.now(),
+      });
+    } catch (error) {
+      console.error('ERRO CHEGADA COLETA:', error);
+    }
+  }
+
+  async iniciouColetando(driverId: string) {
+    try {
+      await firebaseRealtimeService.updateDriverRealtime(driverId, {
+        state: DriverState.COLETANDO,
+        atualizadoEm: Date.now(),
+      });
+    } catch (error) {
+      console.error('ERRO COLETANDO:', error);
+    }
+  }
+
+  async iniciarTransporte(driverId: string) {
+    try {
+      await firebaseRealtimeService.updateDriverRealtime(driverId, {
+        state: DriverState.EM_TRANSPORTE,
+        atualizadoEm: Date.now(),
+      });
+    } catch (error) {
+      console.error('ERRO TRANSPORTE:', error);
+    }
+  }
+
+  async finalizarEntrega(driverId: string) {
+    try {
+      await firebaseRealtimeService.updateDriverRealtime(driverId, {
+        state: DriverState.FINALIZANDO,
+        atualizadoEm: Date.now(),
+      });
+    } catch (error) {
+      console.error('ERRO FINALIZAÇÃO:', error);
+    }
+  }
+
+  async atualizarTripRealtime(tripId: string, payload: Record<string, unknown>) {
+    try {
+      await firebaseRealtimeService.updateTripRealtime(tripId, {
+        ...payload,
+        atualizadoEm: Date.now(),
+      });
+    } catch (error) {
+      console.error('ERRO TRIP REALTIME:', error);
+    }
+  }
+
+  async atualizarStatusTrip(tripId: string, status: AppTripState) {
+    try {
+      if (status === AppTripState.ENTREGUE && auth.currentUser?.uid) {
+        await this.concluirViagemELiberarMotorista(auth.currentUser.uid, tripId);
+        return;
+      }
+      
+      await TripLifecycleService.alterarStatusViagem(tripId, status);
+    } catch (error) {
+      console.error('ERRO STATUS TRIP:', error);
+      throw error;
+    }
+  }
+
+  async salvarChavePix(freteId: string, chavePix: string) {
+    try {
+      await firebaseRealtimeService.updateTripRealtime(freteId, {
+        chavePixMotorista: chavePix,
+        pixEnviadoEm: Date.now()
+      });
+    } catch (error) {
+      console.error('ERRO AO SALVAR PIX:', error);
+      throw error;
+    }
+  }
+
+  async registrarVisualizacao(freteId: string) {
+    try {
+      await firebaseRealtimeService.updateTripRealtime(freteId, {
+        visualizacoes: increment(1)
+      });
+    } catch (error) {
+      console.warn('Falha silenciosa ao registrar view no banco:', error);
+    }
+  }
+
+  async registrarInteresse(freteId: string) {
+    try {
+      await firebaseRealtimeService.updateTripRealtime(freteId, {
+        interessados: increment(1)
+      });
+    } catch (error) {
+      console.warn('Falha silenciosa ao registrar interesse no banco:', error);
     }
   }
 }
+
+export const dispatchRealtimeService = new DispatchRealtimeService();
