@@ -297,7 +297,13 @@ exports.getCoords = functions.runWith(runtimeOpts).https.onCall(async (data, con
     const result = res.data?.results?.[0];
     if (res.data?.status !== 'OK' || !result?.geometry?.location) {
       const googleStatus = res.data?.status || 'STATUS_DESCONHECIDO';
-      console.error('[GETCOORDS] Geocodificação recusada:', googleStatus);
+      console.error('[GETCOORDS] Geocodificação recusada:', googleStatus, res.data?.error_message || '');
+      if (googleStatus === 'REQUEST_DENIED' || googleStatus === 'OVER_QUERY_LIMIT') {
+        throw new functions.https.HttpsError(
+          'failed-precondition',
+          'Serviço de mapas temporariamente indisponível.'
+        );
+      }
       throw new functions.https.HttpsError('not-found', 'Endereço não localizado pelo serviço de mapas.');
     }
 
