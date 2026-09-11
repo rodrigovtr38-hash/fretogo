@@ -6,7 +6,7 @@
 // EXECUÇÃO BLOCO 6 (Prob #1): Correção de ciclo de vida Multi-Stop (Runtime gerado pós-intervenção).
 // EXECUÇÃO BLOCO 6 (Prob #2): Correção de Race Condition no Lock (Trava por freteId exclusivo).
 // EXECUÇÃO BLOCO 6 (Prob #4): Prevenção de duplicidade do evento TRIP_STARTED em multi-stop.
-// EXECUÇÃO BLOCO 7 (Prob #1): Remoção do estado obsoleto RESERVADO_AGUARDANDO_PAGAMENTO da regra de aceite. Trava de concorrência movida para ACEITO com expansão de pipeline.
+// Fluxo vigente: o aceite é permitido somente após pagamento aprovado e segue direto para ACEITO.
 // EXECUÇÃO BLOCO 7 (Prob #2): Expansão da regra de isForcedReset para garantir limpeza de motorista em CANCELADO_MOTORISTA, REDISPATCH e ERRO.
 // EXECUÇÃO BLOCO 7 (Prob #4): Correção do log de Torre de Controle para registrar Entregas Parciais (Multi-Stop) preservando o status EM_TRANSPORTE.
 // EXECUÇÃO BLOCO 8 (Prob #1): Expansão de Contrato Logístico (veiculo, placa, foto, avaliacao) e Trava Atômica para RESERVA.
@@ -49,6 +49,7 @@ export interface TripStateTransitionContract {
   dispatchTentativa?: number;
   filaTotal?: number;
   motoristaAtualDestaque?: string | null;
+  motoristaAtualNome?: string | null;
   motoristaId?: string | null;
   motoristaNome?: string | null;
   motoristaZap?: string | null;
@@ -96,15 +97,43 @@ export class TripLifecycleService {
     }
   }
 
+  static async executarAcaoMotorista(
+    freteId: string,
+    novoStatus: AppTripState | 'cancelar_motorista',
+    motivo?: string,
+  ): Promise<void> {
+    const functions = getFunctions(db.app);
+    const alterarStatusOperacionalMotorista = httpsCallable(functions, 'alterarStatusOperacionalMotorista');
+    await alterarStatusOperacionalMotorista({ freteId, novoStatus, motivo });
+  }
+
+  static async atualizarDisponibilidadeMotorista(online: boolean): Promise<void> {
+    const functions = getFunctions(db.app);
+    const atualizarDisponibilidade = httpsCallable(functions, 'atualizarDisponibilidadeMotorista');
+    await atualizarDisponibilidade({ online });
+  }
+
+  static async registrarInteracaoMotorista(
+    freteId: string,
+    tipo: 'visualizacao' | 'interesse' | 'favorito',
+  ): Promise<void> {
+    const functions = getFunctions(db.app);
+    const registrarInteracaoFrete = httpsCallable(functions, 'registrarInteracaoFrete');
+    await registrarInteracaoFrete({ freteId, tipo });
+  }
+
+  static async registrarEvidenciaMotorista(freteId: string, etapa: string, fotoUrl: string): Promise<void> {
+    const functions = getFunctions(db.app);
+    const registrarEvidenciaFrete = httpsCallable(functions, 'registrarEvidenciaFrete');
+    await registrarEvidenciaFrete({ freteId, etapa, fotoUrl });
+  }
+
   private static async registrarEventoDeIA(freteId: string, novoStatus: AppTripState | string, contract?: TripStateTransitionContract) {
     try {
       const messagesRef = collection(db, 'fretes', freteId, 'chat');
       let mensagemLog = '';
 
       switch (novoStatus) {
-        case AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO as any:
-          mensagemLog = "⏳ [Torre Operacional]: Motorista reservado. Aguardando confirmação financeira do Embarcador para liberar a rota.";
-          break;
         case AppTripState.ACEITO:
           mensagemLog = "🔔 [Torre Operacional]: Vinculação confirmada. Motorista designado para a operação.";
           break;
@@ -190,9 +219,12 @@ export class TripLifecycleService {
         const isAgendado = data.tipoFrete === 'agendado' || data.agendado === true;
 
         // 🔥 CTO FIX [Bloco 8]: Bloqueio de Concorrência atômico garantindo dupla proteção: tanto para o Aceite Direto quanto para a Reserva!
-        if (novoStatus === AppTripState.ACEITO || novoStatus === AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO) {
+        if (novoStatus === AppTripState.ACEITO) {
             if (data.motoristaId && data.motoristaId !== contract?.motoristaId) {
                 throw new Error("FRETE_JA_ATRIBUIDO");
+            }
+            if (data.pagamentoStatus !== 'aprovado') {
+                throw new Error("PAGAMENTO_NAO_CONFIRMADO");
             }
             // Expansão da matriz de aceitação: Permite match com cargas no Dispatcher Ofertando/Aguardando e Agendamentos.
             if (!['disponivel', 'buscando_motorista', 'ofertando', 'aguardando_aceite', 'agendado'].includes(data.status as string)) {
@@ -201,23 +233,13 @@ export class TripLifecycleService {
         }
 
         // 🔥 CTO FIX [Bloco 7 - Problema #2]: Expansão da matriz de estados cancelados para garantir a desvinculação completa
-        const isForcedReset = (novoStatus === AppTripState.DISPONIVEL || novoStatus === AppTripState.EXPIRADO) && 
+        const isForcedReset = novoStatus === AppTripState.DISPONIVEL && data.pagamentoStatus === 'aprovado' &&
           [
-            AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO as any,
-            AppTripState.ACEITO, 
-            AppTripState.INDO_COLETA, 
-            AppTripState.CHEGOU_COLETA, 
-            AppTripState.COLETANDO, 
-            AppTripState.EM_TRANSPORTE, 
             AppTripState.SEM_MOTORISTA, 
-            AppTripState.EXPIRADO,
             AppTripState.OFERTANDO,
             AppTripState.AGUARDANDO_ACEITE,
-            AppTripState.CANCELADO,
-            AppTripState.CANCELADO_MOTORISTA,
-            AppTripState.CANCELADO_CLIENTE,
             AppTripState.REDISPATCH,
-            AppTripState.ERRO
+            AppTripState.TIMEOUT
           ].includes(data.status as AppTripState);
 
         wasForcedReset = isForcedReset;
@@ -271,6 +293,7 @@ export class TripLifecycleService {
               if (contract.dispatchTentativa !== undefined) payloadUpdate.dispatchTentativa = contract.dispatchTentativa;
               if (contract.filaTotal !== undefined) payloadUpdate.filaTotal = contract.filaTotal;
               if (contract.motoristaAtualDestaque !== undefined) payloadUpdate.motoristaAtualDestaque = contract.motoristaAtualDestaque;
+              if (contract.motoristaAtualNome !== undefined) payloadUpdate.motoristaAtualNome = contract.motoristaAtualNome;
               if (contract.motoristaId !== undefined) payloadUpdate.motoristaId = contract.motoristaId;
               if (contract.motoristaNome !== undefined) payloadUpdate.motoristaNome = contract.motoristaNome;
               if (contract.motoristaZap !== undefined) payloadUpdate.motoristaZap = contract.motoristaZap;
