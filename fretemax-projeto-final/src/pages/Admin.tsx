@@ -7,8 +7,9 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
-import { collection, onSnapshot, doc, query, orderBy, runTransaction, where, updateDoc, serverTimestamp, limit, writeBatch, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, doc, query, orderBy, runTransaction, where, serverTimestamp, limit, writeBatch, getDocs } from 'firebase/firestore';
 import { AppTripState } from '../state/tripStateMachine'; 
+import { paymentService } from '../services/paymentService';
 import { 
   Loader2, CheckCircle, XCircle, Search, ShieldAlert, Truck, Users, 
   DollarSign, Activity, Clock, AlertTriangle, Eye, 
@@ -96,7 +97,7 @@ export default function Admin() {
   useEffect(() => {
     if (!authUser) return;
     const q = query(collection(db, 'fretes'), where('status', '==', AppTripState.CANCELADO));
-    const unsub = onSnapshot(q, (snap) => setReembolsosPendentes(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(f => !f.reembolsado)));
+    const unsub = onSnapshot(q, (snap) => setReembolsosPendentes(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter((f: any) => !f.reembolsado)));
     return () => unsub();
   }, [authUser]);
 
@@ -186,9 +187,11 @@ export default function Admin() {
   const handleReembolso = async (idPedido: string) => {
     if (!window.confirm("CRÍTICO: Deseja estornar via PIX (MP)?")) return;
     try {
-      const res = await fetch('/api/reembolso', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idPedido }) });
-      if (!res.ok) throw new Error((await res.json()).error || 'Falha MP');
-      await updateDoc(doc(db, 'fretes', idPedido), { reembolsado: true, reembolsoData: serverTimestamp(), reembolsoPor: authUser.uid });
+      const frete = fretes.find(item => item.id === idPedido);
+      const transactionId = frete?.pagamentoId || frete?.transactionId || '';
+      if (!transactionId) throw new Error('Pagamento não localizado para este frete.');
+      const refunded = await paymentService.processarReembolso(transactionId, idPedido);
+      if (!refunded) throw new Error('O servidor não autorizou ou não concluiu o estorno.');
       alert('SUCESSO! Estorno registrado.');
     } catch (error: any) { alert(`Erro: ${error.message}`); }
   };
