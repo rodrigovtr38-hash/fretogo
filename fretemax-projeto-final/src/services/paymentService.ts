@@ -37,7 +37,7 @@ const AUTHORIZED_SANDBOX_ACCOUNTS = new Set([
 ]);
 
 const ADMIN_UID = 'uV1yeZoGfhZTRWDVL1CnMW6b6NY2';
-const ELIGIBLE_PAYMENT_STATUSES = new Set(['aguardando_pagamento', 'reservado_aguardando_pagamento']);
+const ELIGIBLE_PAYMENT_STATUSES = new Set(['aguardando_pagamento']);
 const MERCADO_PAGO_HOSTS = new Set(['mercadopago.com', 'mercadopago.com.br']);
 
 const parseCheckoutUrl = (value: unknown): string | null => {
@@ -151,9 +151,12 @@ class PaymentService {
             throw new Error('STATUS_NAO_PERMITE_PAGAMENTO');
           }
 
+          const isAgendado = latest.tipoFrete === 'agendado' || latest.agendado === true;
+
           transaction.update(freteRef, {
             pagamentoStatus: 'aprovado',
-            status: 'disponivel',
+            status: isAgendado ? 'agendado' : 'disponivel',
+            dispatchStatus: isAgendado ? 'retido_agendamento' : 'mural_aberto',
             pagamentoId: txId,
             transactionId: txId,
             pagoEm: serverTimestamp(),
@@ -244,33 +247,6 @@ class PaymentService {
       const isOwner = freteData.clienteId === currentUser.uid;
       const isAdmin = currentUser.uid === ADMIN_UID;
       if (!isOwner && !isAdmin) return false;
-
-      const currentUserEmail = currentUser.email?.trim().toLowerCase() || '';
-      const isAuthorizedSandbox = currentUser.emailVerified && AUTHORIZED_SANDBOX_ACCOUNTS.has(currentUserEmail);
-
-      if (normalizedTransactionId.startsWith('QA_BYPASS_')) {
-        if (!isAuthorizedSandbox || freteData.transactionId !== normalizedTransactionId) return false;
-
-        await runTransaction(db, async transaction => {
-          const latestSnap = await transaction.get(freteRef);
-          if (!latestSnap.exists()) throw new Error('FRETE_NAO_ENCONTRADO');
-
-          const latest = latestSnap.data();
-          if (latest.transactionId !== normalizedTransactionId) throw new Error('TRANSACAO_DIVERGENTE');
-          if (latest.pagamentoStatus === 'reembolsado') return;
-
-          transaction.update(freteRef, {
-            pagamentoStatus: 'reembolsado',
-            reembolsado: true,
-            reembolsoData: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-            atualizadoEm: serverTimestamp(),
-          });
-        });
-
-        eventBusService.emit(AppEvents.PAYMENT_REFUNDED, { transactionId: normalizedTransactionId, freteId: normalizedFreteId });
-        return true;
-      }
 
       const idToken = await currentUser.getIdToken();
       const response = await this.fetchWithTimeout('/api/reembolso', {
