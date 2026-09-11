@@ -100,7 +100,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
   const destinoAtual = paradas[paradaAtualIndex] || (frete?.entrega || {});
 
   const isFaseColeta = frete?.status 
-    ? [AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.CHEGOU_COLETA, AppTripState.COLETANDO].includes(frete.status) 
+    ? [AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.CHEGOU_COLETA, AppTripState.COLETANDO].includes(frete.status) 
     : false;
   
   const mapDestinoGPS = destinoAtual?.lat ? { lat: destinoAtual.lat, lng: destinoAtual.lng } : null;
@@ -490,14 +490,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
         )}
 
         <div className="space-y-4">
-          {(frete.status === AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO || String(frete.status) === 'reservado_aguardando_pagamento') && (
-            <div className="flex flex-col gap-2">
-              <button disabled className="w-full flex items-center justify-center bg-slate-800/80 h-16 font-black uppercase tracking-widest rounded-xl text-slate-400 cursor-not-allowed border border-slate-700 shadow-inner gap-2">
-                <Loader2 size={18} className="animate-spin" /> Aguardando Pagamento do Cliente
-              </button>
-            </div>
-          )}
-
           {frete.status === AppTripState.ACEITO && (
             <button onClick={() => handleStatusUpdate(AppTripState.INDO_COLETA)} disabled={actionLoading} className="w-full flex items-center justify-center bg-blue-600 h-16 font-black uppercase tracking-widest rounded-xl disabled:opacity-50 transition-all hover:bg-blue-500 active:scale-95 text-white shadow-[0_0_20px_rgba(37,99,235,0.3)]">
               {actionLoading ? <Loader2 className="animate-spin" size={24}/> : 'Deslocar p/ Coleta'}
@@ -522,7 +514,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
           )}
         </div>
         
-        {frete.status !== AppTripState.ACEITO && frete.status !== AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO && (
+        {frete.status !== AppTripState.ACEITO && (
            <div className="grid grid-cols-2 gap-3 mt-4">
              <button onClick={() => handleOpenNav('waze')} className="flex items-center justify-center gap-2 bg-slate-800 border border-slate-700 text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-700 transition-colors">
                <Navigation size={14} className="text-cyan-400" /> Abrir no Waze
