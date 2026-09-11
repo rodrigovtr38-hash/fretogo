@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { auth, db } from '../firebase';
-import { collection, doc, limit, onSnapshot, query, serverTimestamp, updateDoc, where, increment } from 'firebase/firestore'; 
+import { collection, doc, limit, onSnapshot, query, where } from 'firebase/firestore'; 
 import { motion, AnimatePresence } from 'framer-motion';
 import DriverApp from '../components/DriverApp';
 import ChatFrete from '../components/ChatFrete';
@@ -21,6 +21,7 @@ import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
 import type { OperationalFreight } from '../components/driver/dashboard/DriverDashboardLayout';
 import { Download, Search, MapPin, Flame, Clock, ThumbsUp, Star, Share2, Truck, Power, WifiOff, Activity, CalendarDays, Ruler, Loader2 } from 'lucide-react'; 
 import { NotificationService } from '../services/notificationService';
+import { useDriverRealtime } from '../hooks/useDriverRealtime';
 
 interface DriverData { 
   id?: string; 
@@ -31,10 +32,33 @@ interface DriverData {
   modoRetorno?: boolean;
   destinoRetorno?: string;
   retornosUsadosHoje?: number; 
+  veiculo?: string;
+  placa?: string;
+  fotoSelfie?: string;
+  avaliacao?: number;
+  online?: boolean;
+  disponivel?: boolean;
+  state?: string;
 }
 
-// 🔥 CTO FIX: Removido 'reservado_aguardando_pagamento' para evitar o sequestro da tela.
-const ACTIVE_STATUSES = ['aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 'em_transporte', 'em_entrega', 'returning'];
+const ACTIVE_STATUSES = ['aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 'em_transporte', 'parado_operacional', 'chegou_entrega', 'entregando', 'finalizando', 'validando_comprovante'];
+const BLOCKED_DISPATCH_STATUSES = new Set(['retido_pagamento', 'retido_agendamento', 'encerrado', 'encerrado_reembolso', 'encerrado_divergencia_financeira', 'encerrado_aprovacao_tardia']);
+
+const normalizeSearchText = (value: unknown) => String(value || '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .trim()
+  .toLowerCase();
+
+const timestampToMillis = (value: unknown): number => {
+  if (!value) return 0;
+  if (typeof (value as { toMillis?: () => number }).toMillis === 'function') {
+    return (value as { toMillis: () => number }).toMillis();
+  }
+  if (typeof value === 'number') return value;
+  const parsed = new Date(String(value)).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+};
 
 const FeedSkeleton = () => (
   <div className="bg-slate-900/40 border border-slate-800 rounded-[2rem] p-6 shadow-2xl animate-pulse mb-6">
@@ -95,6 +119,8 @@ export default function Motorista() {
     return driverData.categoria.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   }, [driverData]);
 
+  useDriverRealtime(user?.uid, isOnline, activeFreight?.id);
+
   useEffect(() => {
     const handleOnline = () => setHasInternet(true);
     const handleOffline = () => setHasInternet(false);
@@ -145,7 +171,7 @@ export default function Motorista() {
     const distanciaTotalLimpa = Number(data.distanciaRealKm || data.distanciaTotalKm || data.distancia || 0);
 
     const now = Date.now();
-    const createdTime = data.criadoEm || (data.createdAt?.toMillis ? data.createdAt.toMillis() : now);
+    const createdTime = timestampToMillis(data.criadoEm || data.createdAt) || now;
     const horasParada = (now - createdTime) / (1000 * 60 * 60);
     const prioridadeMural = horasParada >= 24 || Boolean(data.prioridade);
 
@@ -171,6 +197,11 @@ export default function Motorista() {
       updatedAt: data.updatedAt,
       multiplasEntregas: Boolean(data.multiplasEntregas),
       dataAgendada: data.dataAgendada,
+      pagamentoStatus: data.pagamentoStatus,
+      dispatchStatus: data.dispatchStatus,
+      ofertaExpiraEm: data.ofertaExpiraEm,
+      cidadeOrigem: data.cidadeOrigem || data.coleta?.cidade || '',
+      cidadeDestino: data.cidadeDestino || data.entrega?.cidade || '',
     } as any;
   }, []);
 
@@ -181,13 +212,20 @@ export default function Motorista() {
   }, []);
 
   useEffect(() => {
+    if (activeFreight?.id) {
+      setIsOnline(true);
+      return;
+    }
+    if (typeof driverData?.online === 'boolean') setIsOnline(driverData.online);
+  }, [activeFreight?.id, driverData?.online]);
+
+  useEffect(() => {
     if (!user?.uid || !isOnline) return;
     const sendHeartbeat = async () => {
       try { 
+        await dispatchRealtimeService.setDriverOnline(user.uid);
         if (activeFreight?.id) {
           await dispatchRealtimeService.atualizarTripRealtime(activeFreight.id, { heartbeat: Date.now() }); 
-        } else {
-          await dispatchRealtimeService.setDriverOnline(user.uid); 
         }
       } catch (error) { console.error('HEARTBEAT ERROR:', error); }
     };
@@ -245,7 +283,7 @@ export default function Motorista() {
   }, [isOnline, availableFreights.length]);
 
   useEffect(() => {
-    if (!runtimeReady || !user?.uid || !driverData) {
+    if (!runtimeReady || !user?.uid || !driverData || driverData.status !== 'aprovado') {
       setAvailableFreights([]); return;
     }
     setRadarLoading(true);
@@ -254,16 +292,27 @@ export default function Motorista() {
     const freightsQuery = query(
       collection(db, 'fretes'), 
       where('status', 'in', ['disponivel', 'buscando_motorista']),
+      where('pagamentoStatus', '==', 'aprovado'),
       limit(100)
     );
     
     const unsubscribe = onSnapshot(freightsQuery, snapshot => {
       if (!mountedRef.current) return;
 
-      let next = snapshot.docs.map(document => normalizeFreight(document.id, document.data()));
+      const now = Date.now();
+      let next = snapshot.docs
+        .filter(document => {
+          const data = document.data();
+          const expiresAt = timestampToMillis(data.ofertaExpiraEm);
+          return data.pagamentoStatus === 'aprovado'
+            && !data.motoristaId
+            && !BLOCKED_DISPATCH_STATUSES.has(String(data.dispatchStatus || ''))
+            && (!expiresAt || expiresAt >= now);
+        })
+        .map(document => normalizeFreight(document.id, document.data()));
 
       next = next.filter(freight => freight.categoria === operationalCategory);
-      next = next.filter(freight => !freight.motoristaId || freight.motoristaId === user.uid || snapshot.docs.find(d => d.id === freight.id)?.data().motoristaAtualDestaque === user.uid); 
+      next = next.filter(freight => !freight.motoristaId); 
 
       setAvailableFreights(next); 
       setTimeout(() => { if (mountedRef.current) setRadarLoading(false); }, 1500);
@@ -291,12 +340,16 @@ export default function Motorista() {
   }, [runtimeReady, user, normalizeFreight]);
 
   const handleToggleOnline = useCallback(async (next: boolean) => {
-    setIsOnline(next);
     if (!user?.uid) return;
     try {
       if (next) await dispatchRealtimeService.setDriverOnline(user.uid);
       else await dispatchRealtimeService.setDriverOffline(user.uid);
-    } catch (error) { console.error('ONLINE TOGGLE ERROR:', error); }
+      setIsOnline(next);
+    } catch (error) {
+      console.error('ONLINE TOGGLE ERROR:', error);
+      setIsOnline(!next);
+      showToast('Não foi possível atualizar seu radar. Tente novamente.', 'warning');
+    }
   }, [user]);
 
   const handleSelectFreight = useCallback((freight: OperationalFreight) => { setSelectedFreight(freight); }, []);
@@ -312,7 +365,8 @@ export default function Motorista() {
       showToast('Frete aceito! A operação está vinculada ao motorista.', 'success');
       
     } catch (error: any) { 
-      showToast(error.message === 'FRETE_JA_ATRIBUIDO' ? "Esta carga já foi fechada por outro parceiro." : "Erro ao aceitar frete.", 'warning');
+      const message = String(error?.message || '');
+      showToast(message.includes('already-exists') || message.includes('não está mais disponível') ? "Esta carga já foi fechada por outro parceiro." : "Não foi possível aceitar este frete agora.", 'warning');
       setSelectedFreight(null); 
     }
   }, [user, driverData]);
@@ -320,14 +374,16 @@ export default function Motorista() {
   const handleSocialAction = async (action: string, freightId: string) => {
     try {
       if (action === 'interesse') {
-        await updateDoc(doc(db, 'fretes', freightId), { interessados: increment(1) });
+        await dispatchRealtimeService.registrarInteresse(freightId);
         showToast('Interesse registrado! A Empresa foi notificada.', 'success');
       }
       if (action === 'favorito') {
-        await updateDoc(doc(db, 'fretes', freightId), { favoritos: increment(1) });
+        await dispatchRealtimeService.registrarFavorito(freightId);
         showToast('Carga salva na sua lista.', 'info');
       }
       if (action === 'share') {
+        const shareUrl = `${window.location.origin}/motorista?frete=${encodeURIComponent(freightId)}`;
+        await navigator.clipboard.writeText(shareUrl);
         showToast('Link da oportunidade copiado!', 'info');
       }
     } catch (error) {
@@ -338,16 +394,19 @@ export default function Motorista() {
 
   const fretesFiltradosOrdenados = useMemo(() => {
     let filtrados = availableFreights.filter(freight => {
-      const origemMatch = filtroOrigem === '' || freight.enderecoColetaTexto?.toLowerCase().includes(filtroOrigem.toLowerCase());
-      const destinoMatch = filtroDestino === '' || freight.enderecoEntregaTexto?.toLowerCase().includes(filtroDestino.toLowerCase());
+      const origemSearch = normalizeSearchText(filtroOrigem);
+      const destinoSearch = normalizeSearchText(filtroDestino);
+      const origemValue = normalizeSearchText((freight as any).cidadeOrigem || freight.enderecoColetaTexto);
+      const destinoValue = normalizeSearchText((freight as any).cidadeDestino || freight.enderecoEntregaTexto);
+      const origemMatch = !origemSearch || origemValue.includes(origemSearch);
+      const destinoMatch = !destinoSearch || destinoValue.includes(destinoSearch);
       return origemMatch && destinoMatch;
     });
 
     if (driverData?.modoRetorno && driverData?.destinoRetorno) {
-      const destinoAlvo = driverData.destinoRetorno.toLowerCase();
+      const destinoAlvo = normalizeSearchText(driverData.destinoRetorno);
       filtrados = filtrados.filter(freight => 
-        freight.enderecoEntregaTexto?.toLowerCase().includes(destinoAlvo) || 
-        (freight as any).cidadeDestino?.toLowerCase().includes(destinoAlvo)
+        normalizeSearchText((freight as any).cidadeDestino || freight.enderecoEntregaTexto).includes(destinoAlvo)
       );
     }
 
@@ -356,8 +415,8 @@ export default function Motorista() {
       if (a.distanciaColetaKm !== b.distanciaColetaKm) return (a.distanciaColetaKm || 0) - (b.distanciaColetaKm || 0);
       if (b.valorMotorista !== a.valorMotorista) return (b.valorMotorista || 0) - (a.valorMotorista || 0);
       
-      const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
-      const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+      const timeA = timestampToMillis(a.createdAt);
+      const timeB = timestampToMillis(b.createdAt);
       return timeB - timeA; 
     });
   }, [availableFreights, filtroOrigem, filtroDestino, driverData?.modoRetorno, driverData?.destinoRetorno]);
@@ -367,7 +426,7 @@ export default function Motorista() {
       fretesFiltradosOrdenados.forEach(freight => {
         if (!viewedFreights.current.has(freight.id)) {
           viewedFreights.current.add(freight.id);
-          updateDoc(doc(db, 'fretes', freight.id), { visualizacoes: increment(1) }).catch(() => {});
+          dispatchRealtimeService.registrarVisualizacao(freight.id).catch(() => {});
         }
       });
     }
