@@ -54,6 +54,7 @@ interface OrderData {
   pesoKg?: string; 
   reservadoEm?: number; 
   transactionId?: string; 
+  pagamentoId?: string;
   valorPedagio?: number; 
   distanciaRealKm?: number; 
   tipoFrete?: string;
@@ -704,13 +705,9 @@ export default function Cliente() {
     try {
       if (orderData?.pagamentoStatus === 'aprovado' || orderData?.transactionId) {
          showToast('Iniciando estorno seguro junto ao banco...', 'warning');
-         const res = await fetch('/api/reembolso', {
-           method: 'POST',
-           headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({ idPedido: currentOrderId })
-         });
-         const data = await res.json();
-         if (!res.ok) throw new Error(data.error || data.detalhe || 'Erro na devolução.');
+         const transactionId = orderData.pagamentoId || orderData.transactionId || '';
+         const refunded = await paymentService.processarReembolso(transactionId, currentOrderId);
+         if (!refunded) throw new Error('Não foi possível concluir a devolução. Tente novamente ou fale com o suporte.');
          showToast('Estorno realizado! O PIX retornou para sua conta.', 'success');
          setShowCancelModal(false);
          resetFlow();
