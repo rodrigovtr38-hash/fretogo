@@ -1,11 +1,5 @@
 // =========================================================
 // NOME DO ARQUIVO: src/services/dispatchQueueService.ts
-// CTO-Log: Auditoria de Despacho Distribuído - LOTE 3.4
-// Correção Crítica: Remoção da Morte Súbita baseada no relógio local do usuário.
-// O Backend agora respeita 100% o modelo "Mural/Feed". A carga NUNCA expira sozinha na tela.
-// Delegação total de estado para TripLifecycleService.
-// Correção Bloco de Agendamento: Adição de Guard Clause contra Dispatch Imediato de Cargas Agendadas.
-// EXECUÇÃO BLOCO 9: Proteção contra Vazamento de Fila Assíncrona (Timeout Zumbi) e Restauro Seguro de Estado.
 // =========================================================
 
 import { doc, getDoc } from 'firebase/firestore';
@@ -21,6 +15,7 @@ import { TripLifecycleService } from './tripLifecycleService';
 
 const DRIVER_RESPONSE_TIMEOUT = 30000; 
 const MAX_REDISPATCH_ATTEMPTS = 10;
+const FEED_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutos de vida no Mural de Ofertas
 
 interface QueueState {
   index: number;
@@ -28,10 +23,35 @@ interface QueueState {
 }
 
 export class DispatchQueueService {
+  
+  // 🔥 CTO FIX: Gatilho de expiração de Mural / Feed
+  static agendarExpiracaoFeed(freteId: string) {
+    setTimeout(async () => {
+      try {
+        const snap = await getDoc(doc(db, 'fretes', freteId));
+        if (!snap.exists()) return;
+        
+        const data = snap.data();
+
+        // Extração robusta do timestamp criado
+        const createdAt = data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt || Date.now());
+        const timeInFeed = Date.now() - createdAt;
+
+        // Tolerância de 5 segundos pra não matar cargas na borda do relógio
+        if (data.status === AppTripState.DISPONIVEL && timeInFeed >= (FEED_TIMEOUT_MS - 5000)) {
+          console.log(`[DISPATCH] ⏰ Timeout de 10 minutos atingido. Expirando frete ${freteId}.`);
+          await TripLifecycleService.alterarStatusViagem(freteId, AppTripState.EXPIRADO, {
+            motivoCancelamento: 'Tempo limite no Feed expirado (10 minutos).'
+          });
+        }
+      } catch (error) {
+        console.error('[EXPIRACAO_FEED_ERROR]', error);
+      }
+    }, FEED_TIMEOUT_MS);
+  }
+
   static async iniciarFila(frete: FretePayload) {
     try {
-      // 🔥 CTO FIX: Proteção Defensiva de Agendamento
-      // Impede categoricamente que um frete agendado vaze para a fila de urgência.
       const isAgendado = (frete as any).tipoFrete === 'agendado' || (frete as any).agendado === true;
       if (isAgendado) {
         console.warn(`[DISPATCH] 🛡️ Carga ${frete.id} é AGENDADA. Abortando dispatch imediato para respeitar o tempo de coleta.`);
@@ -40,14 +60,15 @@ export class DispatchQueueService {
 
       const motoristas = await buscarMotoristasCompativeis(frete);
 
-      // 🔥 INTERVENÇÃO CTO: Se não achar motorista, NÃO MATAR A CARGA. 
-      // Joga para o Mural (Feed Aberto) para que motoristas vejam passivamente.
+      // Joga para o Mural (Feed Aberto) se não achar motorista
       if (!motoristas || motoristas.length === 0) {
-        console.warn(`[DISPATCH] 🛡️ Sem motoristas imediatos. Mantendo carga ${frete.id} VIVA no Feed Público.`);
+        console.warn(`[DISPATCH] 🛡️ Sem motoristas imediatos. Mantendo carga ${frete.id} VIVA no Feed Público (10 minutos).`);
         await TripLifecycleService.alterarStatusViagem(frete.id, AppTripState.DISPONIVEL, {
           dispatchStatus: 'aberto_no_feed',
           filaTotal: 0
         });
+        
+        DispatchQueueService.agendarExpiracaoFeed(frete.id);
         return;
       }
 
@@ -68,7 +89,6 @@ export class DispatchQueueService {
   static async processarFila(frete: FretePayload, motoristas: MotoristaMatch[], state: QueueState) {
     try {
       const freteSnap = await getDoc(doc(db, 'fretes', frete.id));
-      
       if (!freteSnap.exists()) return;
       
       const data = freteSnap.data();
@@ -78,14 +98,13 @@ export class DispatchQueueService {
         return;
       }
 
-      // 🔥 INTERVENÇÃO CTO: O Cronômetro de Timeout Global baseado no celular foi ERRADICADO daqui.
-      // Se a IA cansar de procurar ou os motoristas rejeitarem, a carga apenas desce para o Mural.
-
       if (state.index >= motoristas.length || state.tentativa > MAX_REDISPATCH_ATTEMPTS) {
-        console.warn(`[DISPATCH] Fila esgotada. Mantendo carga ${frete.id} no Feed Público (Mural).`);
+        console.warn(`[DISPATCH] Fila esgotada. Carga ${frete.id} despachada para Feed Público (10 minutos).`);
         await TripLifecycleService.alterarStatusViagem(frete.id, AppTripState.DISPONIVEL, {
           dispatchStatus: 'aberto_no_feed'
         });
+        
+        DispatchQueueService.agendarExpiracaoFeed(frete.id);
         return;
       }
 
@@ -93,7 +112,6 @@ export class DispatchQueueService {
       const enviado = await enviarOfertaMotorista(motorista.id, frete);
 
       if (!enviado) {
-        // Falhou ao enviar (ex: offline). Pula rápido pro próximo, mas não mata a carga ao final.
         await DispatchQueueService.processarFila(frete, motoristas, { index: state.index + 1, tentativa: state.tentativa + 1 });
         return;
       }
@@ -105,24 +123,17 @@ export class DispatchQueueService {
         dispatchTentativa: state.tentativa
       });
 
-      // Se a máquina de estados rejeitou a transição (ex: já foi ACEITO por outro, ou CANCELADO), a fila aborta
       if (!sucesso) return;
 
-      // Aguarda 30 segundos pela resposta do motorista antes de iterar
       setTimeout(async () => {
         try {
-          // 🔥 CTO FIX [Bloco 9]: Confirma o estado atual ANTES de avançar para matar threads zumbis.
           const checkSnap = await getDoc(doc(db, 'fretes', frete.id));
           if (!checkSnap.exists()) return;
           const checkData = checkSnap.data();
 
-          // Verifica se a viagem ainda está de fato aguardando ESTE motorista específico.
           if (checkData.status === AppTripState.AGUARDANDO_ACEITE && checkData.motoristaAtualDestaque === motorista.id) {
             console.log(`[DISPATCH] Timeout: Motorista ${motorista.id} ignorou a oferta. Restaurando viagem ${frete.id}.`);
             
-            // Restaura o estado para DISPONIVEL (limpando o motoristaAtualDestaque associado via TripLifecycleService).
-            // Enviamos 'aberto_no_feed' temporariamente para impedir que o TripLifecycleService 
-            // dispare um iniciarFila() paralelo (fork), já que nós mesmos prosseguiremos a fila manualmente abaixo.
             const restaurado = await TripLifecycleService.alterarStatusViagem(frete.id, AppTripState.DISPONIVEL, {
               dispatchStatus: 'aberto_no_feed'
             });
@@ -134,8 +145,6 @@ export class DispatchQueueService {
               });
             }
           } else {
-            // Se o status mudou (ex: recusado antes do timeout, aceito por outro, cancelado),
-            // a thread zumbi morre silenciosamente aqui sem corromper a operação.
             console.log(`[DISPATCH] Timeout zumbi ignorado. Viagem ${frete.id} não pertence mais ao motorista ${motorista.id}.`);
           }
         } catch (error: unknown) {
