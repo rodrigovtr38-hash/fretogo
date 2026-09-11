@@ -1,11 +1,5 @@
 // =========================================================
 // NOME DO ARQUIVO: src/services/dispatchRealtimeService.ts
-// CTO-Log: FASE 4 - Reconstrução Controlada (Etapa 3).
-// Evolução Fase 5: Motorista agora assume a Reserva (RESERVADO_AGUARDANDO_PAGAMENTO) antes do Aceite Real.
-// Evolução Fase 6: Liberação do motorista (Destravamento da Reserva + Start GPS) interligada ao Webhook Financeiro.
-// Evolução Fase 12 (Escrow): Ajuste para Timeout de 5 Minutos. Expiração de frete direciona para EXPIRADO (não retorna ao radar automaticamente).
-// EXECUÇÃO BLOCO 8 (Prob #2): Expansão de payload (veiculo, placa, foto) na esteira de aceite.
-// EXECUÇÃO BLOCO 11 (CTO FIX): Leitura de Pagamento Pré-Aceite. Bypass direto para ACEITO se pagamentoStatus já for 'aprovado'. Fim da sobrescrita cega.
 // =========================================================
 
 import { increment, doc, getDoc } from 'firebase/firestore';
@@ -61,10 +55,10 @@ class DispatchRealtimeService {
     }
   }
 
-  // 🔥 CTO FIX [Blocos 8 e 11]: Expansão visual e Roteamento de Estado Baseado em Pagamento.
+  // 🔥 CTO FIX: Fim do modelo "Aceitar e Esperar". Motorista só entra em cena se estiver PAGO.
   async aceitarCorrida(driverId: string, freteId: string, driverData?: { nome?: string, whatsapp?: string, veiculo?: string, placa?: string, foto?: string, avaliacao?: number }) {
     try {
-      // 1. Consulta obrigatória (Zero Trust): Ler o estado atual do frete antes de mutá-lo.
+      // 1. Consulta obrigatória (Zero Trust)
       const freteRef = doc(db, 'fretes', freteId);
       const freteSnap = await getDoc(freteRef);
 
@@ -75,33 +69,37 @@ class DispatchRealtimeService {
       const freteData = freteSnap.data();
       const isPago = freteData.pagamentoStatus === 'aprovado';
 
+      // 2. Trava de Arquitetura: Rejeita sumariamente o motorista se o frete não estiver aprovado financeiramente
+      if (!isPago) {
+        console.warn(`[DISPATCH] Tentativa de aceite rejeitada. Frete ${freteId} não possui pagamento aprovado.`);
+        throw new Error('PAGAMENTO_PENDENTE_OU_INVALIDO');
+      }
+
       const now = Date.now();
-      const expiraEm = now + 5 * 60 * 1000; // 5 Minutos cravados de timeout (se necessário).
 
-      // 2. Roteamento Dinâmico de Máquina de Estados
-      const nextTripState = isPago ? AppTripState.ACEITO : AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO;
-      const nextDriverState = isPago ? DriverState.ACEITOU : DriverState.RESERVADO;
+      // 3. Roteamento Direto para Operação Viva
+      const nextTripState = AppTripState.ACEITO;
+      const nextDriverState = DriverState.ACEITOU;
 
-      // 3. Injeção dos dados visuais do motorista e alteração de status.
+      // 4. Injeção dos dados visuais do motorista e alteração de status.
       const sucesso = await TripLifecycleService.alterarStatusViagem(freteId, nextTripState, { 
         motoristaId: driverId,
         motoristaNome: driverData?.nome || 'Motorista',
-        motoristaTelefone: driverData?.whatsapp || '',
+        motoristaTelefone: driverData?.whatsapp || '', // fallback
+        motoristaZap: driverData?.whatsapp || null,
         veiculo: driverData?.veiculo || null,
         placa: driverData?.placa || null,
         foto: driverData?.foto || null,
         avaliacao: driverData?.avaliacao || 5.0,
         reservadoEm: now,
-        // 🔥 CTO FIX: Se já estiver pago, não há expiração de reserva e não sobrescrevemos o status financeiro.
-        reservaExpiraEm: isPago ? null : expiraEm,
-        ...(isPago ? {} : { pagamentoStatus: 'pendente' }) 
+        reservaExpiraEm: null // Não existe mais reserva, viagem cravada.
       });
 
       if (!sucesso) {
-        throw new Error('FRETE_JA_ATRIBUIDO');
+        throw new Error('FRETE_JA_ATRIBUIDO_OU_CANCELADO');
       }
 
-      // 4. Atualiza o radar do motorista com o estado correto.
+      // 5. Atualiza o radar do motorista direto pro front-line
       await firebaseRealtimeService.updateDriverRealtime(driverId, {
         state: nextDriverState, 
         freteAtualId: freteId,
@@ -116,66 +114,14 @@ class DispatchRealtimeService {
     }
   }
 
-  // 🔥 CTO FIX: Aborta a viagem automaticamente e liberta o motorista se o cliente demorar a pagar (Timeout de 5 minutos).
+  // Mantido apenas para evitar erros de importação antigos (Dead code para fretes novos)
   async cancelarReservaPorTimeout(driverId: string, freteId: string) {
-    try {
-      // 1. Limpa o Motorista (Volta pro Radar Livre)
-      await firebaseRealtimeService.updateDriverRealtime(driverId, {
-        state: DriverState.ONLINE, 
-        freteAtualId: null,
-        activeTripId: null,
-        currentTripId: null,
-        disponivel: true,
-        atualizadoEm: Date.now(),
-      });
-
-      // 2. Devolve o Frete do Cliente para "DISPONIVEL" (Retorna pro Feed)
-      await TripLifecycleService.alterarStatusViagem(freteId, AppTripState.DISPONIVEL, {
-        motoristaId: null,
-        motoristaNome: null,
-        motoristaTelefone: null,
-        motoristaZap: null,
-        // Limpeza dos novos campos em caso de timeout
-        veiculo: null,
-        placa: null,
-        foto: null,
-        avaliacao: null,
-        alertaInsucesso: true,
-        isRecusa: true,
-        motivoCancelamento: 'O cliente não realizou o pagamento no prazo de 5 minutos.'
-      });
-
-      locationRealtimeService.stop();
-      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('FRETOGO_TRIP_FINISHED'));
-    } catch (error) {
-      console.error('ERRO AO CANCELAR RESERVA POR TIMEOUT:', error);
-      throw error;
-    }
+    console.warn('[DEPRECATED] cancelarReservaPorTimeout invocado, porém reservas não são mais aplicáveis.');
   }
 
+  // Mantido apenas para evitar erros de importação antigos (Dead code para fretes novos)
   async confirmarLiberacaoMotorista(freteId: string, motoristaId?: string) {
-    try {
-      const currentUid = auth.currentUser?.uid;
-      
-      if (!currentUid) return;
-
-      if (motoristaId && currentUid !== motoristaId) {
-        console.warn(`[CTO-Log] Liberação ignorada: O motorista local (${currentUid}) não é o titular desta reserva.`);
-        return;
-      }
-
-      await firebaseRealtimeService.updateDriverRealtime(currentUid, {
-        state: DriverState.ACEITOU,
-        freteAtualId: freteId,
-        activeTripId: freteId, 
-        disponivel: false,
-        atualizadoEm: Date.now(),
-      });
-
-      console.log(`[CTO-Log] Operação ${freteId} liberada pelo Escrow! Motorista ${currentUid} destravado (ACEITOU).`);
-    } catch (error) {
-      console.error('[CTO-Log] ERRO AO CONFIRMAR LIBERAÇÃO DO MOTORISTA:', error);
-    }
+    console.warn('[DEPRECATED] confirmarLiberacaoMotorista invocado, porém fretes agora já nascem liberados após o aceite.');
   }
 
   async concluirViagemELiberarMotorista(driverId: string, freteId: string) {
