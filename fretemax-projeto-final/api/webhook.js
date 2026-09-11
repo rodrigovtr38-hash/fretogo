@@ -1,237 +1,354 @@
 // =========================================================
 // NOME DO ARQUIVO: api/webhook.js
-// CTO-Log: Auditoria Etapa 5 (Escrow e Pagamentos) - REVISÃO FINAL.
-// 6. 🔥 CTO FIX (FASE 12): Validação de Titularidade. Proteção absoluta contra Swap de Motorista e Late Approvals.
-// 8. 🔥 CTO FIX (PAGAMENTO REAL): Idempotência de String corrigida (aprovado === approved).
-// 9. 🔥 CTO FIX (BUSINESS): Rejeição não devolve ao radar automaticamente, vira EXPIRADO.
-// 10. 🔥 CTO FIX (BLOCO 03): Transação Atômica injetada para evitar Race Condition contra o Watchdog de 5 minutos.
-// 11. 🔥 CTO FIX (BLOCO 05): Sincronização da timeline visual do cliente injetada no Firestore.
-// 12. 🔥 CTO FIX (EXECUÇÃO BLOCO 03): Novo Funil de Pré-Pagamento. A carga vai para 'disponivel' após o PIX. Fluxo sem motorista.
-// 13. 🔥 CTO FIX (EXECUÇÃO BLOCO 03.B): Isolamento de Agendamento. Cargas agendadas vão para status 'agendado', imediatas vão para 'disponivel'.
-// 14. 🔥 CTO FIX (EXECUÇÃO BLOCO 8 - Prob #2): Proteção contra Chargeback/Estorno tardio. Aborta viagens operacionais ativas sem cobertura financeira.
+// Autoridade do pagamento real: assinatura, consulta ao MP e transação idempotente.
 // =========================================================
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { getDatabase } from 'firebase-admin/database'; 
+import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import crypto from 'crypto';
 
-if (!getApps().length) {
-  if (process.env.FIREBASE_ADMIN_CREDENTIAL) {
-    initializeApp({
-      credential: cert(JSON.parse(process.env.FIREBASE_ADMIN_CREDENTIAL)),
-      databaseURL: process.env.FIREBASE_RTDB_URL || `https://${JSON.parse(process.env.FIREBASE_ADMIN_CREDENTIAL).project_id}-default-rtdb.firebaseio.com` 
-    });
-  } else {
-    console.error("[ERRO CRÍTICO SERVERLESS] FIREBASE_ADMIN_CREDENTIAL não configurado na Vercel.");
+const REQUEST_TIMEOUT_MS = 10000;
+const REJECTED_PAYMENT_STATUSES = new Set(['rejected', 'cancelled', 'refunded', 'charged_back']);
+const OPERATIONAL_STATUSES = new Set([
+  'disponivel', 'agendado', 'buscando_motorista', 'expandindo_busca',
+  'ofertando', 'aguardando_aceite', 'reservado_aguardando_pagamento',
+  'aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 'em_transporte',
+  'parado_operacional', 'chegou_entrega', 'entregando', 'finalizando',
+  'validando_comprovante',
+]);
+
+let firestore = null;
+
+function getDb() {
+  if (firestore) return firestore;
+
+  let app = getApps()[0];
+  if (!app) {
+    if (process.env.FIRESTORE_EMULATOR_HOST) {
+      app = initializeApp({ projectId: process.env.GCLOUD_PROJECT || 'demo-fretogo' });
+    } else {
+      const rawCredential = process.env.FIREBASE_ADMIN_CREDENTIAL;
+      if (!rawCredential) throw new Error('FIREBASE_ADMIN_CREDENTIAL_AUSENTE');
+      app = initializeApp({ credential: cert(JSON.parse(rawCredential)) });
+    }
+  }
+  firestore = getFirestore(app);
+  return firestore;
+}
+
+function getHeader(req, name) {
+  const value = req.headers[name];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function getDataId(req) {
+  const value = req.query?.['data.id'] ?? req.query?.id ?? req.body?.data?.id ?? req.body?.id;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return /^[A-Za-z0-9_-]{1,128}$/.test(normalized) ? normalized : null;
+}
+
+function getNotificationType(req) {
+  const value = req.query?.type ?? req.query?.topic ?? req.body?.type ?? req.body?.topic;
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function timingSafeHexEqual(left, right) {
+  if (!/^[a-f0-9]{64}$/i.test(left) || !/^[a-f0-9]{64}$/i.test(right)) return false;
+  const leftBuffer = Buffer.from(left, 'hex');
+  const rightBuffer = Buffer.from(right, 'hex');
+  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function validateWebhookSignature(req, dataId) {
+  const signature = getHeader(req, 'x-signature');
+  const requestId = getHeader(req, 'x-request-id');
+  const secret = process.env.MP_WEBHOOK_SECRET;
+
+  if (!secret || typeof signature !== 'string' || typeof requestId !== 'string') return false;
+
+  const parts = new Map();
+  signature.split(',').forEach(part => {
+    const separator = part.indexOf('=');
+    if (separator <= 0) return;
+    parts.set(part.slice(0, separator).trim(), part.slice(separator + 1).trim());
+  });
+
+  const ts = parts.get('ts');
+  const receivedSignature = parts.get('v1');
+  if (!ts || !receivedSignature || !/^\d+$/.test(ts)) return false;
+
+  const manifest = `id:${dataId.toLowerCase()};request-id:${requestId};ts:${ts};`;
+  const calculated = crypto.createHmac('sha256', secret).update(manifest).digest('hex');
+  return timingSafeHexEqual(calculated, receivedSignature);
+}
+
+function normalizeFreightId(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return /^[A-Za-z0-9_-]{1,128}$/.test(normalized) ? normalized : null;
+}
+
+async function fetchWithTimeout(url, options, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
-const db = getFirestore();
-const rtdb = getDatabase(); 
-
 async function dispararWhatsAppSeguro(telefone, mensagem) {
-  const apiUrl = process.env.WHATSAPP_API_URL; 
-  if (!apiUrl) return;
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 4000); 
+  const apiUrl = process.env.WHATSAPP_API_URL;
+  const token = process.env.WHATSAPP_TOKEN;
+  if (!apiUrl || !token || !telefone) return false;
 
   try {
-    await fetch(apiUrl, {
+    const response = await fetchWithTimeout(apiUrl, {
       method: 'POST',
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}`
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ phone: telefone, message: mensagem }),
-      signal: controller.signal
-    });
-  } catch (e) {
-    console.error("[WHATSAPP ERRO]", e.message);
-  } finally {
-    clearTimeout(timeoutId);
+    }, 4000);
+    return response.ok;
+  } catch (error) {
+    console.error('[WEBHOOK] Falha no WhatsApp:', error.message);
+    return false;
   }
+}
+
+function buildDriverRelease(transaction, db, freteData, freteId) {
+  if (!freteData.motoristaId) return Promise.resolve();
+
+  const refs = [
+    db.collection('motoristas_online').doc(freteData.motoristaId),
+    db.collection('motoristas_cadastros').doc(freteData.motoristaId),
+  ];
+
+  return Promise.all(refs.map(ref => transaction.get(ref))).then(snapshots => {
+    snapshots.forEach((snapshot, index) => {
+    if (!snapshot.exists) return;
+
+    const driver = snapshot.data();
+    const linked = [driver.freteAtualId, driver.activeTripId, driver.currentTripId].includes(freteId);
+    if (!linked) return;
+
+      transaction.set(refs[index], {
+      state: 'ONLINE',
+      freteAtualId: null,
+      activeTripId: null,
+      currentTripId: null,
+      disponivel: true,
+      atualizadoEm: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    });
+  });
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).send('Método não permitido');
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
+    return res.status(405).send('Método não permitido');
+  }
 
   try {
-    const xSignature = req.headers['x-signature'];
-    const xRequestId = req.headers['x-request-id'];
-
-    const dataId = req.query.id || req.query['data.id'] || req.body?.data?.id;
-    const type = req.query.topic || req.body?.type || req.body?.action;
-
-    if (!process.env.MP_WEBHOOK_SECRET) {
-      console.error("[ERRO DE INFRAESTRUTURA] MP_WEBHOOK_SECRET não encontrado nas variáveis da Vercel.");
-      return res.status(500).send('Configuração de servidor ausente');
+    if (!process.env.MP_WEBHOOK_SECRET || !process.env.MERCADO_PAGO_ACCESS_TOKEN) {
+      console.error('[WEBHOOK] Configuração financeira ausente.');
+      return res.status(503).send('Configuração de servidor ausente');
     }
 
-    if (xSignature) {
-      const parts = xSignature.split(',');
-      const ts = parts.find(p => p.startsWith('ts='))?.split('=')[1];
-      
-      const v1Signatures = parts.filter(p => p.startsWith('v1=')).map(p => p.split('=')[1]);
-      const manifest = `id:${dataId};request-id:${xRequestId};ts:${ts};`;
-      
-      const hmac = crypto.createHmac('sha256', process.env.MP_WEBHOOK_SECRET)
-        .update(manifest).digest('hex');
-      
-      if (!v1Signatures.includes(hmac)) {
-        console.error(`[FRAUDE BLOQUEADA] Assinatura calculada não confere com o Mercado Pago. ID: ${dataId}`);
-        return res.status(401).send('Assinatura inválida');
+    const dataId = getDataId(req);
+    if (!dataId) return res.status(400).send('Identificador de notificação ausente');
+
+    if (!validateWebhookSignature(req, dataId)) {
+      console.error('[WEBHOOK] Assinatura ausente ou inválida.');
+      return res.status(401).send('Assinatura inválida');
+    }
+
+    const type = getNotificationType(req);
+    const isPayment = type === 'payment' || type.startsWith('payment.');
+    if (!isPayment) return res.status(200).send('Evento ignorado');
+
+    const mpResponse = await fetchWithTimeout(
+      `https://api.mercadopago.com/v1/payments/${encodeURIComponent(dataId)}`,
+      { headers: { Authorization: `Bearer ${process.env.MERCADO_PAGO_ACCESS_TOKEN}` } }
+    );
+
+    if (!mpResponse.ok) {
+      console.error('[WEBHOOK] Falha ao consultar pagamento:', mpResponse.status);
+      return res.status(502).send('Falha ao consultar pagamento');
+    }
+
+    const paymentData = await mpResponse.json();
+    if (String(paymentData.id) !== String(dataId)) {
+      return res.status(400).send('Pagamento divergente');
+    }
+
+    const freteId = normalizeFreightId(paymentData.external_reference);
+    if (!freteId) return res.status(400).send('Referência do frete inválida');
+
+    if (paymentData.metadata?.frete_id && paymentData.metadata.frete_id !== freteId) {
+      return res.status(400).send('Metadata divergente');
+    }
+
+    const db = getDb();
+    const freteRef = db.collection('fretes').doc(freteId);
+    let whatsappPayload = null;
+
+    await db.runTransaction(async transaction => {
+      const freteSnap = await transaction.get(freteRef);
+      if (!freteSnap.exists) throw new Error('FRETE_NAO_ENCONTRADO');
+
+      const frete = freteSnap.data();
+      if (paymentData.metadata?.cliente_id && paymentData.metadata.cliente_id !== frete.clienteId) {
+        throw new Error('CLIENTE_DIVERGENTE');
       }
-    } else {
-        console.warn("[ALERTA DE SEGURANÇA] Webhook recebido sem x-signature.");
-    }
 
-    const isPayment = type === 'payment' || type?.startsWith('payment');
+      const expectedAmount = Number(frete.valorTotal ?? frete.valorBruto ?? frete.valorFreteBruto);
+      const paidAmount = Number(paymentData.transaction_amount);
+      const amountMatches = Number.isFinite(expectedAmount) && expectedAmount > 0 &&
+        Number.isFinite(paidAmount) && Math.abs(expectedAmount - paidAmount) <= 0.01;
+      const currencyMatches = !paymentData.currency_id || paymentData.currency_id === 'BRL';
 
-    if (isPayment && dataId) {
-      const paymentId = dataId;
-      
-      const mpResponse = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-        headers: { Authorization: `Bearer ${process.env.MERCADO_PAGO_ACCESS_TOKEN}` }
-      });
+      const isDuplicate = frete.pagamentoId && String(frete.pagamentoId) === String(paymentData.id);
+      const commonPaymentUpdate = {
+        checkoutLock: false,
+        checkoutLockToken: FieldValue.delete(),
+        checkoutLockTime: FieldValue.delete(),
+        checkoutUrl: FieldValue.delete(),
+        checkoutPreferenceId: FieldValue.delete(),
+        checkoutExpiraEm: FieldValue.delete(),
+        atualizadoEm: FieldValue.serverTimestamp(),
+      };
 
-      if (!mpResponse.ok) return res.status(500).send('Erro de comunicação com a API do Mercado Pago');
+      if (paymentData.status === 'approved') {
+        if (isDuplicate && frete.pagamentoStatus === 'aprovado') return;
 
-      const paymentData = await mpResponse.json();
-      const pedidoId = paymentData.external_reference;
-
-      if (!pedidoId) return res.status(400).send('Sem referência no pagamento');
-
-      const freteRef = db.collection('fretes').doc(pedidoId);
-
-      let zapPayload = null;
-
-      // 🔥 CTO FIX: Transação Atômica para blindar contra o Watchdog
-      await db.runTransaction(async (transaction) => {
-        const freteSnap = await transaction.get(freteRef);
-
-        if (!freteSnap.exists) return;
-
-        const freteData = freteSnap.data();
-
-        // 🔥 CTO FIX: Idempotência de tradução (Português vs Inglês)
-        const isAlreadyApproved = paymentData.status === 'approved' && freteData.pagamentoStatus === 'aprovado';
-        const isAlreadyRejected = ['rejected', 'cancelled', 'refunded', 'charged_back'].includes(paymentData.status) && freteData.pagamentoStatus === paymentData.status;
-
-        if ((isAlreadyApproved || isAlreadyRejected) && freteData.pagamentoId === paymentId) {
-           console.log(`[IDEMPOTÊNCIA] Pagamento ${paymentId} já processado. Ignorando duplicata.`);
-           return;
+        if (!amountMatches || !currencyMatches) {
+          transaction.update(freteRef, {
+            ...commonPaymentUpdate,
+            status: 'cancelado',
+            dispatchStatus: 'encerrado_divergencia_financeira',
+            pagamentoStatus: 'aprovado',
+            pagamentoId: String(paymentData.id),
+            transactionId: String(paymentData.id),
+            statusReembolso: 'pending',
+            reembolsado: false,
+            motivoCancelamento: 'Pagamento aprovado com valor ou moeda divergente.',
+          });
+          return;
         }
 
-        // ==========================================
-        // CASO 1: PAGAMENTO APROVADO
-        // ==========================================
-        if (paymentData.status === 'approved') {
-          
-          if (freteData.status === 'aguardando_pagamento') {
-            
-            // 🔥 CTO FIX: Proteção de Carga Agendada
-            const isAgendado = freteData.tipoFrete === 'agendado' || freteData.agendado === true;
-
-            transaction.update(freteRef, {
-              status: isAgendado ? 'agendado' : 'disponivel', 
-              pagamentoStatus: 'aprovado',
-              dispatchStatus: isAgendado ? 'retido_agendamento' : 'mural_aberto', 
-              pagoEm: FieldValue.serverTimestamp(),
-              pagamentoId: paymentId,
-              atualizadoEm: FieldValue.serverTimestamp()
-            });
-
-            // 🔥 CTO FIX (BLOCO 05): Registro na subcoleção de chat da viagem
-            const chatRef = freteRef.collection('chat').doc();
-            transaction.set(chatRef, {
-              texto: isAgendado 
-                ? '🔔 [Torre Operacional]: Pagamento de custódia confirmado. Sua carga está AGENDADA e será exibida no Radar no momento oportuno.' 
-                : '🔔 [Torre Operacional]: Pagamento de custódia (Escrow) confirmado. Carga oficialmente publicada no Radar de Motoristas.',
-              nome: 'Torre de Controle (IA)',
-              tipoUsuario: 'admin',
-              createdAt: FieldValue.serverTimestamp()
-            });
-            
-            if (freteData.clienteZap || freteData.telefoneCliente) {
-               const zapCliente = freteData.clienteZap || freteData.telefoneCliente;
-               const linkRastreio = `https://app.fretogo.com.br/cliente?order=${pedidoId}`;
-               zapPayload = {
-                 telefone: zapCliente,
-                 mensagem: isAgendado 
-                   ? `✅ *FretoGo*: Pagamento confirmado!\n\nSua operação está oficialmente AGENDADA na nossa torre de controle. Acompanhe: ${linkRastreio}` 
-                   : `✅ *FretoGo*: Pagamento Escrow confirmado!\n\nSua carga acaba de ser publicada no Radar e está visível para os motoristas. Acompanhe a operação ao vivo: ${linkRastreio}`
-               };
-            }
-          } else {
-            console.warn(`[LATE APPROVAL] Carga em status: ${freteData.status}. Alteração de status principal ignorada.`);
-            transaction.update(freteRef, {
-              pagamentoStatus: 'aprovado',
-              pagamentoId: paymentId,
-              atualizadoEm: FieldValue.serverTimestamp()
-            });
-          }
-
-        // ==========================================
-        // CASO 2: PAGAMENTO REJEITADO / ESTORNADO
-        // ==========================================
-        } else if (['rejected', 'cancelled', 'refunded', 'charged_back'].includes(paymentData.status)) {
-          
-          // 🔥 CTO FIX [Bloco 8 - Prob #2]: Verifica se a viagem já iniciou o ciclo ativo
-          const isOperationalActive = [
-            'disponivel', 'agendado', 'buscando_motorista', 'expandindo_busca',
-            'ofertando', 'aguardando_aceite', 'reservado_aguardando_pagamento',
-            'aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 
-            'em_transporte', 'parado_operacional', 'finalizando', 'validando_comprovante'
-          ].includes(freteData.status);
-
-          if (freteData.status === 'aguardando_pagamento') {
-            console.log(`[ROLLBACK] Pagamento recusado ou estornado. Expirando reserva.`);
-            
-            // 🔥 CTO FIX: Status alterado para expirado em vez de disponivel, conforme regra comercial.
-            transaction.update(freteRef, {
-              status: 'expirado', 
-              pagamentoStatus: paymentData.status,
-              atualizadoEm: FieldValue.serverTimestamp()
-            });
-
-          } else if (isOperationalActive) {
-            // 🔥 CTO FIX [Bloco 8 - Prob #2]: Aborta viagem operacional ativa que sofreu chargeback tardio
-            console.warn(`[CHARGEBACK TARDIO] Pagamento estornado com viagem em status ativo (${freteData.status}). Abortando operação!`);
-            
-            transaction.update(freteRef, {
-              status: 'cancelado', 
-              pagamentoStatus: paymentData.status,
-              atualizadoEm: FieldValue.serverTimestamp()
-            });
-
-            // Registro forense para a Torre de Controle
-            const chatRef = freteRef.collection('chat').doc();
-            transaction.set(chatRef, {
-              texto: '⚠️ [Torre Operacional]: ALERTA DE SEGURANÇA FINANCEIRA. O pagamento (Escrow) foi estornado, contestado ou rejeitado pela operadora. A operação foi imediatamente abortada por quebra de garantia.',
-              nome: 'Torre de Controle (IA)',
-              tipoUsuario: 'admin',
-              createdAt: FieldValue.serverTimestamp()
-            });
-
-          } else {
-            // Viagem já finalizada (entregue) ou cancelada. Apenas atualiza o status financeiro.
-            transaction.update(freteRef, { pagamentoStatus: paymentData.status, atualizadoEm: FieldValue.serverTimestamp() });
-          }
+        if (frete.pagamentoStatus === 'aprovado' && frete.pagamentoId && !isDuplicate) {
+          transaction.update(freteRef, {
+            ...commonPaymentUpdate,
+            statusReembolso: 'manual_review',
+          });
+          return;
         }
-      });
 
-      // Side-effects executados apenas se a transação atômica commitar com sucesso
-      if (zapPayload) {
-        console.log(`[SUCESSO] Escrow Validado. Pagamento Aprovado. Viagem Liberada no Radar!`);
-        await dispararWhatsAppSeguro(zapPayload.telefone, zapPayload.mensagem);
+        if (frete.status !== 'aguardando_pagamento') {
+          transaction.update(freteRef, {
+            ...commonPaymentUpdate,
+            status: 'cancelado',
+            dispatchStatus: 'encerrado_aprovacao_tardia',
+            pagamentoStatus: 'aprovado',
+            pagamentoId: String(paymentData.id),
+            transactionId: String(paymentData.id),
+            pagoEm: FieldValue.serverTimestamp(),
+            statusReembolso: 'pending',
+            reembolsado: false,
+            motivoCancelamento: 'Pagamento aprovado após o encerramento da janela operacional.',
+          });
+          return;
+        }
+
+        const isAgendado = frete.tipoFrete === 'agendado' || frete.agendado === true;
+        transaction.update(freteRef, {
+          ...commonPaymentUpdate,
+          status: isAgendado ? 'agendado' : 'disponivel',
+          pagamentoStatus: 'aprovado',
+          dispatchStatus: isAgendado ? 'retido_agendamento' : 'mural_aberto',
+          pagamentoId: String(paymentData.id),
+          transactionId: String(paymentData.id),
+          pagoEm: FieldValue.serverTimestamp(),
+          statusReembolso: FieldValue.delete(),
+          reembolsado: false,
+        });
+
+        const chatRef = freteRef.collection('chat').doc();
+        transaction.set(chatRef, {
+          texto: isAgendado
+            ? 'Pagamento confirmado. A carga permanece agendada até a janela operacional.'
+            : 'Pagamento confirmado. A carga foi liberada para o Radar de Motoristas.',
+          nome: 'Torre de Controle',
+          tipoUsuario: 'admin',
+          createdAt: FieldValue.serverTimestamp(),
+        });
+
+        const telefone = frete.clienteZap || frete.telefoneCliente;
+        if (telefone) {
+          whatsappPayload = {
+            telefone,
+            mensagem: isAgendado
+              ? `FretoGo: pagamento confirmado. Sua carga ${freteId} está agendada.`
+              : `FretoGo: pagamento confirmado. Sua carga ${freteId} foi publicada no Radar.`,
+          };
+        }
+        return;
       }
+
+      if (['pending', 'in_process', 'authorized'].includes(paymentData.status)) {
+        if (frete.pagamentoStatus !== 'aprovado') {
+          transaction.update(freteRef, {
+            ...commonPaymentUpdate,
+            pagamentoStatus: 'processando',
+            pagamentoId: String(paymentData.id),
+            transactionId: String(paymentData.id),
+          });
+        }
+        return;
+      }
+
+      if (REJECTED_PAYMENT_STATUSES.has(paymentData.status)) {
+        if (frete.pagamentoId && !isDuplicate && frete.pagamentoStatus === 'aprovado') return;
+
+        const shouldAbortOperation = OPERATIONAL_STATUSES.has(frete.status);
+        const wasAwaitingPayment = frete.status === 'aguardando_pagamento';
+        const normalizedPaymentStatus = paymentData.status === 'refunded'
+          ? 'reembolsado'
+          : paymentData.status;
+        if (shouldAbortOperation) {
+          await buildDriverRelease(transaction, db, frete, freteId);
+        }
+
+        transaction.update(freteRef, {
+          ...commonPaymentUpdate,
+          status: shouldAbortOperation ? 'cancelado' : wasAwaitingPayment ? 'expirado' : frete.status,
+          dispatchStatus: shouldAbortOperation || wasAwaitingPayment ? 'encerrado_pagamento' : frete.dispatchStatus,
+          pagamentoStatus: normalizedPaymentStatus,
+          pagamentoId: String(paymentData.id),
+          transactionId: String(paymentData.id),
+          reembolsado: ['refunded', 'charged_back'].includes(paymentData.status),
+          statusReembolso: ['refunded', 'charged_back'].includes(paymentData.status) ? 'approved' : FieldValue.delete(),
+          motivoCancelamento: shouldAbortOperation
+            ? 'Operação interrompida por perda da cobertura financeira.'
+            : 'Pagamento não aprovado.',
+        });
+      }
+    });
+
+    if (whatsappPayload) {
+      await dispararWhatsAppSeguro(whatsappPayload.telefone, whatsappPayload.mensagem);
     }
-    
-    res.status(200).send('OK');
-  } catch (err) {
-    console.error(`[WEBHOOK PANIC CRÍTICO]:`, err);
-    res.status(500).send('Erro interno no servidor de pagamentos');
+
+    return res.status(200).send('OK');
+  } catch (error) {
+    console.error('[WEBHOOK] Falha no processamento:', error.message);
+    return res.status(500).send('Erro interno no servidor de pagamentos');
   }
 }
