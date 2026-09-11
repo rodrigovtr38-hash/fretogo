@@ -1,3 +1,7 @@
+// =========================================================
+// NOME DO ARQUIVO: src/state/tripStateMachine.ts
+// =========================================================
+
 export enum AppTripState {
   /* ===================================================== PAGAMENTO */
   AGUARDANDO_PAGAMENTO = 'aguardando_pagamento',
@@ -15,7 +19,7 @@ export enum AppTripState {
   OFERTANDO = 'ofertando',
   MOTORISTA_ENCONTRADO = 'motorista_encontrado',
   AGUARDANDO_ACEITE = 'aguardando_aceite',
-  RESERVADO_AGUARDANDO_PAGAMENTO = 'reservado_aguardando_pagamento', 
+  RESERVADO_AGUARDANDO_PAGAMENTO = 'reservado_aguardando_pagamento', // Mantido no enum para dados pregressos não quebrarem a UI
   ACEITO = 'aceito',
   REDISPATCH = 'redispatch',
   TIMEOUT = 'timeout',
@@ -48,6 +52,7 @@ export enum AppTripState {
 
 export { AppTripState as TripState };
 
+// 🔥 CTO FIX: REMOÇÃO TOTAL DE RESERVADO_AGUARDANDO_PAGAMENTO DAS TRANSIÇÕES OPERACIONAIS (CLEAN FLOW)
 export const VALID_TRANSITIONS: Record<string, string[]> = {
   [AppTripState.AGUARDANDO_PAGAMENTO]: [AppTripState.PAGAMENTO_APROVADO, AppTripState.ERRO_PAGAMENTO, AppTripState.CANCELADO],
   [AppTripState.PAGAMENTO_APROVADO]: [AppTripState.DISPONIVEL, AppTripState.AGENDADO],
@@ -55,20 +60,21 @@ export const VALID_TRANSITIONS: Record<string, string[]> = {
 
   [AppTripState.AGENDADO]: [AppTripState.DISPONIVEL, AppTripState.ACEITO, AppTripState.CANCELADO],
 
-  [AppTripState.DISPONIVEL]: [AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, AppTripState.ACEITO, AppTripState.BUSCANDO_MOTORISTA, AppTripState.SEM_MOTORISTA, AppTripState.CANCELADO, AppTripState.EXPIRADO],
+  [AppTripState.DISPONIVEL]: [AppTripState.ACEITO, AppTripState.BUSCANDO_MOTORISTA, AppTripState.SEM_MOTORISTA, AppTripState.CANCELADO, AppTripState.EXPIRADO],
   
   [AppTripState.BUSCANDO_MOTORISTA]: [AppTripState.EXPANDINDO_BUSCA, AppTripState.OFERTANDO, AppTripState.SEM_MOTORISTA, AppTripState.CANCELADO, AppTripState.ACEITO],
   [AppTripState.EXPANDINDO_BUSCA]: [AppTripState.OFERTANDO, AppTripState.SEM_MOTORISTA, AppTripState.CANCELADO, AppTripState.ACEITO],
   [AppTripState.SEM_MOTORISTA]: [AppTripState.CANCELADO, AppTripState.DISPONIVEL], 
 
-  [AppTripState.OFERTANDO]: [AppTripState.MOTORISTA_ENCONTRADO, AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, AppTripState.AGUARDANDO_ACEITE, AppTripState.REDISPATCH, AppTripState.TIMEOUT, AppTripState.CANCELADO, AppTripState.ACEITO],
-  [AppTripState.MOTORISTA_ENCONTRADO]: [AppTripState.AGUARDANDO_ACEITE, AppTripState.ACEITO, AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, AppTripState.REDISPATCH],
-  [AppTripState.AGUARDANDO_ACEITE]: [AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, AppTripState.ACEITO, AppTripState.TIMEOUT, AppTripState.REDISPATCH, AppTripState.CANCELADO],
+  [AppTripState.OFERTANDO]: [AppTripState.MOTORISTA_ENCONTRADO, AppTripState.AGUARDANDO_ACEITE, AppTripState.REDISPATCH, AppTripState.TIMEOUT, AppTripState.CANCELADO, AppTripState.ACEITO],
+  [AppTripState.MOTORISTA_ENCONTRADO]: [AppTripState.AGUARDANDO_ACEITE, AppTripState.ACEITO, AppTripState.REDISPATCH],
+  [AppTripState.AGUARDANDO_ACEITE]: [AppTripState.ACEITO, AppTripState.TIMEOUT, AppTripState.REDISPATCH, AppTripState.CANCELADO],
   [AppTripState.TIMEOUT]: [AppTripState.REDISPATCH, AppTripState.SEM_MOTORISTA, AppTripState.DISPONIVEL],
   [AppTripState.REDISPATCH]: [AppTripState.DISPONIVEL, AppTripState.BUSCANDO_MOTORISTA, AppTripState.OFERTANDO, AppTripState.SEM_MOTORISTA, AppTripState.CANCELADO],
   
   [AppTripState.EXPIRADO]: [AppTripState.CANCELADO, AppTripState.DISPONIVEL],
 
+  // Mantido apenas caso algum script forçado ou carga antiga queira pular fora, mas é inacessível para novas
   [AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO]: [AppTripState.ACEITO, AppTripState.DISPONIVEL, AppTripState.CANCELADO, AppTripState.EXPIRADO, AppTripState.REDISPATCH],
 
   [AppTripState.ACEITO]: [AppTripState.INDO_COLETA, AppTripState.CANCELADO_MOTORISTA, AppTripState.CANCELADO_CLIENTE, AppTripState.REDISPATCH, AppTripState.DISPONIVEL],
@@ -101,6 +107,7 @@ export const isFinalState = (status: string): boolean => {
 };
 
 export const isActiveState = (status: string): boolean => {
+  // A RESERVA_AGUARDANDO_PAGAMENTO continua aqui apenas para não quebrar a UI de fretes legados, mas cargas novas não entrarão nela.
   return [AppTripState.BUSCANDO_MOTORISTA, AppTripState.EXPANDINDO_BUSCA, AppTripState.OFERTANDO, AppTripState.AGUARDANDO_ACEITE, AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.CHEGOU_COLETA, AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE, AppTripState.CHEGOU_ENTREGA, AppTripState.ENTREGANDO, AppTripState.PARADO_OPERACIONAL, AppTripState.FINALIZANDO, AppTripState.VALIDANDO_COMPROVANTE].includes(status as AppTripState);
 };
 
