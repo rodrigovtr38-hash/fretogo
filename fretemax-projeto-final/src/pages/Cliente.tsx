@@ -14,7 +14,8 @@ import ClientCancelModal from '../components/client/ClientCancelModal';
 import { paymentService } from '../services/paymentService'; 
 import { useClientFreight } from '../hooks/useClientFreight';
 
-import { mapsLoader } from '../services/mapsLoader'; 
+import { mapsLoader } from '../services/mapsLoader';
+import { locationService } from '../services/locationService'; 
 import { NotificationService } from '../services/notificationService'; 
 
 interface AddressData { cep: string; bairro: string; rua: string; num: string; cidade?: string; uf?: string; lat?: number; lng?: number; }
@@ -429,20 +430,61 @@ export default function Cliente() {
     return () => unsubscribe();
   }, [currentOrderId]);
 
-  const getValidCoords = async (addressStr: string): Promise<Coords> => {
+  const enriquecerEnderecoPorCep = async (
+    cep: string,
+    apply: (patch: Partial<AddressData>) => void
+  ) => {
+    const digits = cep.replace(/\D/g, '');
+    if (digits.length !== 8) return;
+    try {
+      const via = await locationService.buscarEnderecoPorCEP(digits);
+      if (!via || (via as any).erro) return;
+      apply({
+        cep: via.cep || digits,
+        rua: via.logradouro || undefined,
+        bairro: via.bairro || undefined,
+        cidade: via.localidade || undefined,
+        uf: via.uf || undefined,
+      });
+    } catch (_) {
+      // ViaCEP offline não bloqueia o fluxo
+    }
+  };
+
+  const getValidCoords = async (addressStr: string, cepHint?: string): Promise<Coords> => {
     if (coordsCache.current[addressStr]) {
       return coordsCache.current[addressStr];
     }
-    
+
+    // Completa cidade/UF com ViaCEP antes de chamar o Google no servidor
+    let enriched = addressStr;
+    const cepDigits = (cepHint || '').replace(/\D/g, '');
+    if (cepDigits.length === 8) {
+      try {
+        const via = await locationService.buscarEnderecoPorCEP(cepDigits);
+        if (via && !(via as any).erro) {
+          const base = addressStr.replace(/,\s*Brasil$/i, '').trim();
+          enriched = [base, via.localidade, via.uf, 'Brasil'].filter(Boolean).join(', ');
+        }
+      } catch (_) {}
+    }
+
     try {
-      const coords = await callWithRetryAndTimeout<Coords>('getCoords', { address: addressStr });
-      if (coords && typeof coords.lat === 'number') { 
-        coordsCache.current[addressStr] = coords; 
-        return coords; 
+      const coords = await callWithRetryAndTimeout<Coords>('getCoords', { address: enriched });
+      if (coords && typeof coords.lat === 'number') {
+        coordsCache.current[addressStr] = coords;
+        coordsCache.current[enriched] = coords;
+        return coords;
       }
       throw new Error('A API retornou coordenadas vazias.');
     } catch (error: any) {
-      throw new Error(`Endereço não localizado pelo servidor: ${addressStr}`);
+      const serverMsg = String(error?.message || error?.code || error?.details || '');
+      if (/indisponível|REQUEST_DENIED|failed-precondition|API key|chave|maps/i.test(serverMsg)) {
+        throw new Error(
+          'Serviço de mapas indisponível no servidor. A chave do Google Maps precisa estar configurada nas Firebase Functions (GOOGLE_MAPS_KEY).'
+        );
+      }
+      throw new Error(`Endereço não localizado pelo servidor: ${enriched}`);
     }
   };
 
@@ -456,7 +498,7 @@ export default function Cliente() {
     try {
       const origStr = [coleta.rua, coleta.num, coleta.bairro, coleta.cidade, coleta.uf, coleta.cep, 'Brasil'].filter(Boolean).join(', ');
       
-      const origCoords = await getValidCoords(origStr);
+      const origCoords = await getValidCoords(origStr, coleta.cep);
       setOrigemGPS(origCoords);
 
       const pGPS: Coords[] = [];
@@ -466,7 +508,7 @@ export default function Cliente() {
       for (const stop of entregas) {
         const destStr = [stop.rua, stop.num, stop.bairro, stop.cidade, stop.uf, stop.cep, 'Brasil'].filter(Boolean).join(', ');
         
-        const destCoords = await getValidCoords(destStr);
+        const destCoords = await getValidCoords(destStr, stop.cep);
         pGPS.push(destCoords);
 
         const distanceResult = await callWithRetryAndTimeout<number>('getDistance', { origin: lastOrigin, destination: destStr });
@@ -526,11 +568,11 @@ export default function Cliente() {
 
     try {
       if (!createdFreteId) {
-        const c1 = await getValidCoords([coleta.rua, coleta.num, coleta.bairro, coleta.cidade, coleta.uf, coleta.cep, 'Brasil'].filter(Boolean).join(', '));
+        const c1 = await getValidCoords([coleta.rua, coleta.num, coleta.bairro, coleta.cidade, coleta.uf, coleta.cep, 'Brasil'].filter(Boolean).join(', '), coleta.cep);
         
         const coordsEntregas = [];
         for (const e of entregas) {
-           const c = await getValidCoords([e.rua, e.num, e.bairro, e.cidade, e.uf, e.cep, 'Brasil'].filter(Boolean).join(', '));
+           const c = await getValidCoords([e.rua, e.num, e.bairro, e.cidade, e.uf, e.cep, 'Brasil'].filter(Boolean).join(', '), e.cep);
            coordsEntregas.push({ ...e, lat: c.lat, lng: c.lng });
         }
         const destinoFinal = coordsEntregas[coordsEntregas.length - 1];
@@ -905,7 +947,7 @@ export default function Cliente() {
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <input className={smallInputClass} placeholder="Bairro" value={coleta.bairro} onChange={e => setColeta({...coleta, bairro: e.target.value})} />
-                      <input className={smallInputClass} placeholder="CEP" value={coleta.cep} onChange={e => setColeta({...coleta, cep: e.target.value})} />
+                      <input className={smallInputClass} placeholder="CEP" value={coleta.cep} onChange={e => setColeta({...coleta, cep: e.target.value})} onBlur={e => enriquecerEnderecoPorCep(e.target.value, (patch) => setColeta(prev => ({ ...prev, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v != null && v !== '')) as Partial<AddressData> })))} />
                     </div>
                   </div>
                 </div>
@@ -929,7 +971,7 @@ export default function Cliente() {
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                           <input className={smallInputClass} placeholder="Bairro" value={entrega.bairro} onChange={e => updateEntrega(index, 'bairro', e.target.value)} />
-                          <input className={smallInputClass} placeholder="CEP" value={entrega.cep} onChange={e => updateEntrega(index, 'cep', e.target.value)} />
+                          <input className={smallInputClass} placeholder="CEP" value={entrega.cep} onChange={e => updateEntrega(index, 'cep', e.target.value)} onBlur={e => enriquecerEnderecoPorCep(e.target.value, (patch) => { Object.entries(patch).forEach(([k, v]) => { if (v != null && v !== '') updateEntrega(index, k as keyof AddressData, String(v)); }); })} />
                         </div>
                       </div>
                     ))}
