@@ -250,10 +250,10 @@ export default function Motorista() {
     }
     setRadarLoading(true);
     
-    // 🔥 CTO FIX: Incluído o status de 'reservado_aguardando_pagamento' para o frete não sumir do mural.
+    // O Feed aceita somente fretes publicados após a confirmação do pagamento.
     const freightsQuery = query(
       collection(db, 'fretes'), 
-      where('status', 'in', ['disponivel', 'buscando_motorista', 'reservado_aguardando_pagamento']),
+      where('status', 'in', ['disponivel', 'buscando_motorista']),
       limit(100)
     );
     
@@ -309,7 +309,7 @@ export default function Motorista() {
       await dispatchRealtimeService.aceitarCorrida(user.uid, freight.id, driverData);
       
       setSelectedFreight(null);
-      showToast('Motorista selecionado! Aguardando pagamento do embarcador (5 min).', 'success');
+      showToast('Frete aceito! A operação está vinculada ao motorista.', 'success');
       
     } catch (error: any) { 
       showToast(error.message === 'FRETE_JA_ATRIBUIDO' ? "Esta carga já foi fechada por outro parceiro." : "Erro ao aceitar frete.", 'warning');
@@ -590,11 +590,6 @@ export default function Motorista() {
                             showToast('Você está online! Confirme os detalhes e aceite o frete.', 'success');
                           }} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-[0.2em] py-4 rounded-xl shadow-lg shadow-blue-900/50 transition-all active:scale-95 flex items-center justify-center gap-2 border border-blue-500">
                               <Power size={18} /> Ficar Online para Aceitar
-                          </button>
-                        ) : freight.status === 'reservado_aguardando_pagamento' ? (
-                          // 🔥 CTO FIX: Feedback visual direto no Feed (O motorista não é mais ejetado para a tela de viagem)
-                          <button disabled className="w-full bg-slate-800/80 text-cyan-400 font-black uppercase tracking-[0.15em] py-4 rounded-xl shadow-inner flex items-center justify-center gap-2 border border-cyan-500/30 cursor-not-allowed">
-                              <Loader2 size={18} className="animate-spin" /> Aguardando Pagamento...
                           </button>
                         ) : (
                           <button onClick={() => handleSelectFreight(freight)} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase tracking-[0.2em] py-4 rounded-xl shadow-lg shadow-emerald-900/50 transition-all active:scale-95 flex items-center justify-center gap-2 border border-emerald-500">
