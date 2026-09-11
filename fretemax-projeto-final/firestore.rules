@@ -65,8 +65,8 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (
         resource.data.clienteId == request.auth.uid ||
         resource.data.motoristaId == request.auth.uid ||
-        resource.data.status == 'disponivel' ||
-        resource.data.status == 'buscando_motorista' ||
+        ((resource.data.status == 'disponivel' || resource.data.status == 'buscando_motorista') &&
+          resource.data.pagamentoStatus == 'aprovado') ||
         isAdmin() || isQATester()
       );
 
@@ -76,41 +76,14 @@ service cloud.firestore {
       allow update: if
         isAdmin() || isQATester() 
         ||
-        // O Feed contém apenas fretes pagos. O motorista aceita e vincula a operação diretamente.
-        (isAuthenticated() && 
-         resource.data.status in ['disponivel', 'buscando_motorista'] &&
-         resource.data.pagamentoStatus == 'aprovado' &&
-         request.resource.data.pagamentoStatus == resource.data.pagamentoStatus &&
-         (!('motoristaId' in resource.data) || resource.data.motoristaId == null) &&
-         request.resource.data.status == 'aceito' && 
-         request.resource.data.motoristaId == request.auth.uid &&
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-           'status', 'motoristaId', 'motoristaNome', 'motoristaTelefone', 'motoristaVeiculo', 
-           'motoristaPlaca', 'motoristaZap', 'veiculo', 'placa', 'foto', 'avaliacao',
-           'reservadoEm', 'reservaExpiraEm', 'paradaAtualIndex', 'runtime',
-           'atualizadoEm', 'updatedAt'
-         ]))
-        ||
-        // 🔥 CTO FIX: Blindagem Zero Trust para Foto+PIN
+        // O navegador do motorista grava somente telemetria e evidência. Aceite,
+        // progressão, PIN, cancelamento e liquidação são exclusivos do backend.
         (isAuthenticated() && 
          resource.data.motoristaId == request.auth.uid && 
-         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'valorTotal', 'valorMotorista', 'valorFreteBruto', 'valorLiquidoMotorista', 
-          'lucroPlataforma', 'valorPedagio', 'clienteNome', 'clienteZap', 'clienteId',
-          'distancia', 'origemLat', 'origemLng', 'destinoLat', 'destinoLng',
-          'origem', 'destino', 'coleta', 'entrega', 'paradas', 'cidadeOrigem', 'cidadeDestino',
-          'enderecoColetaTexto', 'enderecoEntregaTexto', 'clienteDocumento', 'empresaDocumento',
-          'motoristaId', 'motoristaNome', 'motoristaTelefone', 'motoristaZap', 'motoristaVeiculo',
-          'motoristaPlaca', 'pagamentoStatus', 'pagamentoId', 'transactionId', 'pagoEm',
-          'pinColeta', 'pinEntregas', 'tentativasPin', 'bloqueioPin', 'paradaAtualIndex'
-        ]) &&
-        (
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status']) ||
-          !(request.resource.data.status in [
-            'aguardando_pagamento', 'reservado_aguardando_pagamento', 'pagamento_aprovado',
-            'aceito', 'em_transporte', 'finalizando', 'entregue', 'finalizado'
-          ])
-        ))
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+           'motoristaLat', 'motoristaLng', 'motoristaHeading',
+           'gpsFalhou', 'heartbeat', 'atualizadoEm', 'updatedAt'
+         ]))
         ||
         // 🔥 CTO FIX (PATCH BLOCO 01): Liberação de Auto-Bid Blindada (Margem, lucro e comissão bloqueados no front)
         (isAuthenticated() &&
