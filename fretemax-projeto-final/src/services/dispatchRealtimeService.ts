@@ -1,9 +1,10 @@
 // =========================================================
 // NOME DO ARQUIVO: src/services/dispatchRealtimeService.ts
+// Fluxo vigente: somente frete pago entra no Feed e o aceite segue direto para ACEITO.
+// Autoridade operacional: Cloud Functions autenticadas; navegador não decide status.
 // =========================================================
 
-import { increment, doc, getDoc } from 'firebase/firestore';
-import { auth, db } from '../firebase';
+import { auth } from '../firebase';
 import { firebaseRealtimeService } from './firebaseRealtimeService';
 import { locationRealtimeService } from './locationRealtimeService';
 import { DriverState } from '../state/driverStateMachine';
@@ -13,28 +14,22 @@ import { TripLifecycleService } from './tripLifecycleService';
 class DispatchRealtimeService {
   async setDriverOnline(driverId: string) {
     try {
-      await firebaseRealtimeService.updateDriverRealtime(driverId, {
-        online: true,
-        disponivel: true,
-        state: DriverState.ONLINE,
-        atualizadoEm: Date.now(),
-      });
+      if (!driverId || auth.currentUser?.uid !== driverId) throw new Error('MOTORISTA_NAO_AUTENTICADO');
+      await TripLifecycleService.atualizarDisponibilidadeMotorista(true);
     } catch (error) {
       console.error('ERRO DRIVER ONLINE:', error);
+      throw error;
     }
   }
 
   async setDriverOffline(driverId: string) {
     try {
-      await firebaseRealtimeService.updateDriverRealtime(driverId, {
-        online: false,
-        disponivel: false,
-        state: DriverState.OFFLINE,
-        atualizadoEm: Date.now(),
-      });
+      if (!driverId || auth.currentUser?.uid !== driverId) throw new Error('MOTORISTA_NAO_AUTENTICADO');
+      await TripLifecycleService.atualizarDisponibilidadeMotorista(false);
       locationRealtimeService.stop();
     } catch (error) {
       console.error('ERRO DRIVER OFFLINE:', error);
+      throw error;
     }
   }
 
@@ -55,58 +50,12 @@ class DispatchRealtimeService {
     }
   }
 
-  // 🔥 CTO FIX: Fim do modelo "Aceitar e Esperar". Motorista só entra em cena se estiver PAGO.
+  // 🔥 CTO FIX [Blocos 8 e 11]: Expansão visual e Roteamento de Estado Baseado em Pagamento.
   async aceitarCorrida(driverId: string, freteId: string, driverData?: { nome?: string, whatsapp?: string, veiculo?: string, placa?: string, foto?: string, avaliacao?: number }) {
     try {
-      // 1. Consulta obrigatória (Zero Trust)
-      const freteRef = doc(db, 'fretes', freteId);
-      const freteSnap = await getDoc(freteRef);
-
-      if (!freteSnap.exists()) {
-        throw new Error('FRETE_NAO_ENCONTRADO');
-      }
-
-      const freteData = freteSnap.data();
-      const isPago = freteData.pagamentoStatus === 'aprovado';
-
-      // 2. Trava de Arquitetura: Rejeita sumariamente o motorista se o frete não estiver aprovado financeiramente
-      if (!isPago) {
-        console.warn(`[DISPATCH] Tentativa de aceite rejeitada. Frete ${freteId} não possui pagamento aprovado.`);
-        throw new Error('PAGAMENTO_PENDENTE_OU_INVALIDO');
-      }
-
-      const now = Date.now();
-
-      // 3. Roteamento Direto para Operação Viva
-      const nextTripState = AppTripState.ACEITO;
-      const nextDriverState = DriverState.ACEITOU;
-
-      // 4. Injeção dos dados visuais do motorista e alteração de status.
-      const sucesso = await TripLifecycleService.alterarStatusViagem(freteId, nextTripState, { 
-        motoristaId: driverId,
-        motoristaNome: driverData?.nome || 'Motorista',
-        motoristaTelefone: driverData?.whatsapp || '', // fallback
-        motoristaZap: driverData?.whatsapp || null,
-        veiculo: driverData?.veiculo || null,
-        placa: driverData?.placa || null,
-        foto: driverData?.foto || null,
-        avaliacao: driverData?.avaliacao || 5.0,
-        reservadoEm: now,
-        reservaExpiraEm: null // Não existe mais reserva, viagem cravada.
-      });
-
-      if (!sucesso) {
-        throw new Error('FRETE_JA_ATRIBUIDO_OU_CANCELADO');
-      }
-
-      // 5. Atualiza o radar do motorista direto pro front-line
-      await firebaseRealtimeService.updateDriverRealtime(driverId, {
-        state: nextDriverState, 
-        freteAtualId: freteId,
-        activeTripId: freteId, 
-        disponivel: false,
-        atualizadoEm: Date.now(),
-      });
+      if (!driverId || auth.currentUser?.uid !== driverId) throw new Error('MOTORISTA_NAO_AUTENTICADO');
+      void driverData;
+      await TripLifecycleService.executarAcaoMotorista(freteId, AppTripState.ACEITO);
 
     } catch (error) {
       console.error('ERRO ACEITE DE CORRIDA:', error);
@@ -114,58 +63,48 @@ class DispatchRealtimeService {
     }
   }
 
-  // Mantido apenas para evitar erros de importação antigos (Dead code para fretes novos)
+  // 🔥 CTO FIX: Aborta a viagem automaticamente e liberta o motorista se o cliente demorar a pagar (Timeout de 5 minutos).
   async cancelarReservaPorTimeout(driverId: string, freteId: string) {
-    console.warn('[DEPRECATED] cancelarReservaPorTimeout invocado, porém reservas não são mais aplicáveis.');
+    void driverId;
+    void freteId;
+    throw new Error('FLUXO_OBSOLETO: o motorista nunca aguarda pagamento após o aceite.');
   }
 
-  // Mantido apenas para evitar erros de importação antigos (Dead code para fretes novos)
   async confirmarLiberacaoMotorista(freteId: string, motoristaId?: string) {
-    console.warn('[DEPRECATED] confirmarLiberacaoMotorista invocado, porém fretes agora já nascem liberados após o aceite.');
-  }
-
-  async concluirViagemELiberarMotorista(driverId: string, freteId: string) {
     try {
-      await firebaseRealtimeService.updateDriverRealtime(driverId, {
-        state: DriverState.ONLINE, 
-        freteAtualId: null,
-        activeTripId: null, 
-        currentTripId: null, 
-        disponivel: true,
+      const currentUid = auth.currentUser?.uid;
+      
+      if (!currentUid) return;
+
+      if (motoristaId && currentUid !== motoristaId) {
+        console.warn(`[CTO-Log] Liberação ignorada: O motorista local (${currentUid}) não é o titular desta reserva.`);
+        return;
+      }
+
+      await firebaseRealtimeService.updateDriverRealtime(currentUid, {
+        state: DriverState.ACEITOU,
+        freteAtualId: freteId,
+        activeTripId: freteId, 
+        disponivel: false,
         atualizadoEm: Date.now(),
       });
 
-      await TripLifecycleService.alterarStatusViagem(freteId, AppTripState.ENTREGUE, {
-        entregueEm: Date.now()
-      });
-
-      locationRealtimeService.stop();
-      
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('FRETOGO_TRIP_FINISHED'));
-      }
+      console.log(`[CTO-Log] Operação ${freteId} liberada pelo Escrow! Motorista ${currentUid} destravado (ACEITOU).`);
     } catch (error) {
-      console.error('ERRO AO CONCLUIR VIAGEM:', error);
-      throw error;
+      console.error('[CTO-Log] ERRO AO CONFIRMAR LIBERAÇÃO DO MOTORISTA:', error);
     }
+  }
+
+  async concluirViagemELiberarMotorista(driverId: string, freteId: string) {
+    void driverId;
+    void freteId;
+    throw new Error('FINALIZACAO_EXIGE_PIN_E_LIQUIDACAO_SEGURA');
   }
 
   async cancelarViagemMotorista(driverId: string, freteId: string, motivo: string) {
     try {
-      await firebaseRealtimeService.updateDriverRealtime(driverId, {
-        state: DriverState.ONLINE, 
-        freteAtualId: null,
-        activeTripId: null,
-        currentTripId: null,
-        disponivel: true,
-        atualizadoEm: Date.now(),
-      });
-
-      await TripLifecycleService.alterarStatusViagem(freteId, AppTripState.DISPONIVEL, {
-        isRecusa: true,
-        motivoCancelamento: motivo,
-        canceladoPorMotoristaEm: Date.now()
-      });
+      if (!driverId || auth.currentUser?.uid !== driverId) throw new Error('MOTORISTA_NAO_AUTENTICADO');
+      await TripLifecycleService.executarAcaoMotorista(freteId, 'cancelar_motorista', motivo);
 
       locationRealtimeService.stop();
 
@@ -246,12 +185,10 @@ class DispatchRealtimeService {
 
   async atualizarStatusTrip(tripId: string, status: AppTripState) {
     try {
-      if (status === AppTripState.ENTREGUE && auth.currentUser?.uid) {
-        await this.concluirViagemELiberarMotorista(auth.currentUser.uid, tripId);
-        return;
+      if (![AppTripState.INDO_COLETA, AppTripState.CHEGOU_COLETA, AppTripState.COLETANDO].includes(status)) {
+        throw new Error('TRANSICAO_EXIGE_FLUXO_SEGURO_DE_PIN');
       }
-      
-      await TripLifecycleService.alterarStatusViagem(tripId, status);
+      await TripLifecycleService.executarAcaoMotorista(tripId, status);
     } catch (error) {
       console.error('ERRO STATUS TRIP:', error);
       throw error;
@@ -259,22 +196,14 @@ class DispatchRealtimeService {
   }
 
   async salvarChavePix(freteId: string, chavePix: string) {
-    try {
-      await firebaseRealtimeService.updateTripRealtime(freteId, {
-        chavePixMotorista: chavePix,
-        pixEnviadoEm: Date.now()
-      });
-    } catch (error) {
-      console.error('ERRO AO SALVAR PIX:', error);
-      throw error;
-    }
+    void freteId;
+    void chavePix;
+    throw new Error('USE_LIQUIDAR_VIAGEM_MOTORISTA');
   }
 
   async registrarVisualizacao(freteId: string) {
     try {
-      await firebaseRealtimeService.updateTripRealtime(freteId, {
-        visualizacoes: increment(1)
-      });
+      await TripLifecycleService.registrarInteracaoMotorista(freteId, 'visualizacao');
     } catch (error) {
       console.warn('Falha silenciosa ao registrar view no banco:', error);
     }
@@ -282,11 +211,17 @@ class DispatchRealtimeService {
 
   async registrarInteresse(freteId: string) {
     try {
-      await firebaseRealtimeService.updateTripRealtime(freteId, {
-        interessados: increment(1)
-      });
+      await TripLifecycleService.registrarInteracaoMotorista(freteId, 'interesse');
     } catch (error) {
       console.warn('Falha silenciosa ao registrar interesse no banco:', error);
+    }
+  }
+
+  async registrarFavorito(freteId: string) {
+    try {
+      await TripLifecycleService.registrarInteracaoMotorista(freteId, 'favorito');
+    } catch (error) {
+      console.warn('Falha silenciosa ao registrar favorito no banco:', error);
     }
   }
 }
