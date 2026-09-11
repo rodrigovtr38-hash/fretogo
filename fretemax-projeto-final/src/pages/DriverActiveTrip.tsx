@@ -21,12 +21,13 @@ import { locationRealtimeService } from '../services/locationRealtimeService';
 import { locationService } from '../services/locationService'; 
 import { AppTripState } from '../state/tripStateMachine';
 import { TripLifecycleService } from '../services/tripLifecycleService'; 
+import { PLATFORM_LINKS, openExternalLink } from '../config/platformLinks';
 
 interface DriverActiveTripProps { freteId?: string; }
 
 interface ActiveFreightData extends DocumentData {
   id: string;
-  status: AppTripState;
+  status: AppTripState | string;
   paradas?: any[];
   paradaAtualIndex?: number;
   entrega?: any;
@@ -60,6 +61,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
   const [pinValue, setPinValue] = useState('');
   const [pinError, setPinError] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [operationError, setOperationError] = useState('');
   
   const [fotoPodBase64, setFotoPodBase64] = useState<string | null>(null);
   const [uploadingPod, setUploadingPod] = useState(false);
@@ -80,14 +82,19 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
 
   useEffect(() => {
     if (!freteId) { setLoading(false); return; }
-    const unsubscribe = onSnapshot(doc(db, 'fretes', freteId), (docSnap) => {
-      if (docSnap.exists()) {
-        setFrete({ id: docSnap.id, ...docSnap.data() } as ActiveFreightData);
-      } else {
-        setFrete(null);
-      }
-      loading && setLoading(false);
-    });
+    const unsubscribe = onSnapshot(
+      doc(db, 'fretes', freteId),
+      (docSnap) => {
+        if (docSnap.exists()) setFrete({ id: docSnap.id, ...docSnap.data() } as ActiveFreightData);
+        else setFrete(null);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('[CTO-Log] Falha ao acompanhar viagem ativa:', error);
+        setOperationError('Não foi possível sincronizar a viagem. Verifique sua conexão.');
+        setLoading(false);
+      },
+    );
     return () => unsubscribe();
   }, [freteId]);
 
@@ -100,7 +107,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
   const destinoAtual = paradas[paradaAtualIndex] || (frete?.entrega || {});
 
   const isFaseColeta = frete?.status 
-    ? [AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.CHEGOU_COLETA, AppTripState.COLETANDO].includes(frete.status) 
+    ? new Set<string>([AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.CHEGOU_COLETA, AppTripState.COLETANDO]).has(String(frete.status))
     : false;
   
   const mapDestinoGPS = destinoAtual?.lat ? { lat: destinoAtual.lat, lng: destinoAtual.lng } : null;
@@ -127,9 +134,12 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
   
   if (!frete) return null;
 
-  const enderecoAlvoTexto = isFaseColeta 
-    ? frete.enderecoColetaTexto 
-    : (destinoAtual?.enderecoTexto || destinoAtual?.rua ? `${destinoAtual.rua}, ${destinoAtual.num} - ${destinoAtual.bairro}` : frete.enderecoEntregaTexto || 'Destino da rota');
+  const enderecoAlvoTexto = isFaseColeta
+    ? frete.enderecoColetaTexto
+    : destinoAtual?.enderecoTexto
+      || (destinoAtual?.rua ? `${destinoAtual.rua}, ${destinoAtual.num || 's/n'} - ${destinoAtual.bairro || ''}` : '')
+      || frete.enderecoEntregaTexto
+      || 'Destino da rota';
 
   const totalParadas = frete.pinEntregas?.length || paradas.length || 1;
 
@@ -137,7 +147,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
   let etapaAtualIndex = 0;
   if (!isFaseColeta) {
      etapaAtualIndex = paradaAtualIndex + 1;
-     if (frete.status === AppTripState.FINALIZANDO || frete.status === AppTripState.ENTREGUE || frete.status === 'finalizado') {
+     if ([AppTripState.FINALIZANDO, AppTripState.ENTREGUE, 'finalizado'].includes(String(frete.status) as AppTripState)) {
        etapaAtualIndex = etapasRoteiro.length;
      }
   }
@@ -174,7 +184,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
         }
       }
 
-      window.open(url, '_blank');
+      openExternalLink(url);
     } catch (error) {
       console.error('[CTO-Log] Falha na abertura da navegação.', error);
       // 🔥 CTO FIX [Bloco 5]: Correção do P2 (Alerta silencioso de GPS desligado)
@@ -186,14 +196,23 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
 
   const handleStatusUpdate = async (novoStatus: AppTripState) => {
     setActionLoading(true);
+    setOperationError('');
     try {
       await dispatchRealtimeService.atualizarStatusTrip(frete.id, novoStatus);
-    } catch (e) { console.error(e); } finally { setActionLoading(false); }
+    } catch (e) {
+      console.error(e);
+      setOperationError('Não foi possível avançar a etapa. Verifique sua conexão e tente novamente.');
+    } finally { setActionLoading(false); }
   };
 
   const handleCapturePhoto = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      if (!file.type.startsWith('image/') || file.size > 10 * 1024 * 1024) {
+        setPinError('Envie uma imagem válida com no máximo 10 MB.');
+        event.target.value = '';
+        return;
+      }
       const reader = new FileReader();
       reader.onloadend = () => {
         setFotoPodBase64(reader.result as string);
@@ -212,10 +231,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       await uploadString(fileRef, fotoPodBase64, 'data_url');
       const finalUrl = await getDownloadURL(fileRef);
 
-      const fotosAtuais = frete.fotosPod || {};
-      fotosAtuais[etapaAtualKey] = finalUrl;
-      
-      await dispatchRealtimeService.atualizarTripRealtime(frete.id, { fotosPod: fotosAtuais });
+      await TripLifecycleService.registrarEvidenciaMotorista(frete.id, etapaAtualKey, finalUrl);
       setFotoPodBase64(null);
     } catch (uploadError) {
       console.error('[CTO-Log] Erro no upload da foto POD:', uploadError);
@@ -284,9 +300,8 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       const liquidarViagemMotorista = httpsCallable(functions, 'liquidarViagemMotorista');
       await liquidarViagemMotorista({ freteId: frete.id, chavePix: chavePix });
       
-      const adminPhone = "5511999999999"; 
       const msg = `Olá, finalizei a corrida #${frete.id.slice(0,8).toUpperCase()}.\nMinha chave PIX é: ${chavePix}\nO canhoto já foi enviado no app. Fico no aguardo do repasse.`;
-      window.open(`https://wa.me/${adminPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+      openExternalLink(`${PLATFORM_LINKS.SUPPORT_WHATSAPP}?text=${encodeURIComponent(msg)}`);
     } catch (error: any) {
       alert(error.message || "Falha na comunicação. Tente novamente.");
     } finally { 
@@ -296,9 +311,10 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
 
   const handleContatoEmpresa = () => {
     if (!frete.clienteZap) { alert("Telefone da empresa não disponível."); return; }
-    const numero = frete.clienteZap.replace(/\D/g, '');
+    const numeroBruto = frete.clienteZap.replace(/\D/g, '');
+    const numero = numeroBruto.startsWith('55') ? numeroBruto : `55${numeroBruto}`;
     const msg = `Olá, sou o motorista parceiro da FretoGo. Estou a caminho para a corrida #${frete.id.slice(0,8).toUpperCase()}.`;
-    window.open(`https://wa.me/55${numero}?text=${encodeURIComponent(msg)}`, '_blank');
+    openExternalLink(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`);
   };
 
   // 🔥 CTO FIX [Bloco 5]: Tela Exclusiva (Escape) para Situação de Viagem Cancelada
@@ -489,6 +505,12 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
           </div>
         )}
 
+        {operationError && (
+          <div role="alert" className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-center text-xs font-bold text-red-300">
+            {operationError}
+          </div>
+        )}
+
         <div className="space-y-4">
           {frete.status === AppTripState.ACEITO && (
             <button onClick={() => handleStatusUpdate(AppTripState.INDO_COLETA)} disabled={actionLoading} className="w-full flex items-center justify-center bg-blue-600 h-16 font-black uppercase tracking-widest rounded-xl disabled:opacity-50 transition-all hover:bg-blue-500 active:scale-95 text-white shadow-[0_0_20px_rgba(37,99,235,0.3)]">
@@ -507,7 +529,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
           )}
 
           {/* 🔥 CTO FIX: Botões Orientados à Ação para Múltiplas Paradas */}
-          {[AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE].includes(frete.status) && (
+          {new Set<string>([AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE]).has(String(frete.status)) && (
             <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full flex items-center justify-center h-16 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.4)] bg-cyan-500 hover:bg-cyan-400">
               {actionLoading ? <Loader2 className="animate-spin" size={24}/> : frete.status === AppTripState.COLETANDO ? 'Registrar Evidência de Coleta' : `Cheguei na Entrega ${paradaAtualIndex + 1} - Registrar PIN`}
             </button>
