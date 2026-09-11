@@ -24,7 +24,9 @@ service cloud.firestore {
 
     // 🔥 CTO FIX: BLINDAGEM DE HOMOLOGAÇÃO (BLOCO 2 E 5)
     function isQATester() {
-      return isAuthenticated() && request.auth.token.email != null && (
+      return isAuthenticated() &&
+        request.auth.token.email != null &&
+        request.auth.token.email_verified == true && (
         request.auth.token.email == "contato@fretogo.com.br" ||
         request.auth.token.email == "rodrigovtr38@gmail.com"
       );
@@ -74,14 +76,19 @@ service cloud.firestore {
       allow update: if
         isAdmin() || isQATester() 
         ||
-        // Blindagem do Escrow. Motorista NÃO PODE enviar 'aceito'. Apenas 'reservado_aguardando_pagamento'.
+        // O Feed contém apenas fretes pagos. O motorista aceita e vincula a operação diretamente.
         (isAuthenticated() && 
-         resource.data.status == 'disponivel' && 
-         request.resource.data.status == 'reservado_aguardando_pagamento' && 
+         resource.data.status in ['disponivel', 'buscando_motorista'] &&
+         resource.data.pagamentoStatus == 'aprovado' &&
+         request.resource.data.pagamentoStatus == resource.data.pagamentoStatus &&
+         (!('motoristaId' in resource.data) || resource.data.motoristaId == null) &&
+         request.resource.data.status == 'aceito' && 
          request.resource.data.motoristaId == request.auth.uid &&
          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
            'status', 'motoristaId', 'motoristaNome', 'motoristaTelefone', 'motoristaVeiculo', 
-           'motoristaPlaca', 'reservadoEm', 'reservaExpiraEm', 'pagamentoStatus', 'updatedAt'
+           'motoristaPlaca', 'motoristaZap', 'veiculo', 'placa', 'foto', 'avaliacao',
+           'reservadoEm', 'reservaExpiraEm', 'paradaAtualIndex', 'runtime',
+           'atualizadoEm', 'updatedAt'
          ]))
         ||
         // 🔥 CTO FIX: Blindagem Zero Trust para Foto+PIN
@@ -91,11 +98,18 @@ service cloud.firestore {
           'valorTotal', 'valorMotorista', 'valorFreteBruto', 'valorLiquidoMotorista', 
           'lucroPlataforma', 'valorPedagio', 'clienteNome', 'clienteZap', 'clienteId',
           'distancia', 'origemLat', 'origemLng', 'destinoLat', 'destinoLng',
+          'origem', 'destino', 'coleta', 'entrega', 'paradas', 'cidadeOrigem', 'cidadeDestino',
+          'enderecoColetaTexto', 'enderecoEntregaTexto', 'clienteDocumento', 'empresaDocumento',
+          'motoristaId', 'motoristaNome', 'motoristaTelefone', 'motoristaZap', 'motoristaVeiculo',
+          'motoristaPlaca', 'pagamentoStatus', 'pagamentoId', 'transactionId', 'pagoEm',
           'pinColeta', 'pinEntregas', 'tentativasPin', 'bloqueioPin', 'paradaAtualIndex'
         ]) &&
         (
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status']) ||
-          !(request.resource.data.status in ['em_transporte', 'finalizando', 'entregue', 'finalizado'])
+          !(request.resource.data.status in [
+            'aguardando_pagamento', 'reservado_aguardando_pagamento', 'pagamento_aprovado',
+            'aceito', 'em_transporte', 'finalizando', 'entregue', 'finalizado'
+          ])
         ))
         ||
         // 🔥 CTO FIX (PATCH BLOCO 01): Liberação de Auto-Bid Blindada (Margem, lucro e comissão bloqueados no front)
