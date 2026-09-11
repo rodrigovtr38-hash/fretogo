@@ -33,6 +33,192 @@ const runtimeOpts = {
   maxInstances: 50    
 };
 
+const VALID_VEHICLE_CATEGORIES = new Set([
+  'moto', 'carro', 'utilitarios', 'toco', 'truck', 'carreta', 'bitrem'
+]);
+
+const ALLOWED_FREIGHT_SCALAR_FIELDS = [
+  'tipoConta', 'empresaNome', 'empresaDocumento', 'clienteNome', 'clienteZap',
+  'clienteDocumento', 'distancia', 'distanciaRealKm', 'distanciaTotalKm',
+  'distanciaTarifada', 'peso', 'pesoKg', 'tipoCarga', 'tipoMaterial',
+  'qtdVolumes', 'valorNF', 'observacoes', 'cidadeOrigem', 'cidadeDestino',
+  'enderecoColetaTexto', 'enderecoEntregaTexto'
+];
+
+const VEHICLE_WEIGHT_LIMITS = {
+  moto: 30,
+  carro: 250,
+  utilitarios: 800,
+  toco: 4000,
+  truck: 12000,
+  carreta: 30000,
+  bitrem: 45000,
+};
+
+function getGoogleMapsKey() {
+  const key = functions.config().google?.maps_key || process.env.GOOGLE_MAPS_KEY;
+  if (!key) {
+    throw new functions.https.HttpsError(
+      'failed-precondition',
+      'Serviço de mapas temporariamente indisponível.'
+    );
+  }
+  return key;
+}
+
+function toFiniteNumber(value, fieldName) {
+  if (value === null || value === undefined || value === '') {
+    throw new functions.https.HttpsError('invalid-argument', `${fieldName} ausente.`);
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new functions.https.HttpsError('invalid-argument', `${fieldName} inválido.`);
+  }
+  return parsed;
+}
+
+function validateCoordinates(latValue, lngValue, label) {
+  const lat = toFiniteNumber(latValue, `${label}.lat`);
+  const lng = toFiniteNumber(lngValue, `${label}.lng`);
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    throw new functions.https.HttpsError('invalid-argument', `Coordenadas de ${label} fora da faixa permitida.`);
+  }
+  return { lat, lng };
+}
+
+function sanitizeText(value, maxLength) {
+  if (value === null || value === undefined) return undefined;
+  const normalized = String(value).trim();
+  return normalized ? normalized.slice(0, maxLength) : undefined;
+}
+
+function parseTimestampMillis(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value?.toMillis === 'function') return value.toMillis();
+  if (typeof value === 'object') {
+    const seconds = Number(value.seconds ?? value._seconds);
+    const nanoseconds = Number(value.nanoseconds ?? value._nanoseconds ?? 0);
+    if (Number.isFinite(seconds) && Number.isFinite(nanoseconds)) {
+      return seconds * 1000 + Math.floor(nanoseconds / 1000000);
+    }
+  }
+  if (value instanceof Date) return value.getTime();
+  const parsed = typeof value === 'number' ? value : Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function sanitizeAddress(value, fallbackCoordinates, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new functions.https.HttpsError('invalid-argument', `${label} inválido.`);
+  }
+
+  const coordinates = validateCoordinates(
+    value.lat ?? fallbackCoordinates?.lat,
+    value.lng ?? fallbackCoordinates?.lng,
+    label
+  );
+
+  const clean = { ...coordinates };
+  for (const key of ['cep', 'bairro', 'rua', 'num', 'cidade', 'uf', 'endereco']) {
+    const normalized = sanitizeText(value[key], key === 'endereco' ? 500 : 120);
+    if (normalized !== undefined) clean[key] = normalized;
+  }
+  return clean;
+}
+
+function sanitizeFreightPayload(payload, uid) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Payload do frete inválido.');
+  }
+
+  const categoria = sanitizeText(payload.categoria || payload.veiculo, 40)?.toLowerCase();
+  if (!categoria || !VALID_VEHICLE_CATEGORIES.has(categoria)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Categoria de veículo inválida.');
+  }
+
+  if (!Array.isArray(payload.paradas) || payload.paradas.length < 1 || payload.paradas.length > 5) {
+    throw new functions.https.HttpsError('invalid-argument', 'O frete deve possuir entre 1 e 5 destinos.');
+  }
+
+  const origem = sanitizeAddress(
+    payload.origem,
+    { lat: payload.origemLat, lng: payload.origemLng },
+    'origem'
+  );
+  const destino = sanitizeAddress(
+    payload.destino,
+    { lat: payload.destinoLat, lng: payload.destinoLng },
+    'destino'
+  );
+  const paradas = payload.paradas.map((parada, index) =>
+    sanitizeAddress(parada, null, `paradas[${index}]`)
+  );
+
+  const clean = {};
+  for (const field of ALLOWED_FREIGHT_SCALAR_FIELDS) {
+    if (payload[field] !== undefined) clean[field] = payload[field];
+  }
+
+  clean.clienteId = uid;
+  clean.empresaId = uid;
+  clean.categoria = categoria;
+  clean.veiculo = categoria;
+  clean.origem = origem;
+  clean.destino = destino;
+  clean.coleta = payload.coleta && typeof payload.coleta === 'object'
+    ? sanitizeAddress(payload.coleta, origem, 'coleta')
+    : origem;
+  clean.entrega = payload.entrega && typeof payload.entrega === 'object'
+    ? sanitizeAddress(payload.entrega, destino, 'entrega')
+    : destino;
+  clean.paradas = paradas;
+  clean.origemLat = origem.lat;
+  clean.origemLng = origem.lng;
+  clean.destinoLat = destino.lat;
+  clean.destinoLng = destino.lng;
+  clean.cidadeOrigem = sanitizeText(clean.coleta.cidade || payload.cidadeOrigem, 120) || '';
+  clean.cidadeDestino = sanitizeText(clean.entrega.cidade || payload.cidadeDestino, 120) || '';
+  clean.multiplasEntregas = paradas.length > 1;
+
+  const peso = Number(payload.pesoKg ?? payload.peso);
+  if (!Number.isFinite(peso) || peso <= 0 || peso > VEHICLE_WEIGHT_LIMITS[categoria]) {
+    throw new functions.https.HttpsError('invalid-argument', 'Peso incompatível com a categoria selecionada.');
+  }
+  clean.peso = String(payload.peso ?? payload.pesoKg);
+  clean.pesoKg = peso;
+
+  const qtdVolumes = Number(payload.qtdVolumes);
+  if (!Number.isInteger(qtdVolumes) || qtdVolumes < 1 || qtdVolumes > 100000) {
+    throw new functions.https.HttpsError('invalid-argument', 'Quantidade de volumes inválida.');
+  }
+  clean.qtdVolumes = String(qtdVolumes);
+
+  const tipoFrete = payload.tipoFrete === 'agendado' ? 'agendado' : payload.tipoFrete === 'imediato' ? 'imediato' : null;
+  if (!tipoFrete) {
+    throw new functions.https.HttpsError('invalid-argument', 'Tipo de frete inválido.');
+  }
+  clean.tipoFrete = tipoFrete;
+
+  if (tipoFrete === 'agendado') {
+    const scheduledAt = parseTimestampMillis(payload.dataAgendada);
+    const minimumLeadMs = ['toco', 'truck', 'carreta', 'bitrem'].includes(categoria)
+      ? 12 * 60 * 60 * 1000
+      : 15 * 60 * 1000;
+    if (!Number.isFinite(scheduledAt) || scheduledAt < Date.now() + minimumLeadMs) {
+      throw new functions.https.HttpsError('invalid-argument', 'Data de agendamento fora da antecedência operacional.');
+    }
+    clean.dataAgendada = admin.firestore.Timestamp.fromMillis(scheduledAt);
+  } else {
+    clean.dataAgendada = null;
+  }
+
+  clean.visualizacoes = 0;
+  clean.motoristasNotificados = 0;
+  clean.interessados = 0;
+
+  return clean;
+}
+
 // 🔎 DIAGNOSTIC-LOG: helper apenas para não vazar a chave completa do Google nos logs
 function mascararChave(key) {
   if (!key || typeof key !== 'string') return 'CHAVE_AUSENTE';
@@ -90,195 +276,156 @@ async function sendPushInternal(userId, tipo, titulo, corpo, dados) {
 }
 
 // ========================================================
-// 1. GEOCODE SEGURO 
+// 1. GEOCODE SEGURO
 // ========================================================
 exports.getCoords = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
-  const { address } = data;
-
-  console.log('[GETCOORDS][1-ENDERECO-RECEBIDO]', JSON.stringify({ address, tipo: typeof address }));
-
-  if (!address || typeof address !== 'string') {
-    const err = new functions.https.HttpsError('invalid-argument', 'Endereço inválido.');
-    console.error('[GETCOORDS][6-THROW-EXECUTADO] invalid-argument (endereço ausente ou não-string)');
-    console.error('[GETCOORDS][7-STACK]', err.stack);
-    throw err;
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuário não autenticado.');
   }
-  
-  const key = functions.config().google?.maps_key || process.env.GOOGLE_MAPS_KEY || "AIzaSyBgpikEz9ajVui9Rf4rQsm7iuykFA3HhGI";
 
-  console.log('[GETCOORDS][2-CHAVE-GOOGLE]', JSON.stringify({
-    chaveMascarada: mascararChave(key),
-    origem: functions.config().google?.maps_key
-      ? 'functions.config().google.maps_key'
-      : (process.env.GOOGLE_MAPS_KEY ? 'process.env.GOOGLE_MAPS_KEY' : 'FALLBACK_HARDCODED_NO_CODIGO')
-  }));
+  const address = sanitizeText(data?.address, 500);
+  if (!address || address.length < 5) {
+    throw new functions.https.HttpsError('invalid-argument', 'Endereço inválido.');
+  }
 
+  const key = getGoogleMapsKey();
   const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${key}`;
-
-  console.log('[GETCOORDS][3-URL-ENVIADA]', url.replace(key, mascararChave(key)));
 
   try {
     const res = await axios.get(url, { timeout: 5000 });
-
-    console.log('[GETCOORDS][4-PAYLOAD-COMPLETO-GOOGLE]', JSON.stringify(res.data));
-    console.log('[GETCOORDS][5-STATUS-GOOGLE]', res.data?.status || 'STATUS_AUSENTE_NA_RESPOSTA');
-    
-    if (res.data.status !== 'OK' || !res.data.results?.[0]) {
-      const googleStatus = res.data.status || 'STATUS_DESCONHECIDO';
-      const googleErrorMsg = res.data.error_message ? ` | Mensagem: ${res.data.error_message}` : '';
-      const payloadString = JSON.stringify(res.data);
-
-      const err = new functions.https.HttpsError(
-        'not-found', 
-        `Google Status: ${googleStatus}${googleErrorMsg} | Payload Completo:${payloadString}`
-      );
-
-      console.error('[GETCOORDS][6-THROW-EXECUTADO] not-found (Google não retornou status OK ou sem results[0])', JSON.stringify({ googleStatus, googleErrorMsg }));
-      console.error('[GETCOORDS][7-STACK]', err.stack);
-
-      throw err;
+    const result = res.data?.results?.[0];
+    if (res.data?.status !== 'OK' || !result?.geometry?.location) {
+      const googleStatus = res.data?.status || 'STATUS_DESCONHECIDO';
+      console.error('[GETCOORDS] Geocodificação recusada:', googleStatus);
+      throw new functions.https.HttpsError('not-found', 'Endereço não localizado pelo serviço de mapas.');
     }
-    
-    const { lat, lng } = res.data.results[0].geometry.location;
-    console.log('[GETCOORDS][SUCESSO]', JSON.stringify({ lat, lng }));
-    return { lat, lng };
+
+    const { lat, lng } = validateCoordinates(
+      result.geometry.location.lat,
+      result.geometry.location.lng,
+      'resultado'
+    );
+    const components = Array.isArray(result.address_components) ? result.address_components : [];
+    const findComponent = (type, short = false) => {
+      const component = components.find(item => Array.isArray(item.types) && item.types.includes(type));
+      return component ? (short ? component.short_name : component.long_name) : undefined;
+    };
+
+    return {
+      lat,
+      lng,
+      cidade: findComponent('locality') || findComponent('administrative_area_level_2'),
+      uf: findComponent('administrative_area_level_1', true),
+      cep: findComponent('postal_code'),
+      enderecoFormatado: sanitizeText(result.formatted_address, 500),
+    };
   } catch (error) {
-    if (error instanceof functions.https.HttpsError) {
-      console.error('[GETCOORDS][6-THROW-EXECUTADO] repasse de HttpsError já lançado internamente (ver logs acima)');
-      console.error('[GETCOORDS][7-STACK]', error.stack);
-      throw error;
-    }
-    const netStatus = error.response?.status || 'SEM_STATUS_HTTP';
-    const netData = error.response?.data ? JSON.stringify(error.response.data) : error.message;
-
-    console.error('[GETCOORDS][4-PAYLOAD-COMPLETO-ERRO-REDE]', netData);
-    console.error('[GETCOORDS][5-STATUS-HTTP-REDE]', netStatus);
-    const err = new functions.https.HttpsError('internal', `Falha de Conexão Axios [${netStatus}]:${netData}`);
-    console.error('[GETCOORDS][6-THROW-EXECUTADO] internal (falha de rede/Axios, não é resposta do Google)');
-    console.error('[GETCOORDS][7-STACK]', err.stack, '| STACK ORIGINAL:', error.stack);
-    throw err;
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.error('[GETCOORDS] Falha de integração:', error.message);
+    throw new functions.https.HttpsError('internal', 'Falha de comunicação com o serviço de mapas.');
   }
 });
 
 // ========================================================
-// 1.1. DISTANCE MATRIX 
+// 1.1. DISTANCE MATRIX
 // ========================================================
 exports.getDistance = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
-  const { origin, destination } = data;
-
-  console.log('[GETDISTANCE][1-ENDERECOS-RECEBIDOS]', JSON.stringify({ origin, destination }));
-  
-  if (!origin || !destination) {
-    const err = new functions.https.HttpsError('invalid-argument', 'Origem e destino são obrigatórios.');
-    console.error('[GETDISTANCE][6-THROW-EXECUTADO] invalid-argument (origem ou destino ausente)');
-    console.error('[GETDISTANCE][7-STACK]', err.stack);
-    throw err;
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuário não autenticado.');
   }
 
-  const key = functions.config().google?.maps_key || process.env.GOOGLE_MAPS_KEY || "AIzaSyBgpikEz9ajVui9Rf4rQsm7iuykFA3HhGI";
+  const origin = sanitizeText(data?.origin, 500);
+  const destination = sanitizeText(data?.destination, 500);
+  if (!origin || !destination || origin.length < 5 || destination.length < 5) {
+    throw new functions.https.HttpsError('invalid-argument', 'Origem e destino válidos são obrigatórios.');
+  }
 
-  console.log('[GETDISTANCE][2-CHAVE-GOOGLE]', JSON.stringify({
-    chaveMascarada: mascararChave(key),
-    origem: functions.config().google?.maps_key
-      ? 'functions.config().google.maps_key'
-      : (process.env.GOOGLE_MAPS_KEY ? 'process.env.GOOGLE_MAPS_KEY' : 'FALLBACK_HARDCODED_NO_CODIGO')
-  }));
-
+  const key = getGoogleMapsKey();
   const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&key=${key}`;
-
-  console.log('[GETDISTANCE][3-URL-ENVIADA]', url.replace(key, mascararChave(key)));
 
   try {
     const res = await axios.get(url, { timeout: 5000 });
-
-    console.log('[GETDISTANCE][4-PAYLOAD-COMPLETO-GOOGLE]', JSON.stringify(res.data));
-    console.log('[GETDISTANCE][5-STATUS-GOOGLE]', res.data?.status || 'STATUS_AUSENTE_NA_RESPOSTA');
-    
-    if (res.data.status !== 'OK' || !res.data.rows[0]?.elements[0]) {
-      const googleStatus = res.data.status || 'STATUS_DESCONHECIDO';
-      const googleErrorMsg = res.data.error_message || 'Nenhuma mensagem detalhada do Google';
-      const err = new functions.https.HttpsError('failed-precondition', `Google Distance API Recusou: [${googleStatus}] | Detalhe:${googleErrorMsg}`);
-
-      console.error('[GETDISTANCE][6-THROW-EXECUTADO] failed-precondition (status != OK ou sem rows[0].elements[0])', JSON.stringify({ googleStatus, googleErrorMsg }));
-      console.error('[GETDISTANCE][7-STACK]', err.stack);
-
-      throw err;
+    const element = res.data?.rows?.[0]?.elements?.[0];
+    if (res.data?.status !== 'OK' || !element || element.status !== 'OK') {
+      const googleStatus = element?.status || res.data?.status || 'STATUS_DESCONHECIDO';
+      console.error('[GETDISTANCE] Rota recusada:', googleStatus);
+      throw new functions.https.HttpsError('failed-precondition', 'Não foi possível calcular uma rota rodoviária válida.');
     }
 
-    const element = res.data.rows[0].elements[0];
-    
-    if (element.status !== 'OK') {
-       const err = new functions.https.HttpsError('failed-precondition', `Rota impossível. Element Status: [${element.status}]`);
-       console.error('[GETDISTANCE][6-THROW-EXECUTADO] failed-precondition (element.status != OK)', JSON.stringify({ elementStatus: element.status }));
-       console.error('[GETDISTANCE][7-STACK]', err.stack);
-       throw err;
+    const distanceInMeters = Number(element.distance?.value);
+    if (!Number.isFinite(distanceInMeters) || distanceInMeters < 0) {
+      throw new functions.https.HttpsError('data-loss', 'O serviço de mapas retornou uma distância inválida.');
     }
 
-    const distanceInMeters = element.distance.value;
-    console.log('[GETDISTANCE][SUCESSO]', JSON.stringify({ distanceInMeters, distanceInKm: distanceInMeters / 1000 }));
     return distanceInMeters / 1000;
-
   } catch (error) {
-    if (error instanceof functions.https.HttpsError) {
-      console.error('[GETDISTANCE][6-THROW-EXECUTADO] repasse de HttpsError já lançado internamente (ver logs acima)');
-      console.error('[GETDISTANCE][7-STACK]', error.stack);
-      throw error;
-    }
-    const netStatus = error.response?.status || 'SEM_STATUS_HTTP';
-    const netData = error.response?.data ? JSON.stringify(error.response.data) : error.message;
-
-    console.error('[GETDISTANCE][4-PAYLOAD-COMPLETO-ERRO-REDE]', netData);
-    console.error('[GETDISTANCE][5-STATUS-HTTP-REDE]', netStatus);
-    const err = new functions.https.HttpsError('internal', `Falha de Conexão Axios Matrix [${netStatus}]:${netData}`);
-    console.error('[GETDISTANCE][6-THROW-EXECUTADO] internal (falha de rede/Axios)');
-    console.error('[GETDISTANCE][7-STACK]', err.stack, '| STACK ORIGINAL:', error.stack);
-    throw err;
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.error('[GETDISTANCE] Falha de integração:', error.message);
+    throw new functions.https.HttpsError('internal', 'Falha de comunicação com o serviço de mapas.');
   }
 });
 
 // ========================================================
 // 2. O DESPERTADOR (CRON JOB DE FRETE AGENDADO PARA WHATSAPP)
 // ========================================================
-exports.despertadorAgendamentos = functions.runWith(runtimeOpts).pubsub.schedule('every 5 minutes').onRun(async (context) => {
-  const agora = new Date();
-  const limiteD1 = new Date(agora.getTime() + 24 * 60 * 60 * 1000); 
-  const limite1h = new Date(agora.getTime() + 1 * 60 * 60 * 1000); 
-  
-  const fretesD1 = await db.collection('fretes')
-    .where('agendadoPara', '<=', limiteD1)
-    .where('notificadoD1', '==', false)
-    .where('status', 'in', ['disponivel', 'buscando_motorista'])
-    .limit(200) 
-    .get();
+exports.despertadorAgendamentos = functions.runWith(runtimeOpts).pubsub.schedule('every 5 minutes').onRun(async () => {
+  const agora = admin.firestore.Timestamp.now();
+  const limiteD1 = admin.firestore.Timestamp.fromMillis(Date.now() + 24 * 60 * 60 * 1000);
+  const limite1h = admin.firestore.Timestamp.fromMillis(Date.now() + 60 * 60 * 1000);
 
-  const batch = db.batch();
+  const [fretesD1, fretes1h] = await Promise.all([
+    db.collection('fretes')
+      .where('status', '==', 'agendado')
+      .where('dataAgendada', '>=', agora)
+      .where('dataAgendada', '<=', limiteD1)
+      .limit(200)
+      .get(),
+    db.collection('fretes')
+      .where('status', '==', 'agendado')
+      .where('dataAgendada', '>=', agora)
+      .where('dataAgendada', '<=', limite1h)
+      .limit(200)
+      .get()
+  ]);
 
-  fretesD1.forEach(doc => {
-    batch.update(doc.ref, { 
-      notificadoD1: true, 
-      pendenteEnvioWhatsApp: true,
-      tipoNotificacaoWorker: 'D-1',
-      atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
-    });
+  const pendingUpdates = new Map();
+
+  fretesD1.forEach(docFrete => {
+    const data = docFrete.data();
+    if (data.pagamentoStatus === 'aprovado' && data.notificadoD1 !== true) {
+      pendingUpdates.set(docFrete.id, {
+        ref: docFrete.ref,
+        payload: {
+        notificadoD1: true,
+        pendenteEnvioWhatsApp: true,
+        tipoNotificacaoWorker: 'D-1',
+        atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+        }
+      });
+    }
   });
 
-  const fretes1h = await db.collection('fretes')
-    .where('agendadoPara', '<=', limite1h)
-    .where('notificado1h', '==', false)
-    .where('status', 'in', ['disponivel', 'buscando_motorista'])
-    .limit(200)
-    .get();
-
-  fretes1h.forEach(doc => {
-    batch.update(doc.ref, { 
-      notificado1h: true, 
-      pendenteEnvioWhatsApp: true,
-      tipoNotificacaoWorker: 'D-HORA',
-      atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
-    });
+  fretes1h.forEach(docFrete => {
+    const data = docFrete.data();
+    if (data.pagamentoStatus === 'aprovado' && data.notificado1h !== true) {
+      const current = pendingUpdates.get(docFrete.id)?.payload || {};
+      pendingUpdates.set(docFrete.id, {
+        ref: docFrete.ref,
+        payload: {
+        ...current,
+        notificadoD1: true,
+        notificado1h: true,
+        pendenteEnvioWhatsApp: true,
+        tipoNotificacaoWorker: 'D-HORA',
+        atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+        }
+      });
+    }
   });
 
-  if (fretesD1.size > 0 || fretes1h.size > 0) {
+  if (pendingUpdates.size > 0) {
+    const batch = db.batch();
+    pendingUpdates.forEach(({ ref, payload }) => batch.update(ref, payload));
     await batch.commit();
   }
   return null;
@@ -379,31 +526,47 @@ exports.resetContadorRetorno = functions.runWith({ timeoutSeconds: 60, memory: '
 // 5. ATIVAÇÃO ATÔMICA DO MODO RETORNO
 // ========================================================
 exports.ativarModoRetorno = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
-  const uid = context.auth?.uid || data.uid;
-  if (!uid) throw new functions.https.HttpsError('unauthenticated', 'Sessão inválida.');
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Sessão inválida.');
+  }
 
-  const { destinoRetorno, lat, lng } = data;
-  if (!destinoRetorno) throw new functions.https.HttpsError('invalid-argument', 'Destino obrigatório.');
+  const uid = context.auth.uid;
+  const destinoRetorno = sanitizeText(data?.destinoRetorno, 200);
+  if (!destinoRetorno) {
+    throw new functions.https.HttpsError('invalid-argument', 'Destino obrigatório.');
+  }
+
+  let coordinates = { lat: null, lng: null };
+  if (data?.lat !== undefined || data?.lng !== undefined) {
+    coordinates = validateCoordinates(data?.lat, data?.lng, 'destinoRetorno');
+  }
 
   const motoristaRef = db.collection('motoristas_cadastros').doc(uid);
   const motoristaOnlineRef = db.collection('motoristas_online').doc(uid);
 
   try {
-    await db.runTransaction(async (transaction) => {
+    await db.runTransaction(async transaction => {
       const onlineSnap = await transaction.get(motoristaOnlineRef);
-      if (!onlineSnap.exists) throw new Error('MOTORISTA_OFFLINE'); 
+      if (!onlineSnap.exists || onlineSnap.data()?.online !== true) {
+        throw new functions.https.HttpsError('failed-precondition', 'MOTORISTA_OFFLINE');
+      }
 
-      const docSnap = await transaction.get(motoristaRef);
-      const usados = docSnap.exists ? (docSnap.data().retornosUsadosHoje || 0) : 0;
-      
-      if (usados >= 2) throw new Error('LIMITE_RETORNO_DIARIO_ATINGIDO');
+      const motoristaSnap = await transaction.get(motoristaRef);
+      if (!motoristaSnap.exists) {
+        throw new functions.https.HttpsError('not-found', 'PERFIL_NAO_ENCONTRADO');
+      }
+
+      const usados = Number(motoristaSnap.data()?.retornosUsadosHoje || 0);
+      if (!Number.isFinite(usados) || usados >= 2) {
+        throw new functions.https.HttpsError('resource-exhausted', 'LIMITE_RETORNO_DIARIO_ATINGIDO');
+      }
 
       const payloadUpdate = {
         modoRetorno: true,
-        destinoRetorno: destinoRetorno.trim(),
+        destinoRetorno,
         retornosUsadosHoje: usados + 1,
-        latitudeRetorno: lat || null,
-        longitudeRetorno: lng || null,
+        latitudeRetorno: coordinates.lat,
+        longitudeRetorno: coordinates.lng,
         atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
       };
 
@@ -413,7 +576,9 @@ exports.ativarModoRetorno = functions.runWith(runtimeOpts).https.onCall(async (d
 
     return { success: true, message: 'Modo Retorno Armado.' };
   } catch (error) {
-    throw new functions.https.HttpsError('internal', error.message);
+    if (error instanceof functions.https.HttpsError) throw error;
+    console.error('[MODO RETORNO] Falha:', error.message);
+    throw new functions.https.HttpsError('internal', 'Falha ao ativar o modo retorno.');
   }
 });
 
@@ -427,64 +592,71 @@ exports.iniciarDespachoAutomatico = functions.runWith(runtimeOpts).firestore
     const depois = change.after.data();
     const freteId = context.params.freteId;
 
-    // Só dispara se acabou de entrar no Mural
     if (antes.status === 'disponivel' || depois.status !== 'disponivel') return null;
+    if (depois.pagamentoStatus !== 'aprovado' || depois.motoristaId) return null;
+
+    const origemLat = Number(depois.origem?.lat ?? depois.origemLat);
+    const origemLng = Number(depois.origem?.lng ?? depois.origemLng);
+    const categoria = sanitizeText(depois.categoria || depois.veiculo, 40)?.toLowerCase();
+
+    if (!Number.isFinite(origemLat) || !Number.isFinite(origemLng)) return null;
+    if (!categoria || !VALID_VEHICLE_CATEGORIES.has(categoria)) return null;
 
     try {
-      const origemLat = depois.origem?.lat || depois.origemLat;
-      const origemLng = depois.origem?.lng || depois.origemLng;
-      const categoria = depois.categoria;
+      const opened = await db.runTransaction(async transaction => {
+        const currentSnap = await transaction.get(change.after.ref);
+        if (!currentSnap.exists) return false;
+        const current = currentSnap.data();
+        if (current.status !== 'disponivel' || current.pagamentoStatus !== 'aprovado' || current.motoristaId) {
+          return false;
+        }
 
-      if (!origemLat || !origemLng) return null;
+        transaction.update(change.after.ref, {
+          ofertaExpiraEm: admin.firestore.Timestamp.fromMillis(Date.now() + 15 * 60 * 1000),
+          dispatchStatus: 'mural_aberto',
+          atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+        });
+        return true;
+      });
 
-      // Busca motoristas no setor
+      if (!opened) return null;
+
       const motoristasSnap = await db.collection('motoristas_online')
         .where('online', '==', true)
         .where('disponivel', '==', true)
         .where('categoria', 'array-contains', categoria)
         .get();
 
-      // CTO: Se não tiver ninguém, NÃO MATA A CARGA. Apenas deixa no Feed rodando os 15 min!
-      if (!motoristasSnap.empty) {
-        // Se houver motoristas, dispara push para quem estiver num raio de 50km
-        motoristasSnap.forEach(async (doc) => {
-          const m = doc.data();
-          if (!m.latitude || !m.longitude) return;
+      await Promise.all(motoristasSnap.docs.map(async motoristaDoc => {
+        const motorista = motoristaDoc.data();
+        const latitude = Number(motorista.latitude);
+        const longitude = Number(motorista.longitude);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
 
-          const dist = calcularDistanciaExata(origemLat, origemLng, m.latitude, m.longitude);
-          if (dist <= 50) {
-            const valorMotorista = depois.valorMotorista || depois.valorTotal || 0;
-            await sendPushInternal(
-              doc.id,
-              'motorista',
-              '🚚 Nova Carga no Mural!',
-              `R$ ${valorMotorista.toFixed(2)} - A${dist.toFixed(1)}km de você. Abra o app para aceitar!`,
-              { freteId: freteId, tipo: 'novo_frete' }
-            );
-          }
-        });
-      }
+        const distancia = calcularDistanciaExata(origemLat, origemLng, latitude, longitude);
+        if (distancia > 50) return;
 
-      // CTO: Mantém o status 'disponivel', mas marca o relógio real de morte para 15 minutos no futuro.
-      await change.after.ref.update({
-        ofertaExpiraEm: admin.firestore.Timestamp.fromMillis(Date.now() + 15 * 60 * 1000), // 15 Minutos de vida no Feed
-        dispatchStatus: 'mural_aberto',
-        atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
-      });
-
+        const valorMotorista = Number(depois.valorMotorista || depois.valorTotal || 0);
+        await sendPushInternal(
+          motoristaDoc.id,
+          'motorista',
+          '🚚 Nova Carga no Mural!',
+          `R$ ${Number.isFinite(valorMotorista) ? valorMotorista.toFixed(2) : '0,00'} - A ${distancia.toFixed(1)} km de você. Abra o app para aceitar!`,
+          { freteId, tipo: 'novo_frete' }
+        );
+      }));
     } catch (error) {
-      console.error(`[MURAL ERRO]`, error);
+      console.error('[MURAL ERRO]', error);
     }
+
     return null;
   });
 
 // ========================================================
 // 7. WATCHDOG DO MURAL (O verdadeiro Ceifador de 15 Minutos)
 // ========================================================
-exports.watchdogOfertasExpiradas = functions.runWith(runtimeOpts).pubsub.schedule('every 1 minutes').onRun(async (context) => {
+exports.watchdogOfertasExpiradas = functions.runWith(runtimeOpts).pubsub.schedule('every 1 minutes').onRun(async () => {
   const agora = admin.firestore.Timestamp.now();
-  
-  // Caça apenas cargas cujo relógio de 15 minutos já estourou
   const fretesExpirados = await db.collection('fretes')
     .where('status', '==', 'disponivel')
     .where('dispatchStatus', '==', 'mural_aberto')
@@ -494,29 +666,38 @@ exports.watchdogOfertasExpiradas = functions.runWith(runtimeOpts).pubsub.schedul
 
   if (fretesExpirados.empty) return null;
 
-  const batch = db.batch();
+  await Promise.all(fretesExpirados.docs.map(async docFrete => {
+    await db.runTransaction(async transaction => {
+      const currentSnap = await transaction.get(docFrete.ref);
+      if (!currentSnap.exists) return;
 
-  for (const docFrete of fretesExpirados.docs) {
-    // Fim da linha. 15 minutos se passaram e ninguém da rede pegou.
-    batch.update(docFrete.ref, {
-         status: 'sem_motorista', 
-         dispatchStatus: 'encerrado',
-         motivoEncerramento: 'Tempo limite do Mural (15min) excedido',
-         atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+      const current = currentSnap.data();
+      const expiresAt = current.ofertaExpiraEm?.toMillis?.();
+      if (
+        current.status !== 'disponivel' ||
+        current.dispatchStatus !== 'mural_aberto' ||
+        current.motoristaId ||
+        !Number.isFinite(expiresAt) ||
+        expiresAt >= Date.now()
+      ) return;
+
+      transaction.update(docFrete.ref, {
+        status: 'sem_motorista',
+        dispatchStatus: 'encerrado',
+        motivoEncerramento: 'Tempo limite do Mural (15min) excedido',
+        atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+      });
     });
-  }
+  }));
 
-  await batch.commit();
   return null;
 });
 
 // ========================================================
-// 7.1. WATCHDOG DE RESERVAS (O Ceifador de Pagamentos Pendentes - 5 Minutos)
+// 7.1. WATCHDOG DE RESERVAS LEGADAS
 // ========================================================
-exports.watchdogReservasExpiradas = functions.runWith(runtimeOpts).pubsub.schedule('every 1 minutes').onRun(async (context) => {
+exports.watchdogReservasExpiradas = functions.runWith(runtimeOpts).pubsub.schedule('every 1 minutes').onRun(async () => {
   const agoraMs = Date.now();
-
-  // Busca reservas aguardando pagamento que já passaram do tempo limite (5 minutos gravados em milissegundos)
   const reservasExpiradas = await db.collection('fretes')
     .where('status', '==', 'reservado_aguardando_pagamento')
     .where('reservaExpiraEm', '<', agoraMs)
@@ -525,44 +706,69 @@ exports.watchdogReservasExpiradas = functions.runWith(runtimeOpts).pubsub.schedu
 
   if (reservasExpiradas.empty) return null;
 
-  const batch = db.batch();
+  await Promise.all(reservasExpiradas.docs.map(async docFrete => {
+    await db.runTransaction(async transaction => {
+      const currentSnap = await transaction.get(docFrete.ref);
+      if (!currentSnap.exists) return;
 
-  for (const docFrete of reservasExpiradas.docs) {
-    const data = docFrete.data();
-    const motoristaId = data.motoristaId;
+      const current = currentSnap.data();
+      const expiraEm = Number(current.reservaExpiraEm);
+      if (current.status !== 'reservado_aguardando_pagamento' || !Number.isFinite(expiraEm) || expiraEm >= Date.now()) {
+        return;
+      }
 
-    // 1. Libera a carga e devolve para o Mural/Feed (DISPONIVEL)
-    batch.update(docFrete.ref, {
-      status: 'disponivel',
-      motoristaId: null,
-      motoristaNome: null,
-      motoristaTelefone: null,
-      motoristaZap: null,
-      motoristaLat: null,
-      motoristaLng: null,
-      alertaInsucesso: true,
-      isRecusa: true,
-      motivoCancelamento: 'O cliente não realizou o pagamento no prazo de 5 minutos (Timeout Automático Backend).',
-      atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
-    });
+      if (current.pagamentoStatus === 'aprovado' && current.motoristaId) {
+        transaction.update(docFrete.ref, {
+          status: 'aceito',
+          dispatchStatus: 'encerrado',
+          reservaExpiraEm: null,
+          ofertaExpiraEm: null,
+          atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+        });
+        return;
+      }
 
-    // 2. Libera o Motorista na nuvem (Firestore motoristas_online)
-    if (motoristaId) {
-      const motoristaOnlineRef = db.collection('motoristas_online').doc(motoristaId);
-      // Utilizando merge: true para evitar falha do batch inteiro caso o motorista tenha sumido do banco
-      batch.set(motoristaOnlineRef, {
-        state: 'ONLINE',
-        freteAtualId: null,
-        activeTripId: null,
-        currentTripId: null,
-        disponivel: true,
+      let motoristaOnlineRef = null;
+      let motoristaOnlineSnap = null;
+      if (current.motoristaId) {
+        motoristaOnlineRef = db.collection('motoristas_online').doc(current.motoristaId);
+        motoristaOnlineSnap = await transaction.get(motoristaOnlineRef);
+      }
+
+      transaction.update(docFrete.ref, {
+        status: 'expirado',
+        dispatchStatus: 'encerrado',
+        motoristaId: null,
+        motoristaNome: null,
+        motoristaTelefone: null,
+        motoristaZap: null,
+        motoristaLat: null,
+        motoristaLng: null,
+        reservaExpiraEm: null,
+        ofertaExpiraEm: null,
+        alertaInsucesso: true,
+        motivoCancelamento: 'Reserva legada expirada sem confirmação de pagamento.',
         atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
-      }, { merge: true });
-    }
-  }
+      });
 
-  await batch.commit();
-  console.log(`[WATCHDOG RESERVAS] Timeout aplicado em ${reservasExpiradas.size} operação(ões). O frete voltou ao Radar.`);
+      if (motoristaOnlineRef && motoristaOnlineSnap?.exists) {
+        const online = motoristaOnlineSnap.data();
+        const linkedToFreight = [online.freteAtualId, online.activeTripId, online.currentTripId].includes(docFrete.id);
+        if (linkedToFreight) {
+          transaction.set(motoristaOnlineRef, {
+            state: 'ONLINE',
+            freteAtualId: null,
+            activeTripId: null,
+            currentTripId: null,
+            disponivel: true,
+            atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+          }, { merge: true });
+        }
+      }
+    });
+  }));
+
+  console.log(`[WATCHDOG RESERVAS] ${reservasExpiradas.size} reserva(s) legada(s) processada(s) sem republicação automática.`);
   return null;
 });
 
@@ -580,8 +786,8 @@ exports.notificarEntregaConcluida = functions.firestore.document('fretes/{freteI
     await sendPushInternal(
       depois.clienteId,
       'cliente',
-      '📦 Entrega Blindada Realizada',
-      `O valor retido em Escrow foi liberado ao motorista. PIN utilizado: ${depois.pinEntregas?.[0] || 'confirmado'}`,
+      '📦 Entrega confirmada',
+      'A entrega foi confirmada. O processamento financeiro seguirá o fluxo seguro da plataforma.',
       { freteId: context.params.freteId, tipo: 'entrega' }
     );
   }
@@ -589,71 +795,82 @@ exports.notificarEntregaConcluida = functions.firestore.document('fretes/{freteI
 });
 
 // ========================================================
-// 9. WATCHDOG DE LIBERAÇÃO DE AGENDAMENTOS (O "Relógio" - Problema 06)
+// 9. WATCHDOG DE LIBERAÇÃO DE AGENDAMENTOS
 // ========================================================
-exports.watchdogLiberacaoAgendados = functions.runWith(runtimeOpts).pubsub.schedule('every 2 minutes').onRun(async (context) => {
-  const agora = new Date(); // Native JS Date, pois agendadoPara costuma ser armazenado como Date ou Timestamp no Firestore
-  
-  // O banco precisa indexar 'status' e 'agendadoPara' de forma composta.
+exports.watchdogLiberacaoAgendados = functions.runWith(runtimeOpts).pubsub.schedule('every 2 minutes').onRun(async () => {
+  const agora = admin.firestore.Timestamp.now();
   const fretesAgendados = await db.collection('fretes')
     .where('status', '==', 'agendado')
-    .where('agendadoPara', '<=', agora)
+    .where('dataAgendada', '<=', agora)
     .limit(100)
     .get();
 
   if (fretesAgendados.empty) return null;
 
-  const batch = db.batch();
+  await Promise.all(fretesAgendados.docs.map(async docFrete => {
+    await db.runTransaction(async transaction => {
+      const currentSnap = await transaction.get(docFrete.ref);
+      if (!currentSnap.exists) return;
 
-  for (const docFrete of fretesAgendados.docs) {
-    // Altera SOMENTE o status para 'disponivel'. 
-    // O gatilho 'iniciarDespachoAutomatico' ou os listeners do Frontend ('AvailableFreights.tsx')
-    // detectarão a mudança e farão o Dispatch ativo.
-    batch.update(docFrete.ref, {
-      status: 'disponivel',
-      dispatchStatus: 'liberado_por_horario',
-      atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+      const current = currentSnap.data();
+      const scheduledAt = current.dataAgendada?.toMillis?.();
+      if (
+        current.status !== 'agendado' ||
+        current.pagamentoStatus !== 'aprovado' ||
+        current.motoristaId ||
+        !Number.isFinite(scheduledAt) ||
+        scheduledAt > Date.now()
+      ) return;
+
+      transaction.update(docFrete.ref, {
+        status: 'disponivel',
+        dispatchStatus: 'liberado_por_horario',
+        atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+      });
     });
-  }
+  }));
 
-  await batch.commit();
-  console.log(`[WATCHDOG AGENDAMENTOS] ${fretesAgendados.size} carga(s) atingiu(ram) a janela de coleta e virou(ram) 'disponivel'.`);
+  console.log(`[WATCHDOG AGENDAMENTOS] ${fretesAgendados.size} agendamento(s) elegível(is) verificado(s).`);
   return null;
 });
 
 // ========================================================
-// 10. WATCHDOG DE EXPIRAÇÃO ABSOLUTA (O "Garbage Collector" - Problema 07)
+// 10. WATCHDOG DE PAGAMENTOS NÃO CONCLUÍDOS
 // ========================================================
-exports.watchdogLimpezaFretesExpirados = functions.runWith(runtimeOpts).pubsub.schedule('every 15 minutes').onRun(async (context) => {
-  const agoraMs = Date.now(); // expiraEm do projeto usa formato Epoch (ms)
-  
-  // Limpa apenas cargas que não conseguiram achar motorista, 
-  // nunca foram pagas ou estão travadas em busca há horas/dias.
-  const statusLimpaveis = ['disponivel', 'aberto_no_feed', 'buscando_motorista'];
-
+exports.watchdogLimpezaFretesExpirados = functions.runWith(runtimeOpts).pubsub.schedule('every 15 minutes').onRun(async () => {
+  const agoraMs = Date.now();
   const fretesExpirados = await db.collection('fretes')
-    .where('status', 'in', statusLimpaveis)
+    .where('status', '==', 'aguardando_pagamento')
     .where('expiraEm', '<', agoraMs)
     .limit(200)
     .get();
 
   if (fretesExpirados.empty) return null;
 
-  const batch = db.batch();
+  await Promise.all(fretesExpirados.docs.map(async docFrete => {
+    await db.runTransaction(async transaction => {
+      const currentSnap = await transaction.get(docFrete.ref);
+      if (!currentSnap.exists) return;
 
-  for (const docFrete of fretesExpirados.docs) {
-    // Ao invés de usar delete() (que quebra auditoria), nós encerramos o ciclo de vida.
-    // Isso oculta visualmente (pois AvailableFreights só lê 'disponivel') e encerra o frete.
-    batch.update(docFrete.ref, {
-      status: 'expirado',
-      dispatchStatus: 'expirado_por_timeout_global',
-      motivoEncerramento: 'A validade (TTL) do frete expirou sem encontrar motoristas.',
-      atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+      const current = currentSnap.data();
+      const expiresAt = Number(current.expiraEm);
+      if (
+        current.status !== 'aguardando_pagamento' ||
+        current.pagamentoStatus === 'aprovado' ||
+        !Number.isFinite(expiresAt) ||
+        expiresAt >= Date.now()
+      ) return;
+
+      transaction.update(docFrete.ref, {
+        status: 'expirado',
+        dispatchStatus: 'expirado_pagamento_nao_concluido',
+        motivoEncerramento: 'Pagamento não concluído dentro da janela operacional.',
+        atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+      });
     });
-  }
+  }));
 
-  await batch.commit();
-  console.log(`[WATCHDOG EXPIRAÇÃO] ${fretesExpirados.size} carga(s) abandonada(s) ou não alocada(s) foi(ram) encerrada(s) por TTL (expiraEm).`);
+  console.log(`[WATCHDOG PAGAMENTO] ${fretesExpirados.size} pagamento(s) pendente(s) verificado(s).`);
   return null;
 });
 
@@ -667,7 +884,7 @@ exports.validarPinDaEtapa = functions.runWith(runtimeOpts).https.onCall(async (d
   }
 
   const { freteId, pin } = data;
-  if (!freteId || !pin) {
+  if (!freteId || pin === null || pin === undefined || String(pin).trim() === '') {
     throw new functions.https.HttpsError('invalid-argument', 'Frete ou PIN não informados.');
   }
 
@@ -701,7 +918,7 @@ exports.validarPinDaEtapa = functions.runWith(runtimeOpts).https.onCall(async (d
       isColeta = true;
       pinCorreto = frete.pinColeta;
       etapaAtualKey = 'coleta';
-    } else if (frete.status === 'em_transporte' || frete.status === 'entregue') {
+    } else if (frete.status === 'em_transporte') {
       const paradaAtualIndex = frete.paradaAtualIndex || 0;
       const paradas = frete.paradas || [];
       
@@ -721,7 +938,7 @@ exports.validarPinDaEtapa = functions.runWith(runtimeOpts).https.onCall(async (d
     }
 
     // 5. Motor de Combate a Força Bruta (Tentativas Locais)
-    if (pin !== pinCorreto) {
+    if (String(pin).trim() !== String(pinCorreto ?? '').trim()) {
       const errosAtuais = (frete.tentativasPin || 0) + 1;
       
       if (errosAtuais >= 3) {
@@ -842,75 +1059,83 @@ exports.liquidarViagemMotorista = functions.runWith(runtimeOpts).https.onCall(as
 });
 
 // ========================================================
-// 13. CRIAR FRETE ZERO TRUST (PATCH BLOCO 01)
+// 13. CRIAR FRETE ZERO TRUST
 // ========================================================
 exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Usuário não autenticado.');
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuário não autenticado.');
+  }
 
-  const { payload, idempotencyKey } = data;
-  if (!payload || !idempotencyKey) {
-    throw new functions.https.HttpsError('invalid-argument', 'Payload ou chave de idempotência ausentes.');
+  const payload = data?.payload;
+  const idempotencyKey = sanitizeText(data?.idempotencyKey, 180);
+  if (!payload || !idempotencyKey || !/^[A-Za-z0-9_-]{12,180}$/.test(idempotencyKey)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Payload ou chave de idempotência inválidos.');
   }
 
   const uid = context.auth.uid;
+  const cleanPayload = sanitizeFreightPayload(payload, uid);
+  const valorBrutoInput = toFiniteNumber(
+    payload.valorTotal ?? payload.valorBruto ?? payload.valorFreteBruto,
+    'valorTotal'
+  );
+  const valorPedagio = payload.valorPedagio === undefined || payload.valorPedagio === null || payload.valorPedagio === ''
+    ? 0
+    : toFiniteNumber(payload.valorPedagio, 'valorPedagio');
+
+  if (valorBrutoInput <= 0 || valorPedagio < 0 || valorPedagio > valorBrutoInput) {
+    throw new functions.https.HttpsError('invalid-argument', 'Valores financeiros inválidos.');
+  }
+
+  const categoria = cleanPayload.categoria;
+  const isHeavy = ['toco', 'truck', 'carreta', 'bitrem'].includes(categoria);
+  const taxa = isHeavy ? 0.15 : 0.20;
+  const baseComissao = Math.max(0, valorBrutoInput - valorPedagio);
+  const valorComissao = Number((baseComissao * taxa).toFixed(2));
+  const valorLiquidoMotorista = Number((valorBrutoInput - valorComissao).toFixed(2));
+  if (!Number.isFinite(valorLiquidoMotorista) || valorLiquidoMotorista <= 0) {
+    throw new functions.https.HttpsError('invalid-argument', 'Valor líquido do motorista inválido.');
+  }
+
+  const generatePin = () => Math.floor(1000 + Math.random() * 9000).toString();
+  const pinColeta = generatePin();
+  const pinEntregas = cleanPayload.paradas.map(() => generatePin());
+  const cidadeDestinoFormatada = sanitizeText(
+    cleanPayload.cidadeDestino || cleanPayload.destino?.cidade,
+    120
+  ) || '';
+
   const idempotencyRef = db.collection('idempotency_keys').doc(idempotencyKey);
-  
-  return await db.runTransaction(async (transaction) => {
-    // Verificação de concorrência / Double Booking
+  return db.runTransaction(async transaction => {
     const idempotencyDoc = await transaction.get(idempotencyRef);
     if (idempotencyDoc.exists) {
-      return { success: true, freteId: idempotencyDoc.data().freteId }; 
+      const idempotencyData = idempotencyDoc.data();
+      if (!idempotencyData?.freteId) {
+        throw new functions.https.HttpsError('data-loss', 'Registro de idempotência inválido.');
+      }
+
+      const existingFreightRef = db.collection('fretes').doc(idempotencyData.freteId);
+      const existingFreight = await transaction.get(existingFreightRef);
+      if (!existingFreight.exists || existingFreight.data()?.clienteId !== uid) {
+        throw new functions.https.HttpsError('permission-denied', 'Chave de idempotência não pertence ao usuário.');
+      }
+      return { success: true, freteId: existingFreight.id };
     }
 
-    const valorBrutoInput = Number(payload.valorTotal || payload.valorBruto || payload.valorFreteBruto || 0);
-    const valorPedagio = Number(payload.valorPedagio || 0);
-
-    if (valorBrutoInput <= 0) {
-      throw new functions.https.HttpsError('invalid-argument', 'Valor do frete inválido.');
-    }
-
-    // CÁLCULO FINANCEIRO SERVER-SIDE BLINDADO
-    const categoria = (payload.categoria || payload.veiculo || '').toLowerCase().trim();
-    const isHeavy = ['toco', 'truck', 'carreta', 'bitrem', 'carreta_ls', 'bi_trem_cegonha'].some(c => categoria.includes(c));
-    const taxa = isHeavy ? 0.15 : 0.20;
-
-    const baseComissao = Math.max(0, valorBrutoInput - valorPedagio);
-    const valorComissao = Number((baseComissao * taxa).toFixed(2));
-    const valorLiquidoMotorista = Number((valorBrutoInput - valorComissao).toFixed(2));
-
-    if (valorLiquidoMotorista <= 0) {
-      throw new functions.https.HttpsError('invalid-argument', 'Valor líquido motorista resultante inválido.');
-    }
-
-    const generatePin = () => Math.floor(1000 + Math.random() * 9000).toString();
-    const pinColeta = payload.pinColeta || generatePin();
-    const paradas = payload.paradas || [];
-    const pinEntregas = payload.pinEntregas || paradas.map(() => generatePin());
-
-    let cidadeDestinoFormatada = payload.cidadeDestino || payload.destino?.cidade || '';
-    if (!cidadeDestinoFormatada && payload.destino?.endereco) {
-       const partes = payload.destino.endereco.split(',');
-       cidadeDestinoFormatada = partes.length > 2 ? partes[partes.length - 2].trim() : payload.destino.endereco.trim();
-    }
-
-    const dataExpiracao = new Date();
-    dataExpiracao.setMinutes(dataExpiracao.getMinutes() + 15);
-
+    const dataExpiracao = Date.now() + 15 * 60 * 1000;
     const freteData = {
-      ...payload,
-      clienteId: uid,
+      ...cleanPayload,
       cidadeDestinoFormatada,
       status: 'aguardando_pagamento',
       pagamentoStatus: 'pendente',
       dispatchStatus: 'retido_pagamento',
-      expiraEm: dataExpiracao.getTime(),
+      expiraEm: dataExpiracao,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       criadoEm: admin.firestore.FieldValue.serverTimestamp(),
       atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+      notificadoD1: false,
+      notificado1h: false,
       pinColeta,
       pinEntregas,
-      
-      // SOBRESCRITA FINANCEIRA: Ignora qualquer margem injetada pelo front
       valorTotal: valorBrutoInput,
       valorBruto: valorBrutoInput,
       valorFreteBruto: valorBrutoInput,
@@ -919,18 +1144,16 @@ exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data,
       lucroPlataforma: valorComissao,
       valorLiquidoMotorista,
       valorMotorista: valorLiquidoMotorista,
-      valorPedagio,
-      interessados: payload.interessados || 0
+      valorPedagio
     };
-
-    // Correção de Schema (Dívida Técnica)
-    delete freteData.interressados;
 
     const newFreteRef = db.collection('fretes').doc();
     transaction.set(newFreteRef, freteData);
-    
-    // Bloqueia tentativas duplicadas com esta chave
-    transaction.set(idempotencyRef, { freteId: newFreteRef.id, createdAt: admin.firestore.FieldValue.serverTimestamp() });
+    transaction.set(idempotencyRef, {
+      freteId: newFreteRef.id,
+      clienteId: uid,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
 
     return { success: true, freteId: newFreteRef.id };
   });
@@ -953,6 +1176,13 @@ exports.cancelarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (da
     const frete = snap.data();
     if (frete.clienteId !== context.auth.uid) {
       throw new functions.https.HttpsError('permission-denied', 'Apenas o contratante pode cancelar.');
+    }
+
+    if (frete.pagamentoStatus === 'aprovado') {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'Frete pago exige o fluxo de cancelamento com reembolso confirmado.'
+      );
     }
 
     const statusProibidos = ['em_transporte', 'coletando', 'finalizando', 'entregue', 'finalizado', 'cancelado'];
@@ -984,35 +1214,48 @@ exports.cancelarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (da
 });
 
 // ========================================================
-// 15. AUTO-BID RECALCULATION SERVER-SIDE (PATCH BLOCO 01)
+// 15. AUTO-BID RECALCULATION SERVER-SIDE
 // ========================================================
-exports.recalcularAutoBid = functions.firestore.document('fretes/{freteId}').onUpdate(async (change, context) => {
+exports.recalcularAutoBid = functions.firestore.document('fretes/{freteId}').onUpdate(async (change) => {
   const antes = change.before.data();
   const depois = change.after.data();
 
-  // Recalcula as margens caso o cliente altere o valorTotal da oferta via Auto-Bid no Frontend
-  if (depois.valorTotal !== antes.valorTotal && antes.valorTotal !== undefined) {
-     const valorBrutoInput = Number(depois.valorTotal || 0);
-     const valorPedagio = Number(depois.valorPedagio || 0);
-     
-     const categoria = (depois.categoria || depois.veiculo || '').toLowerCase().trim();
-     const isHeavy = ['toco', 'truck', 'carreta', 'bitrem', 'carreta_ls', 'bi_trem_cegonha'].some(c => categoria.includes(c));
-     const taxa = isHeavy ? 0.15 : 0.20;
-
-     const baseComissao = Math.max(0, valorBrutoInput - valorPedagio);
-     const valorComissao = Number((baseComissao * taxa).toFixed(2));
-     const valorLiquidoMotorista = Number((valorBrutoInput - valorComissao).toFixed(2));
-
-     await change.after.ref.update({
-        valorBruto: valorBrutoInput,
-        valorFreteBruto: valorBrutoInput,
-        taxaFreto: taxa * 100,
-        valorComissao: valorComissao,
-        lucroPlataforma: valorComissao,
-        valorLiquidoMotorista: valorLiquidoMotorista,
-        valorMotorista: valorLiquidoMotorista,
-        atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
-     });
+  if (depois.valorTotal === antes.valorTotal || antes.valorTotal === undefined) return null;
+  if (antes.pagamentoStatus === 'aprovado' || depois.pagamentoStatus === 'aprovado') {
+    console.error('[AUTO-BID] Alteração financeira ignorada após aprovação do pagamento.');
+    return null;
   }
+  if (!['expirado', 'sem_motorista', 'disponivel'].includes(antes.status) || depois.status !== 'disponivel') {
+    console.error('[AUTO-BID] Alteração financeira ignorada fora do estado permitido.');
+    return null;
+  }
+
+  const valorBrutoInput = Number(depois.valorTotal);
+  const valorPedagio = Number(depois.valorPedagio || 0);
+  if (!Number.isFinite(valorBrutoInput) || valorBrutoInput <= 0 || !Number.isFinite(valorPedagio) || valorPedagio < 0 || valorPedagio > valorBrutoInput) {
+    console.error('[AUTO-BID] Valores inválidos; margens não recalculadas.');
+    return null;
+  }
+
+  const categoria = sanitizeText(depois.categoria || depois.veiculo, 40)?.toLowerCase();
+  if (!categoria || !VALID_VEHICLE_CATEGORIES.has(categoria)) return null;
+
+  const isHeavy = ['toco', 'truck', 'carreta', 'bitrem'].includes(categoria);
+  const taxa = isHeavy ? 0.15 : 0.20;
+  const baseComissao = Math.max(0, valorBrutoInput - valorPedagio);
+  const valorComissao = Number((baseComissao * taxa).toFixed(2));
+  const valorLiquidoMotorista = Number((valorBrutoInput - valorComissao).toFixed(2));
+  if (!Number.isFinite(valorLiquidoMotorista) || valorLiquidoMotorista <= 0) return null;
+
+  await change.after.ref.update({
+    valorBruto: valorBrutoInput,
+    valorFreteBruto: valorBrutoInput,
+    taxaFreto: taxa * 100,
+    valorComissao,
+    lucroPlataforma: valorComissao,
+    valorLiquidoMotorista,
+    valorMotorista: valorLiquidoMotorista,
+    atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+  });
   return null;
 });
