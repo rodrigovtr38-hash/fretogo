@@ -66,13 +66,16 @@ function isMercadoPagoUrl(value) {
 }
 
 function getPublicBaseUrl() {
-  const configured = process.env.PUBLIC_APP_URL || process.env.APP_BASE_URL || 'https://fretogo.com.br';
+  const configured = process.env.PUBLIC_APP_URL || process.env.APP_BASE_URL || 'https://www.fretogo.com.br';
   try {
     const parsed = new URL(configured);
     if (parsed.protocol !== 'https:') throw new Error('URL_INSEGURA');
+    if (parsed.hostname.toLowerCase() === 'fretogo.com.br') {
+      parsed.hostname = 'www.fretogo.com.br';
+    }
     return parsed.origin;
   } catch {
-    return 'https://fretogo.com.br';
+    return 'https://www.fretogo.com.br';
   }
 }
 
