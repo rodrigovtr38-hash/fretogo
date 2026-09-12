@@ -61,7 +61,7 @@ function MapaCliente({
 
   const routePath = useMemo(() => {
     const path: Coordinates[] = [];
-    if (motoristaPos && motoristaId) path.push(motoristaPos);
+    if (motoristaPos) path.push(motoristaPos);
     if (origem) path.push(origem);
     if (paradasExtras && paradasExtras.length > 0) {
       paradasExtras.forEach(p => { if(p.lat && p.lng) path.push(p); });
@@ -107,7 +107,7 @@ function MapaCliente({
       if (!origem || !destino) return null;
 
       // 1. Cenário pré-aceite: Motorista não existe. Desenha a rota inteira Origem -> Destinos
-      if (!motoristaLat || !motoristaLng || !motoristaId) {
+      if (!motoristaLat || !motoristaLng) {
           return {
               origin: origem,
               destination: allStops[allStops.length - 1] || destino,
@@ -274,7 +274,7 @@ function MapaCliente({
         
         {origem && <Marker position={origem} icon={{ path: window.google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: "#10b981", fillOpacity: 1, strokeWeight: 3, strokeColor: "#ffffff" }} />}
         
-        {motoristaPos && motoristaId && (
+        {motoristaPos && (
           <Marker position={motoristaPos} icon={getVehicleIcon(vehicleType) as any} zIndex={999} />
         )}
 
