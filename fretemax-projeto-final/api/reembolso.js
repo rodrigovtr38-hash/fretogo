@@ -1,6 +1,6 @@
 // =========================================================
-// NOME DO ARQUIVO: api/reembolso.js
-// Reembolso autenticado e idempotente, sem chamada externa dentro da transação.
+// NOME DO ARQUIVO: api/pagamento.js
+// Checkout Mercado Pago: autenticação, ownership e idempotência.
 // =========================================================
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
@@ -8,17 +8,10 @@ import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import crypto from 'crypto';
 
-const ADMIN_UID = 'uV1yeZoGfhZTRWDVL1CnMW6b6NY2';
-const REFUND_LOCK_MS = 2 * 60 * 1000;
+const CHECKOUT_TTL_MS = 15 * 60 * 1000;
+const CHECKOUT_LOCK_MS = 30 * 1000;
 const REQUEST_TIMEOUT_MS = 12000;
-const REFUNDABLE_STATUSES = new Set([
-  'aguardando_pagamento', 'disponivel', 'agendado', 'buscando_motorista',
-  'sem_motorista', 'expirado', 'cancelado',
-]);
-const AUTHORIZED_SANDBOX_ACCOUNTS = new Set([
-  'contato@fretogo.com.br',
-  'rodrigovtr38@gmail.com',
-]);
+const MERCADO_PAGO_HOSTS = ['mercadopago.com', 'mercadopago.com.br'];
 
 let firebaseServices = null;
 
@@ -54,6 +47,35 @@ function normalizeDocumentId(value) {
   return /^[A-Za-z0-9_-]{1,128}$/.test(normalized) ? normalized : null;
 }
 
+function sanitizeTitle(value) {
+  if (typeof value !== 'string') return 'Postagem de Carga - FretoGo';
+  const normalized = value.trim().replace(/[\u0000-\u001F\u007F]/g, '');
+  return normalized.slice(0, 120) || 'Postagem de Carga - FretoGo';
+}
+
+function isMercadoPagoUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) return false;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:') return false;
+    const hostname = parsed.hostname.toLowerCase();
+    return MERCADO_PAGO_HOSTS.some(host => hostname === host || hostname.endsWith(`.${host}`));
+  } catch {
+    return false;
+  }
+}
+
+function getPublicBaseUrl() {
+  const configured = process.env.PUBLIC_APP_URL || process.env.APP_BASE_URL || 'https://fretogo.com.br';
+  try {
+    const parsed = new URL(configured);
+    if (parsed.protocol !== 'https:') throw new Error('URL_INSEGURA');
+    return parsed.origin;
+  } catch {
+    return 'https://fretogo.com.br';
+  }
+}
+
 async function fetchWithTimeout(url, options, timeoutMs = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -64,53 +86,20 @@ async function fetchWithTimeout(url, options, timeoutMs = REQUEST_TIMEOUT_MS) {
   }
 }
 
-async function finalizeRefund(db, freteRef, lockToken, refundStatus, requestedBy) {
-  await db.runTransaction(async transaction => {
-    const snapshot = await transaction.get(freteRef);
-    if (!snapshot.exists) throw new Error('FRETE_NAO_ENCONTRADO');
-
-    const current = snapshot.data();
-    if (current.reembolsado === true) return;
-    if (current.reembolsoLockToken !== lockToken) throw new Error('LOCK_REEMBOLSO_DIVERGENTE');
-
-    transaction.update(freteRef, {
-      reembolsado: true,
-      dataReembolso: FieldValue.serverTimestamp(),
-      reembolsoData: FieldValue.serverTimestamp(),
-      statusReembolso: refundStatus || 'approved',
-      pagamentoStatus: 'reembolsado',
-      status: 'cancelado',
-      dispatchStatus: 'encerrado_reembolso',
-      motoristaId: null,
-      motoristaNome: null,
-      motoristaTelefone: null,
-      motoristaZap: null,
-      ofertaExpiraEm: null,
-      reservaExpiraEm: null,
-      checkoutLock: false,
-      reembolsoLockToken: FieldValue.delete(),
-      reembolsoLockTime: FieldValue.delete(),
-      reembolsoSolicitadoPor: requestedBy,
-      reembolsoPor: requestedBy,
-      atualizadoEm: FieldValue.serverTimestamp(),
-    });
-  });
-}
-
-async function failRefund(db, freteRef, lockToken) {
+async function releaseCheckoutLock(db, freteRef, lockToken) {
   try {
     await db.runTransaction(async transaction => {
       const snapshot = await transaction.get(freteRef);
-      if (!snapshot.exists || snapshot.data()?.reembolsoLockToken !== lockToken) return;
+      if (!snapshot.exists || snapshot.data()?.checkoutLockToken !== lockToken) return;
       transaction.update(freteRef, {
-        statusReembolso: 'failed',
-        reembolsoLockToken: FieldValue.delete(),
-        reembolsoLockTime: FieldValue.delete(),
+        checkoutLock: false,
+        checkoutLockToken: FieldValue.delete(),
+        checkoutLockTime: FieldValue.delete(),
         atualizadoEm: FieldValue.serverTimestamp(),
       });
     });
   } catch (error) {
-    console.error('[REEMBOLSO] Falha ao liberar lock:', error.message);
+    console.error('[PAGAMENTO] Falha ao liberar lock:', error.message);
   }
 }
 
@@ -125,6 +114,10 @@ export default async function handler(req, res) {
   let lockToken;
 
   try {
+    if (!process.env.MERCADO_PAGO_ACCESS_TOKEN) {
+      return res.status(503).json({ error: 'PAGAMENTO_INDISPONIVEL' });
+    }
+
     const token = getBearerToken(req);
     if (!token) return res.status(401).json({ error: 'USUARIO_NAO_AUTENTICADO' });
 
@@ -141,88 +134,137 @@ export default async function handler(req, res) {
     const idPedido = normalizeDocumentId(req.body?.idPedido || req.body?.freteId);
     if (!idPedido) return res.status(400).json({ error: 'FRETE_ID_INVALIDO' });
 
+    const titulo = sanitizeTitle(req.body?.titulo || req.body?.descricao);
     freteRef = db.collection('fretes').doc(idPedido);
     lockToken = crypto.randomUUID();
 
-    const refundState = await db.runTransaction(async transaction => {
-      const snapshot = await transaction.get(freteRef);
-      if (!snapshot.exists) return { error: 'FRETE_NAO_ENCONTRADO', statusCode: 404 };
+    const checkoutState = await db.runTransaction(async transaction => {
+      const freteSnap = await transaction.get(freteRef);
+      if (!freteSnap.exists) return { error: 'FRETE_NAO_ENCONTRADO', statusCode: 404 };
 
-      const frete = snapshot.data();
-      const isOwner = frete.clienteId === decodedToken.uid;
-      const isAdmin = decodedToken.uid === ADMIN_UID || decodedToken.admin === true;
-      if (!isOwner && !isAdmin) return { error: 'USUARIO_NAO_AUTORIZADO', statusCode: 403 };
-
-      if (frete.reembolsado === true || frete.pagamentoStatus === 'reembolsado') {
-        return { alreadyRefunded: true };
+      const freteData = freteSnap.data();
+      if (freteData.clienteId !== decodedToken.uid) {
+        return { error: 'USUARIO_NAO_AUTORIZADO', statusCode: 403 };
       }
 
-      const pagamentoId = String(frete.pagamentoId || frete.transactionId || '').trim();
-      if (!pagamentoId || frete.pagamentoStatus !== 'aprovado') {
-        return { error: 'PAGAMENTO_NAO_APROVADO', statusCode: 409 };
+      if (freteData.status !== 'aguardando_pagamento') {
+        return { error: 'STATUS_NAO_PERMITE_PAGAMENTO', statusCode: 409 };
       }
 
-      if (!REFUNDABLE_STATUSES.has(String(frete.status || '')) || frete.motoristaId) {
-        return { error: 'REEMBOLSO_BLOQUEADO_OPERACAO_ATIVA', statusCode: 409 };
+      if (freteData.pagamentoStatus === 'aprovado') {
+        return { error: 'PAGAMENTO_JA_APROVADO', statusCode: 409 };
       }
 
       const now = Date.now();
-      const previousLockTime = Number(frete.reembolsoLockTime || 0);
-      if (frete.statusReembolso === 'processing' && now - previousLockTime < REFUND_LOCK_MS) {
-        return { error: 'REEMBOLSO_EM_PROCESSAMENTO', statusCode: 409 };
+      const checkoutExpiraEm = Number(freteData.checkoutExpiraEm || 0);
+      if (isMercadoPagoUrl(freteData.checkoutUrl) && checkoutExpiraEm > now) {
+        return {
+          reuse: true,
+          url: freteData.checkoutUrl,
+          preferenceId: freteData.checkoutPreferenceId || undefined,
+        };
       }
 
+      const lockTime = Number(freteData.checkoutLockTime || 0);
+      if (freteData.checkoutLock === true && now - lockTime < CHECKOUT_LOCK_MS) {
+        return { error: 'CHECKOUT_EM_PROCESSAMENTO', statusCode: 429 };
+      }
+
+      const valorReal = Number(
+        freteData.valorTotal ?? freteData.valorBruto ?? freteData.valorFreteBruto
+      );
+      if (!Number.isFinite(valorReal) || valorReal <= 0) {
+        return { error: 'VALOR_INVALIDO_BASE_DADOS', statusCode: 400 };
+      }
+
+      const attempt = Number.isInteger(freteData.checkoutAttempt)
+        ? freteData.checkoutAttempt + 1
+        : 1;
+
       transaction.update(freteRef, {
-        statusReembolso: 'processing',
-        reembolsoLockToken: lockToken,
-        reembolsoLockTime: now,
-        reembolsoSolicitadoPor: decodedToken.uid,
+        checkoutLock: true,
+        checkoutLockToken: lockToken,
+        checkoutLockTime: now,
+        checkoutAttempt: attempt,
         atualizadoEm: FieldValue.serverTimestamp(),
       });
 
-      return { pagamentoId, isAdmin };
+      return { freteData, valorReal: Number(valorReal.toFixed(2)), attempt };
     });
 
-    if (refundState.error) {
-      return res.status(refundState.statusCode).json({ error: refundState.error });
-    }
-    if (refundState.alreadyRefunded) {
-      return res.status(200).json({ success: true, alreadyRefunded: true });
+    if (checkoutState.error) {
+      return res.status(checkoutState.statusCode).json({ error: checkoutState.error });
     }
 
-    const normalizedEmail = String(decodedToken.email || '').trim().toLowerCase();
-    const isAuthorizedSandbox = decodedToken.email_verified === true && AUTHORIZED_SANDBOX_ACCOUNTS.has(normalizedEmail);
-    const isSandboxPayment = refundState.pagamentoId.startsWith('QA_BYPASS_');
-
-    if (isSandboxPayment) {
-      if (!isAuthorizedSandbox && !refundState.isAdmin) {
-        await failRefund(db, freteRef, lockToken);
-        return res.status(403).json({ error: 'HOMOLOGACAO_NAO_AUTORIZADA' });
-      }
-
-      await finalizeRefund(db, freteRef, lockToken, 'approved_test', decodedToken.uid);
-      return res.status(200).json({ success: true, sandbox: true });
+    if (checkoutState.reuse) {
+      return res.status(200).json({
+        success: true,
+        url: checkoutState.url,
+        id: checkoutState.preferenceId,
+        reused: true,
+      });
     }
 
-    if (!process.env.MERCADO_PAGO_ACCESS_TOKEN) {
-      await failRefund(db, freteRef, lockToken);
-      return res.status(503).json({ error: 'REEMBOLSO_INDISPONIVEL' });
-    }
-
-    const idempotencyKey = crypto
+    const { freteData, valorReal, attempt } = checkoutState;
+    const publicBaseUrl = getPublicBaseUrl();
+    const paymentIdempotencyKey = crypto
       .createHash('sha256')
-      .update(`refund:${idPedido}:${refundState.pagamentoId}`)
+      .update(`checkout:${idPedido}:${attempt}`)
       .digest('hex');
 
+    const documento = String(freteData.clienteDocumento || '').replace(/\D/g, '');
+    const payer = {
+      email: decodedToken.email || `cliente_${idPedido}@fretogo.com`,
+      name: String(freteData.clienteNome || 'Cliente FretoGo').slice(0, 120),
+    };
+
+    if (documento.length === 11 || documento.length === 14) {
+      payer.identification = {
+        type: documento.length === 14 ? 'CNPJ' : 'CPF',
+        number: documento,
+      };
+    }
+
     const mpResponse = await fetchWithTimeout(
-      `https://api.mercadopago.com/v1/payments/${encodeURIComponent(refundState.pagamentoId)}/refunds`,
+      'https://api.mercadopago.com/checkout/preferences',
       {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${process.env.MERCADO_PAGO_ACCESS_TOKEN}`,
           'Content-Type': 'application/json',
-          'X-Idempotency-Key': idempotencyKey,
+          'X-Idempotency-Key': paymentIdempotencyKey,
         },
+        body: JSON.stringify({
+          items: [{
+            title: titulo,
+            quantity: 1,
+            currency_id: 'BRL',
+            unit_price: valorReal,
+          }],
+          payer,
+          external_reference: idPedido,
+          metadata: {
+            frete_id: idPedido,
+            cliente_id: decodedToken.uid,
+            checkout_attempt: attempt,
+          },
+          notification_url: `${publicBaseUrl}/api/webhook`,
+          payment_methods: {
+            excluded_payment_types: [],
+            installments: 1,
+            default_installments: 1,
+          },
+          statement_descriptor: 'FRETOGO',
+          back_urls: {
+            success: `${publicBaseUrl}/cliente?order=${encodeURIComponent(idPedido)}`,
+            failure: `${publicBaseUrl}/cliente?order=${encodeURIComponent(idPedido)}`,
+            pending: `${publicBaseUrl}/cliente?order=${encodeURIComponent(idPedido)}`,
+          },
+          auto_return: 'approved',
+          expires: true,
+          expiration_date_from: new Date().toISOString(),
+          expiration_date_to: new Date(Date.now() + CHECKOUT_TTL_MS).toISOString(),
+        }),
       }
     );
 
@@ -233,26 +275,51 @@ export default async function handler(req, res) {
       mpData = {};
     }
 
-    if (!mpResponse.ok) {
-      await failRefund(db, freteRef, lockToken);
-      console.error('[REEMBOLSO] Mercado Pago recusou a solicitação:', mpResponse.status);
-      return res.status(502).json({ error: 'FALHA_AO_PROCESSAR_REEMBOLSO' });
+    const checkoutUrl = isMercadoPagoUrl(mpData.init_point)
+      ? mpData.init_point
+      : isMercadoPagoUrl(mpData.sandbox_init_point)
+        ? mpData.sandbox_init_point
+        : null;
+
+    if (!mpResponse.ok || !checkoutUrl) {
+      await releaseCheckoutLock(db, freteRef, lockToken);
+      console.error('[PAGAMENTO] Mercado Pago recusou a criação da preferência:', mpResponse.status);
+      return res.status(502).json({ error: 'FALHA_AO_CRIAR_CHECKOUT' });
     }
 
-    await finalizeRefund(
-      db,
-      freteRef,
-      lockToken,
-      typeof mpData.status === 'string' ? mpData.status : 'approved',
-      decodedToken.uid
-    );
+    const checkoutExpiraEm = Date.now() + CHECKOUT_TTL_MS;
+    await db.runTransaction(async transaction => {
+      const latestSnap = await transaction.get(freteRef);
+      if (!latestSnap.exists) return;
+      const latest = latestSnap.data();
+      if (latest.checkoutLockToken !== lockToken) return;
 
-    return res.status(200).json({ success: true });
+      const update = {
+        checkoutLock: false,
+        checkoutLockToken: FieldValue.delete(),
+        checkoutLockTime: FieldValue.delete(),
+        checkoutUrl,
+        checkoutPreferenceId: String(mpData.id || ''),
+        checkoutExpiraEm,
+        atualizadoEm: FieldValue.serverTimestamp(),
+      };
+
+      if (latest.pagamentoStatus !== 'aprovado') {
+        update.pagamentoStatus = 'processando';
+      }
+      transaction.update(freteRef, update);
+    });
+
+    return res.status(200).json({
+      success: true,
+      url: checkoutUrl,
+      id: mpData.id ? String(mpData.id) : undefined,
+    });
   } catch (error) {
     if (db && freteRef && lockToken) {
-      await failRefund(db, freteRef, lockToken);
+      await releaseCheckoutLock(db, freteRef, lockToken);
     }
-    console.error('[REEMBOLSO] Falha interna:', error.message);
-    return res.status(500).json({ error: 'ERRO_AO_PROCESSAR_REEMBOLSO' });
+    console.error('[PAGAMENTO] Falha interna:', error.message);
+    return res.status(500).json({ error: 'ERRO_AO_GERAR_PAGAMENTO' });
   }
 }
