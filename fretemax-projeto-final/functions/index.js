@@ -57,14 +57,8 @@ const VEHICLE_WEIGHT_LIMITS = {
 };
 
 function getGoogleMapsKey() {
-  // 🔥 CTO FIX: Fallback Absoluto. Injeção direta da chave de produção fornecida.
-  const key = functions.config().google?.maps_key || process.env.GOOGLE_MAPS_KEY || 'AIzaSyCPpkKpbOvbb58eot9-EEW5lFtOpFZVuCU';
-  if (!key) {
-    throw new functions.https.HttpsError(
-      'failed-precondition',
-      'Serviço de mapas temporariamente indisponível.'
-    );
-  }
+  // 🔥 CTO FIX: Injeção Absoluta. A chave não depende mais de variáveis ocultas.
+  const key = 'AIzaSyCPpkKpbOvbb58eot9-EEW5lFtOpFZVuCU';
   return key;
 }
 
@@ -219,13 +213,6 @@ function sanitizeFreightPayload(payload, uid) {
   clean.interessados = 0;
 
   return clean;
-}
-
-// 🔎 DIAGNOSTIC-LOG: helper apenas para não vazar a chave completa do Google nos logs
-function mascararChave(key) {
-  if (!key || typeof key !== 'string') return 'CHAVE_AUSENTE';
-  if (key.length <= 6) return '******';
-  return `******${key.slice(-6)}`;
 }
 
 function calcularDistanciaExata(lat1, lon1, lat2, lon2) {
@@ -666,8 +653,8 @@ exports.iniciarDespachoAutomatico = functions.runWith(runtimeOpts).firestore
 exports.watchdogOfertasExpiradas = functions.runWith(runtimeOpts).pubsub.schedule('every 1 minutes').onRun(async () => {
   const agora = Timestamp.now();
   const fretesExpirados = await db.collection('fretes')
-    .where('status', '==', 'disponivel')
-    .where('dispatchStatus', '==', 'mural_aberto')
+    .where('status', 'disponivel')
+    .where('dispatchStatus', 'mural_aberto')
     .where('ofertaExpiraEm', '<', agora)
     .limit(100)
     .get();
