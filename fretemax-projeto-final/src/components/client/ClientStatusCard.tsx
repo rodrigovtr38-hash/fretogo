@@ -107,8 +107,9 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
       ? Number(orderData.etaMinutes) 
       : isDataReady ? Math.max(10, Math.round(distancia * 1.5)) : 0;
 
+  // 🔥 CTO FIX: Trava de integridade do painel do cliente
   const entregasArray = Array.isArray(pinEntregas) ? pinEntregas : (pinEntregas ? [pinEntregas] : []);
-  const totalEntregas = entregasArray.length || 1;
+  const totalEntregas = orderData?.paradas?.length > 0 ? orderData.paradas.length : (entregasArray.length || 1);
 
   const etapasRoteiro = [
     { title: 'A Caminho', icon: <Navigation size={14} /> },
