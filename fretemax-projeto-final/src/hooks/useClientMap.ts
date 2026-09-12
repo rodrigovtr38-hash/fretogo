@@ -99,8 +99,9 @@ export const useClientMap = () => {
      ROUTE
   ======================================================= */
 
+  // CTO FIX: A função agora é capaz de ler e processar os waypoints (Múltiplas Paradas) na construção do Google Maps.
   const calculateRoute = useCallback(
-    async (originCoords: Coordinates, destinationCoords: Coordinates) => {
+    async (originCoords: Coordinates, destinationCoords: Coordinates, waypoints?: Coordinates[]) => {
       try {
         setLoadingRoute(true);
         setRouteError(null);
@@ -108,6 +109,7 @@ export const useClientMap = () => {
         const route = await locationService.calculateRoute(
           originCoords,
           destinationCoords,
+          waypoints // <- Injeção das paradas intermediárias ativada
         );
 
         if (!route) throw new Error('Route unavailable.');
@@ -200,7 +202,7 @@ export const useClientMap = () => {
     mapsStatus,
     mapsError,
     mapReady,
-    driverLivePosition,     // State exportado
+    driverLivePosition,      // State exportado
     calculateRoute,
     getCurrentLocation,
     startDriverTracking,    // Metodo exportado
