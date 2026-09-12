@@ -141,7 +141,9 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       || frete.enderecoEntregaTexto
       || 'Destino da rota';
 
-  const totalParadas = frete.pinEntregas?.length || paradas.length || 1;
+  // 🔥 CTO FIX: Blindagem contra leitura de length de Strings (Evita Entregas Fantasma)
+  const pinEntregasArray = Array.isArray(frete.pinEntregas) ? frete.pinEntregas : (frete.pinEntregas ? [frete.pinEntregas] : []);
+  const totalParadas = pinEntregasArray.length > 0 ? pinEntregasArray.length : (paradas.length || 1);
 
   const etapasRoteiro = ['Coleta', ...Array.from({length: totalParadas}).map((_, i) => totalParadas > 1 ? `Entrega ${i+1}` : 'Entrega')];
   let etapaAtualIndex = 0;
@@ -477,7 +479,15 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
         </div>
 
         <div className="h-[250px] w-full mb-4 rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 relative shadow-[0_0_20px_rgba(6,182,212,0.1)]">
-          <MapaCliente origem={mapOriginGPS} destino={mapDestinoGPS} operationalMessage="Navegando..." />
+          {/* 🔥 CTO FIX: Passando as props corretas para a telemetria se mover e a rota atualizar */}
+          <MapaCliente 
+            origem={frete.origemLat ? { lat: frete.origemLat, lng: frete.origemLng } : mapOriginGPS} 
+            destino={mapDestinoGPS} 
+            motoristaPos={currentGps}
+            motoristaId={auth.currentUser?.uid || frete.id}
+            paradaAtualIndex={paradaAtualIndex}
+            operationalMessage="Navegando..." 
+          />
         </div>
 
         <div className="mb-6 flex items-start gap-3 bg-slate-800/50 p-4 rounded-2xl border border-slate-700/50">
@@ -536,12 +546,13 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
           )}
         </div>
         
-        {frete.status !== AppTripState.ACEITO && (
+        {/* 🔥 CTO FIX: Botões de navegação liberados em TODAS as fases ativas da viagem */}
+        {![AppTripState.FINALIZANDO, AppTripState.ENTREGUE, AppTripState.CANCELADO, 'finalizado', 'cancelado'].includes(String(frete.status)) && (
            <div className="grid grid-cols-2 gap-3 mt-4">
-             <button onClick={() => handleOpenNav('waze')} className="flex items-center justify-center gap-2 bg-slate-800 border border-slate-700 text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-700 transition-colors">
+             <button onClick={() => handleOpenNav('waze')} className="flex items-center justify-center gap-2 bg-slate-800 border border-slate-700 text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-700 transition-colors shadow-lg">
                <Navigation size={14} className="text-cyan-400" /> Abrir no Waze
              </button>
-             <button onClick={() => handleOpenNav('google')} className="flex items-center justify-center gap-2 bg-slate-800 border border-slate-700 text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-700 transition-colors">
+             <button onClick={() => handleOpenNav('google')} className="flex items-center justify-center gap-2 bg-slate-800 border border-slate-700 text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-700 transition-colors shadow-lg">
                <MapPin size={14} className="text-emerald-400" /> Google Maps
              </button>
            </div>
