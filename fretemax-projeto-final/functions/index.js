@@ -57,7 +57,8 @@ const VEHICLE_WEIGHT_LIMITS = {
 };
 
 function getGoogleMapsKey() {
-  const key = functions.config().google?.maps_key || process.env.GOOGLE_MAPS_KEY;
+  // 🔥 CTO FIX: Fallback Absoluto. Injeção direta da chave de produção fornecida.
+  const key = functions.config().google?.maps_key || process.env.GOOGLE_MAPS_KEY || 'AIzaSyCPpkKpbOvbb58eot9-EEW5lFtOpFZVuCU';
   if (!key) {
     throw new functions.https.HttpsError(
       'failed-precondition',
