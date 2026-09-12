@@ -1,5 +1,3 @@
-// src/pages/Cliente.tsx
-
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, Timestamp, updateDoc } from 'firebase/firestore'; 
@@ -583,6 +581,7 @@ export default function Cliente() {
 
         const valorPedagioOperacao = calculoFinanceiro.tollCost;
         
+        // CTO FIX: Fatiamento correto do array de paradas (Removendo o destino final do payload de paradas intermediárias).
         const payload = {
           clienteId: currentUser.uid,
           categoria: vehicle,
@@ -612,7 +611,7 @@ export default function Cliente() {
           enderecoEntregaTexto: `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}`,
           coleta, 
           entrega: destinoFinal, 
-          paradas: coordsEntregas,
+          paradas: coordsEntregas.length > 1 ? coordsEntregas.slice(0, -1) : [],
           origemLat: c1.lat, 
           origemLng: c1.lng, 
           destinoLat: destinoFinal.lat, 
@@ -639,11 +638,13 @@ export default function Cliente() {
         setCurrentOrderId(createdFreteId);
       }
 
+      // CTO FIX: Injeção do returnUrl forçando o Mercado Pago a devolver o cliente para o acompanhamento do frete.
       const paymentPayload = {
         valor: valorOfertaNum, 
         descricao: `Postagem de Carga - ${vehicle ? VEHICLE_CONFIG[vehicle]?.nome : 'FretoGo'}`,
         clienteId: currentUser.uid,
-        freteId: createdFreteId as string
+        freteId: createdFreteId as string,
+        returnUrl: `${window.location.origin}/cliente?order=${createdFreteId}`
       };
 
       const res = await paymentService.processarPagamento(paymentPayload);
@@ -676,7 +677,8 @@ export default function Cliente() {
         valor: orderData.valorTotal || orderData.valorFreteBruto || 0,
         descricao: `Postagem de Carga - ${orderData.veiculo ? VEHICLE_CONFIG[orderData.veiculo as VehicleType]?.nome : 'FretoGo'}`,
         clienteId: auth.currentUser?.uid || 'cliente',
-        freteId: currentOrderId
+        freteId: currentOrderId,
+        returnUrl: `${window.location.origin}/cliente?order=${currentOrderId}`
       };
 
       const res = await paymentService.processarPagamento(payload);
