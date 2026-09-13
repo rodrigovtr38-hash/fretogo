@@ -400,6 +400,11 @@ export default function Cliente() {
       const data = snap.data() as OrderData;
       setOrderData(data);
 
+      // 🔥 CTO FIX: Transição automática para o Radar quando o status evoluir sem depender do reload da página
+      if (['disponivel', 'buscando_motorista', 'aceito', 'indo_coleta', 'chegou_coleta'].includes(data.status)) {
+         setStep(prev => prev !== 'busca' ? 'busca' : prev);
+      }
+
       if (data.origemLat && data.origemLng) {
         setOrigemGPS({ lat: data.origemLat, lng: data.origemLng });
       }
@@ -581,7 +586,6 @@ export default function Cliente() {
 
         const valorPedagioOperacao = calculoFinanceiro.tollCost;
         
-        // CTO FIX: Fatiamento correto do array de paradas (Removendo o destino final do payload de paradas intermediárias).
         const payload = {
           clienteId: currentUser.uid,
           categoria: vehicle,
@@ -638,7 +642,6 @@ export default function Cliente() {
         setCurrentOrderId(createdFreteId);
       }
 
-      // CTO FIX: Injeção do returnUrl forçando o Mercado Pago a devolver o cliente para o acompanhamento do frete.
       const paymentPayload = {
         valor: valorOfertaNum, 
         descricao: `Postagem de Carga - ${vehicle ? VEHICLE_CONFIG[vehicle]?.nome : 'FretoGo'}`,
@@ -650,7 +653,9 @@ export default function Cliente() {
       const res = await paymentService.processarPagamento(paymentPayload);
       
       if (res.success && res.url) {
-         window.location.href = res.url; 
+         // 🔥 CTO FIX: Não podemos matar a SPA. Abre em nova aba para o onSnapshot continuar vivo.
+         window.open(res.url, '_blank'); 
+         setStep('busca'); // Redireciona o UI internamente aguardando o webhook do Firebase confirmar
       } else {
          throw new Error(res.error || 'Falha ao gerar link de pagamento seguro.');
       }
@@ -684,7 +689,8 @@ export default function Cliente() {
       const res = await paymentService.processarPagamento(payload);
       
       if (res.success && res.url) {
-         window.location.href = res.url; 
+         // 🔥 CTO FIX: Abre em nova aba.
+         window.open(res.url, '_blank'); 
       } else {
          throw new Error(res.error || 'Falha ao gerar link de pagamento seguro.');
       }
@@ -1403,7 +1409,6 @@ export default function Cliente() {
                     onSmartPricing={handleSmartPricing}
                     onRepublicar={handleRepublicar}
                     onCancelar={() => setShowCancelModal(true)}
-                    // @ts-ignore - liveEta será declarado na interface do card no próximo commit
                     liveEta={liveEta}
                   />
               </div>
