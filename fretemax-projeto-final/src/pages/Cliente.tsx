@@ -583,7 +583,13 @@ export default function Cliente() {
 
         const valorPedagioOperacao = calculoFinanceiro.tollCost;
         
-        const payload = {
+        // CTO FIX: Função higienizadora que expurga valores "undefined" dos objetos para evitar crash no Firestore.
+        const sanitizeObj = (obj: any) => {
+          if (!obj) return {};
+          return Object.fromEntries(Object.entries(obj).filter(([_, v]) => v !== undefined));
+        };
+
+        const rawPayload = {
           clienteId: currentUser.uid,
           categoria: vehicle,
           origem: { lat: c1.lat, lng: c1.lng, endereco: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}` },
@@ -606,26 +612,30 @@ export default function Cliente() {
           qtdVolumes: qtdVolumes,
           observacoes: observacoes,
           valorTotal: valorOfertaNum, 
-          cidadeOrigem: coleta.bairro, 
-          cidadeDestino: destinoFinal.bairro,
+          cidadeOrigem: coleta.bairro || 'Não informada', 
+          cidadeDestino: destinoFinal.bairro || 'Não informada',
           enderecoColetaTexto: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`, 
           enderecoEntregaTexto: `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}`,
-          coleta, 
-          entrega: destinoFinal, 
-          paradas: coordsEntregas.length > 1 ? coordsEntregas.slice(0, -1) : [],
+          coleta: sanitizeObj(coleta), 
+          entrega: sanitizeObj(destinoFinal), 
+          paradas: coordsEntregas.length > 1 ? coordsEntregas.slice(0, -1).map(sanitizeObj) : [],
           origemLat: c1.lat, 
           origemLng: c1.lng, 
           destinoLat: destinoFinal.lat, 
           destinoLng: destinoFinal.lng, 
           multiplasEntregas: entregas.length > 1,
           tipoFrete,
-          dataAgendada: firebaseTimestamp,
           visualizacoes: 0,
           motoristasNotificados: 0,
           interessados: 0, 
         };
 
-        const freteId = await createFreight(payload);
+        // Blinda a gravação de datas vazias no Firebase
+        const finalPayload = firebaseTimestamp 
+          ? { ...rawPayload, dataAgendada: firebaseTimestamp } 
+          : rawPayload;
+
+        const freteId = await createFreight(finalPayload);
 
         if (!freteId) throw new Error('Falha estrutural ao registrar carga no servidor.');
         
