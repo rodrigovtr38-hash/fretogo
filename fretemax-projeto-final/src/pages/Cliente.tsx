@@ -400,7 +400,6 @@ export default function Cliente() {
       const data = snap.data() as OrderData;
       setOrderData(data);
 
-      // 🔥 CTO FIX: Transição automática para o Radar quando o status evoluir sem depender do reload da página
       if (['disponivel', 'buscando_motorista', 'aceito', 'indo_coleta', 'chegou_coleta'].includes(data.status)) {
          setStep(prev => prev !== 'busca' ? 'busca' : prev);
       }
@@ -450,7 +449,6 @@ export default function Cliente() {
         uf: via.uf || undefined,
       });
     } catch (_) {
-      // ViaCEP offline não bloqueia o fluxo
     }
   };
 
@@ -459,7 +457,6 @@ export default function Cliente() {
       return coordsCache.current[addressStr];
     }
 
-    // Completa cidade/UF com ViaCEP antes de chamar o Google no servidor
     let enriched = addressStr;
     const cepDigits = (cepHint || '').replace(/\D/g, '');
     if (cepDigits.length === 8) {
@@ -628,12 +625,7 @@ export default function Cliente() {
           interessados: 0, 
         };
 
-        const freteId = await createFreight({
-           freightData: payload,
-           onError: (msg) => {
-              throw new Error(msg);
-           }
-        });
+        const freteId = await createFreight(payload);
 
         if (!freteId) throw new Error('Falha estrutural ao registrar carga no servidor.');
         
@@ -653,9 +645,8 @@ export default function Cliente() {
       const res = await paymentService.processarPagamento(paymentPayload);
       
       if (res.success && res.url) {
-         // 🔥 CTO FIX: Não podemos matar a SPA. Abre em nova aba para o onSnapshot continuar vivo.
          window.open(res.url, '_blank'); 
-         setStep('busca'); // Redireciona o UI internamente aguardando o webhook do Firebase confirmar
+         setStep('busca'); 
       } else {
          throw new Error(res.error || 'Falha ao gerar link de pagamento seguro.');
       }
@@ -689,7 +680,6 @@ export default function Cliente() {
       const res = await paymentService.processarPagamento(payload);
       
       if (res.success && res.url) {
-         // 🔥 CTO FIX: Abre em nova aba.
          window.open(res.url, '_blank'); 
       } else {
          throw new Error(res.error || 'Falha ao gerar link de pagamento seguro.');
