@@ -1,7 +1,7 @@
 // =========================================================
 // NOME DO ARQUIVO: src/hooks/useClientFreight.ts
-// CTO-Log: Refinamento de Hook (Bloco 3 / FASE 3).
-// Evolução: proteção de concorrência, callbacks, unmount e persistência local.
+// CTO-Log: Refinamento de Hook - ENGOLIDOR DE ERROS REMOVIDO.
+// Agora o Hook devolve a mensagem exata de falha do Firebase ou de Validação.
 // =========================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -25,40 +25,20 @@ const normalizeErrorMessage = (error: unknown, fallback: string): string => {
   return fallback;
 };
 
-const invokeSafely = (callback: (() => void) | undefined, label: string) => {
-  if (!callback) return;
-  try {
-    callback();
-  } catch (error) {
-    console.error(`[HOOK] ${label} CALLBACK ERROR:`, error);
-  }
-};
-
-const invokeErrorSafely = (callback: ((message: string) => void) | undefined, message: string) => {
-  if (!callback) return;
-  try {
-    callback(message);
-  } catch (error) {
-    console.error('[HOOK] ERROR CALLBACK ERROR:', error);
-  }
-};
-
 const hasFiniteCoordinates = (value: unknown): boolean => {
   if (!value || typeof value !== 'object') return false;
   const coords = value as { lat?: unknown; lng?: unknown };
   return Number.isFinite(Number(coords.lat)) && Number.isFinite(Number(coords.lng));
 };
 
-const isValidFreightPayload = (freightData: Record<string, any>): boolean => {
-  return Boolean(
-    freightData &&
-    typeof freightData.clienteId === 'string' &&
-    freightData.clienteId.trim() &&
-    typeof freightData.categoria === 'string' &&
-    freightData.categoria.trim() &&
-    hasFiniteCoordinates(freightData.origem) &&
-    hasFiniteCoordinates(freightData.destino)
-  );
+// CTO FIX: Validação agora diz O QUE está faltando, em vez de apenas bloquear o frete.
+const validateFreightPayload = (freightData: Record<string, any>): string | null => {
+  if (!freightData) return "Payload vazio enviado ao hook.";
+  if (!freightData.clienteId) return "ID do cliente (clienteId) está ausente.";
+  if (!freightData.categoria && !freightData.veiculo) return "Categoria ou Veículo ausente no payload.";
+  if (!hasFiniteCoordinates(freightData.origem)) return "Coordenadas de origem inválidas ou ausentes.";
+  if (!hasFiniteCoordinates(freightData.destino)) return "Coordenadas de destino inválidas ou ausentes.";
+  return null; // Null significa que passou em todas as checagens
 };
 
 const persistOrderId = (freightId: string) => {
@@ -66,7 +46,7 @@ const persistOrderId = (freightId: string) => {
   try {
     ORDER_STORAGE_KEYS.forEach(key => window.localStorage.setItem(key, freightId));
   } catch (error) {
-    console.warn('[HOOK] Não foi possível persistir o identificador local da operação:', error);
+    console.warn('[HOOK] Não foi possível persistir o identificador local:', error);
   }
 };
 
@@ -79,7 +59,7 @@ const removePersistedOrderId = (freightId: string) => {
       }
     });
   } catch (error) {
-    console.warn('[HOOK] Não foi possível limpar o identificador local da operação:', error);
+    console.warn('[HOOK] Não foi possível limpar o identificador local:', error);
   }
 };
 
@@ -98,17 +78,20 @@ export const useClientFreight = () => {
 
   /*
   =========================================================
-  CREATE FREIGHT (CONEXÃO BLINDADA)
+  CREATE FREIGHT (COMUNICAÇÃO DIRETA SEM SUPRESSÃO)
   =========================================================
   */
   const createFreight = useCallback(async ({ freightData, onSuccess, onError }: CreateFreightPayload): Promise<string | null> => {
     if (actionLock.current) {
-      invokeErrorSafely(onError, 'OPERACAO_EM_PROCESSAMENTO');
+      if (onError) onError('OPERACAO_EM_PROCESSAMENTO');
       return null;
     }
 
-    if (!isValidFreightPayload(freightData)) {
-      invokeErrorSafely(onError, 'DADOS_DO_FRETE_INVALIDOS');
+    // Validação que não esconde o motivo do erro
+    const validationErrorMsg = validateFreightPayload(freightData);
+    if (validationErrorMsg) {
+      console.error("[HOOK - CTO LOG] Payload barrado:", validationErrorMsg, freightData);
+      if (onError) onError(`Bloqueio de Dados: ${validationErrorMsg}`);
       return null;
     }
 
@@ -118,26 +101,27 @@ export const useClientFreight = () => {
     try {
       const response = await clientFreightService.criarFrete(freightData as any);
 
+      // Se o Firebase rejeitar, agora a mensagem VAI estourar na tela do Cliente!
       if (!response?.success) {
-        invokeErrorSafely(onError, normalizeErrorMessage(response?.error, 'Erro ao processar a cotação logística.'));
+        const errorMsg = normalizeErrorMessage(response?.error, 'O servidor rejeitou a cotação. Verifique permissões do Firebase.');
+        if (onError) onError(errorMsg);
         return null;
       }
 
       const freightId = typeof response.freteId === 'string' ? response.freteId.trim() : '';
       if (!freightId) {
-        invokeErrorSafely(onError, 'RESPOSTA_INVALIDA_CRIACAO_FRETE');
+        if (onError) onError('RESPOSTA_INVALIDA_CRIACAO_FRETE: Servidor não devolveu o ID.');
         return null;
       }
 
       persistOrderId(freightId);
-      if (mountedRef.current) {
-        invokeSafely(() => onSuccess?.(freightId), 'SUCCESS');
-      }
+      if (mountedRef.current && onSuccess) onSuccess(freightId);
+      
       return freightId;
     } catch (error: unknown) {
       console.error('[HOOK] CREATE FREIGHT ERROR:', error);
-      if (mountedRef.current) {
-        invokeErrorSafely(onError, normalizeErrorMessage(error, 'Falha de comunicação com a central.'));
+      if (mountedRef.current && onError) {
+        onError(normalizeErrorMessage(error, 'Falha crítica de comunicação com o servidor.'));
       }
       return null;
     } finally {
@@ -148,18 +132,19 @@ export const useClientFreight = () => {
 
   /*
   =========================================================
-  CANCEL FREIGHT (SEGURANÇA SERVER-SIDE)
+  CANCEL FREIGHT
   =========================================================
   */
   const cancelFreight = useCallback(async (freightId: string, onSuccess?: () => void, onError?: (message: string) => void) => {
     const normalizedFreightId = typeof freightId === 'string' ? freightId.trim() : '';
+    
     if (!normalizedFreightId) {
-      invokeErrorSafely(onError, 'FRETE_ID_INVALIDO');
+      if (onError) onError('FRETE_ID_INVALIDO');
       return;
     }
 
     if (actionLock.current) {
-      invokeErrorSafely(onError, 'OPERACAO_EM_PROCESSAMENTO');
+      if (onError) onError('OPERACAO_EM_PROCESSAMENTO');
       return;
     }
 
@@ -170,18 +155,17 @@ export const useClientFreight = () => {
       const response = await clientFreightService.cancelarFrete(normalizedFreightId);
 
       if (!response?.success) {
-        invokeErrorSafely(onError, normalizeErrorMessage(response?.error, 'Erro ao abortar a operação. Contate o suporte.'));
+        if (onError) onError(normalizeErrorMessage(response?.error, 'Erro ao abortar a operação no servidor.'));
         return;
       }
 
       removePersistedOrderId(normalizedFreightId);
-      if (mountedRef.current) {
-        invokeSafely(onSuccess, 'CANCEL SUCCESS');
-      }
+      if (mountedRef.current && onSuccess) onSuccess();
+      
     } catch (error: unknown) {
       console.error('[HOOK] CANCEL FREIGHT ERROR:', error);
-      if (mountedRef.current) {
-        invokeErrorSafely(onError, normalizeErrorMessage(error, 'Erro crítico ao cancelar.'));
+      if (mountedRef.current && onError) {
+        onError(normalizeErrorMessage(error, 'Erro crítico ao cancelar a operação.'));
       }
     } finally {
       actionLock.current = false;
