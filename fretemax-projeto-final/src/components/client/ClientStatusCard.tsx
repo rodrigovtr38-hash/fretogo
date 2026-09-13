@@ -16,12 +16,12 @@ const formatDistance = (km: number | undefined | null) => {
 };
 
 export default function ClientStatusCard({ orderData, onSmartPricing, onRepublicar, onCancelar, liveEta }: ClientStatusCardProps) {
+  // 🔥 CTO FIX: Mapeamento defensivo para ler as propriedades com o nome exato que o Firestore armazena
   const status = orderData?.status;
   const motoristaNome = orderData?.motoristaNome;
-  const veiculo = orderData?.veiculo;
-  const placa = orderData?.placa;
-  const motoristaTelefone = orderData?.motoristaTelefone;
-  const motoristaZap = orderData?.motoristaZap;
+  const veiculo = orderData?.motoristaVeiculo || orderData?.veiculo;
+  const placa = orderData?.motoristaPlaca || orderData?.placa;
+  const motoristaTelefone = orderData?.motoristaZap || orderData?.motoristaTelefone;
   const motoristaFoto = orderData?.motoristaFoto;
   const motoristaAvaliacao = orderData?.motoristaAvaliacao;
   const valorTotal = orderData?.valorTotal;
@@ -30,7 +30,7 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
   const paradaAtualIndex = orderData?.paradaAtualIndex || 0;
   const multiplasEntregas = orderData?.multiplasEntregas || false;
   
-  const contatoWhatsapp = motoristaZap || motoristaTelefone;
+  const contatoWhatsapp = motoristaTelefone;
 
   const tipoFrete = orderData?.tipoFrete || 'imediato';
   const isAgendado = tipoFrete === 'agendado';
@@ -107,7 +107,6 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
       ? Number(orderData.etaMinutes) 
       : isDataReady ? Math.max(10, Math.round(distancia * 1.5)) : 0;
 
-  // 🔥 CTO FIX: Trava de integridade do painel do cliente
   const entregasArray = Array.isArray(pinEntregas) ? pinEntregas : (pinEntregas ? [pinEntregas] : []);
   const totalEntregas = orderData?.paradas?.length > 0 ? orderData.paradas.length : (entregasArray.length || 1);
 
