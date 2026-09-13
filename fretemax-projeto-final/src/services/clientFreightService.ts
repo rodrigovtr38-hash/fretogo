@@ -1,6 +1,8 @@
 // =========================================================
 // NOME DO ARQUIVO: src/services/clientFreightService.ts
 // Publicação segura via Cloud Function com idempotência persistente.
+// CTO-Log: Correção da trava de Idempotência. Chave agora é limpa também em cenários de falha, 
+// impedindo o "Loop Fantasma" (Falha Estrutural) em novas tentativas.
 // =========================================================
 
 import { doc, getDoc } from 'firebase/firestore';
@@ -236,9 +238,14 @@ class ClientFreightService {
           this.clearIdempotencyKey(fingerprint);
           return { success: true, freteId };
         }
+        
+        // 🔥 CTO FIX: Limpa a chave em caso de rejeição silenciosa do backend para não travar novas tentativas
+        this.clearIdempotencyKey(fingerprint);
         return { success: false, error: 'RESPOSTA_INVALIDA_CRIACAO_FRETE' };
       } catch (error: unknown) {
         console.error('[FREIGHT SERVICE] Erro ao criar frete:', error);
+        // 🔥 CTO FIX: Limpa a chave em caso de explosão (Erro 500, Timeout, etc)
+        this.clearIdempotencyKey(fingerprint);
         return { success: false, error: normalizeError(error, 'ERRO_CRIAR_FRETE') };
       } finally {
         inflightRegistry.delete(fingerprint);
