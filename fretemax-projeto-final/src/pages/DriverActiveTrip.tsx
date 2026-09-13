@@ -4,8 +4,6 @@
 // Correção Executada: Bypass substituído por Autenticação em Nuvem (Zero Trust).
 // Modificação Recente: Transição final (ENTREGUE) e salvamento de chave PIX 
 // delegados para a Cloud Function 'liquidarViagemMotorista' para contornar bloqueio de rules.
-// EXECUÇÃO BLOCO 2: Telemetria forçada via useEffect e UX adaptativo para múltiplas paradas.
-// EXECUÇÃO BLOCO 5: Prevenção de Concorrência GPS, View Cancelado e Alerta Silencioso Tratado.
 // =========================================================
 
 import { useState, useEffect } from 'react';
@@ -36,7 +34,7 @@ interface ActiveFreightData extends DocumentData {
   enderecoColetaTexto?: string;
   enderecoEntregaTexto?: string;
   pinColeta?: string;
-  pinEntregas?: string[];
+  pinEntregas?: string[] | string;
   peso?: string;
   pesoKg?: string;
   clienteNome?: string;
@@ -93,14 +91,10 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
         console.error('[CTO-Log] Falha ao acompanhar viagem ativa:', error);
         setOperationError('Não foi possível sincronizar a viagem. Verifique sua conexão.');
         setLoading(false);
-      },
+      }
     );
     return () => unsubscribe();
   }, [freteId]);
-
-  // 🔥 CTO FIX [Bloco 5]: Removed manual duplicated `locationRealtimeService.start` block.
-  // A telemetria agora é governada EXCLUSIVAMENTE pelo hook `useDriverRealtime` mestre,
-  // prevenindo batery drain e ghosting (Race Condition no Firebase).
 
   const paradas = frete?.paradas || [];
   const paradaAtualIndex = frete?.paradaAtualIndex || 0;
@@ -141,12 +135,13 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       || frete.enderecoEntregaTexto
       || 'Destino da rota';
 
-  // 🔥 CTO FIX: Blindagem contra leitura de length de Strings (Evita Entregas Fantasma)
-  const pinEntregasArray = Array.isArray(frete.pinEntregas) ? frete.pinEntregas : (frete.pinEntregas ? [frete.pinEntregas] : []);
+  // FIX: Blindagem contra leitura de length de Strings (Evita Entregas Fantasma)
+  const pinEntregasArray = Array.isArray(frete.pinEntregas) ? frete.pinEntregas : (frete.pinEntregas ? [frete.pinEntregas as string] : []);
   const totalParadas = pinEntregasArray.length > 0 ? pinEntregasArray.length : (paradas.length || 1);
 
   const etapasRoteiro = ['Coleta', ...Array.from({length: totalParadas}).map((_, i) => totalParadas > 1 ? `Entrega ${i+1}` : 'Entrega')];
   let etapaAtualIndex = 0;
+  
   if (!isFaseColeta) {
      etapaAtualIndex = paradaAtualIndex + 1;
      if ([AppTripState.FINALIZANDO, AppTripState.ENTREGUE, 'finalizado'].includes(String(frete.status) as AppTripState)) {
@@ -165,8 +160,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       if (!originCoords) {
          originCoords = await locationService.getCurrentLocation();
       }
-
-      // 🔥 CTO FIX [Bloco 5]: Duplicated `locationRealtimeService.start` removed from here.
 
       let url = '';
       const queryAddr = encodeURIComponent(enderecoAlvoTexto || '');
@@ -189,7 +182,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       openExternalLink(url);
     } catch (error) {
       console.error('[CTO-Log] Falha na abertura da navegação.', error);
-      // 🔥 CTO FIX [Bloco 5]: Correção do P2 (Alerta silencioso de GPS desligado)
       alert("Não foi possível obter sua localização. Verifique seu GPS e tente novamente.");
     } finally {
       setActionLoading(false);
@@ -243,7 +235,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     }
   };
 
-  // 🔥 CTO FIX: DELEGAÇÃO DE AUTORIDADE PARA A NUVEM. O cliente perde o poder decisório.
   const handlePinSubmit = async () => {
     if (frete.bloqueioPin || actionLoading) return;
     setActionLoading(true);
@@ -256,14 +247,10 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     }
 
     try {
-      // Toda a checagem que estava aqui foi transferida para TripSecurity.ts (Cloud Functions).
-      // A UI simplesmente solicita o avanço com base na chave e aguarda a permissão do servidor.
       await TripLifecycleService.validarPinEAvancarEtapa(frete.id, pinValue);
-      
       setIsPinModalOpen(false); 
       setPinValue('');
     } catch (e: any) { 
-      // Recebemos o texto de "Restam 2 tentativas" diretamente da Cloud Function
       setPinError(e.message || 'Erro sistêmico ao validar. Tente novamente.'); 
     } finally { 
       setActionLoading(false); 
@@ -292,7 +279,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     }
   };
 
-  // 🔥 CTO FIX: LIQUIDAÇÃO CENTRALIZADA NO BACKEND. O Frontend apenas solicita via Cloud Function.
   const handleLiquidacaoSubmit = async () => {
     if (!chavePix.trim()) { alert("Digite sua chave PIX para receber!"); return; }
     
@@ -319,7 +305,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     openExternalLink(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`);
   };
 
-  // 🔥 CTO FIX [Bloco 5]: Tela Exclusiva (Escape) para Situação de Viagem Cancelada
   if (frete.status === AppTripState.CANCELADO || String(frete.status) === 'cancelado') {
     return (
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="rounded-[2.5rem] border-2 border-red-500/30 bg-slate-900 shadow-[0_0_50px_rgba(239,68,68,0.15)] p-8">
@@ -460,7 +445,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
 
         <div className="mb-6 text-center">
           <h2 className="text-xl font-black text-cyan-400 uppercase tracking-widest">
-            {isFaseColeta ? 'Etapa 1: Coleta' : frete.pinEntregas && frete.pinEntregas.length > 1 ? `Etapa 2: Entrega ${paradaAtualIndex + 1} de ${frete.pinEntregas.length}` : 'Etapa 2: Entrega Final'}
+            {isFaseColeta ? 'Etapa 1: Coleta' : totalParadas > 1 ? `Etapa ${etapaAtualIndex + 1}: Entrega ${paradaAtualIndex + 1} de ${totalParadas}` : 'Etapa 2: Entrega Final'}
           </h2>
           <div className="mt-2 flex flex-col items-center gap-2">
             <p className="text-[10px] uppercase font-black text-slate-500">Embarcador: <span className="text-white">{frete.clienteNome || 'Privado'}</span></p>
@@ -479,7 +464,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
         </div>
 
         <div className="h-[250px] w-full mb-4 rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 relative shadow-[0_0_20px_rgba(6,182,212,0.1)]">
-          {/* 🔥 CTO FIX: Passando as props corretas para a telemetria se mover e a rota atualizar */}
           <MapaCliente 
             origem={frete.origemLat ? { lat: frete.origemLat, lng: frete.origemLng } : mapOriginGPS} 
             destino={mapDestinoGPS} 
@@ -538,15 +522,13 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
             </button>
           )}
 
-          {/* 🔥 CTO FIX: Botões Orientados à Ação para Múltiplas Paradas */}
           {new Set<string>([AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE]).has(String(frete.status)) && (
             <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full flex items-center justify-center h-16 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.4)] bg-cyan-500 hover:bg-cyan-400">
-              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : frete.status === AppTripState.COLETANDO ? 'Registrar Evidência de Coleta' : `Cheguei na Entrega ${paradaAtualIndex + 1} - Registrar PIN`}
+              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : frete.status === AppTripState.COLETANDO ? 'Registrar Evidência de Coleta' : totalParadas > 1 ? `Cheguei na Entrega ${paradaAtualIndex + 1} - Registrar PIN` : 'Cheguei na Entrega - Registrar PIN'}
             </button>
           )}
         </div>
         
-        {/* 🔥 CTO FIX: Botões de navegação liberados em TODAS as fases ativas da viagem */}
         {![AppTripState.FINALIZANDO, AppTripState.ENTREGUE, AppTripState.CANCELADO, 'finalizado', 'cancelado'].includes(String(frete.status)) && (
            <div className="grid grid-cols-2 gap-3 mt-4">
              <button onClick={() => handleOpenNav('waze')} className="flex items-center justify-center gap-2 bg-slate-800 border border-slate-700 text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-700 transition-colors shadow-lg">
@@ -571,7 +553,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
         )}
       </motion.div>
 
-      {/* MODAL DE OCORRÊNCIA E CANCELAMENTO DA VIAGEM */}
       <AnimatePresence>
         {isOcorrenciaOpen && (
           <motion.div key="modal-ocorrencia-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[210] flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4">
@@ -604,7 +585,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
         )}
       </AnimatePresence>
 
-      {/* MODAL DE SEGURANÇA: FOTO E PIN */}
       <AnimatePresence>
         {isPinModalOpen && (
           <motion.div key="pin-modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/90 backdrop-blur-sm p-4">
@@ -623,7 +603,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
                   <h3 className="text-white text-center font-black mb-2 uppercase text-xl tracking-tight">{frete.status === AppTripState.COLETANDO ? 'Evidência de Coleta' : 'Evidência de Entrega'}</h3>
                   
                   {!isFotoConfirmada ? (
-                    // ESTÁGIO 1: Upload Fotográfico Obrigatório
                     <div className="mb-6 mt-4">
                       <p className="text-slate-400 text-xs text-center mb-4 leading-relaxed font-bold">
                         A foto do canhoto assinado ou da mercadoria deixada no local é <span className="text-cyan-400">OBRIGATÓRIA</span> para liberar o teclado numérico do PIN.
@@ -650,7 +629,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
                       )}
                     </div>
                   ) : (
-                    // ESTÁGIO 2: Liberação do PIN
                     <div className="mt-4">
                       <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 mb-6 flex flex-col items-center">
                         <CheckCircle2 size={24} className="text-emerald-400 mb-1" />
