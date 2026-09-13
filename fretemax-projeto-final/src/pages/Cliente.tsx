@@ -400,6 +400,10 @@ export default function Cliente() {
       const data = snap.data() as OrderData;
       setOrderData(data);
 
+      if (['disponivel', 'buscando_motorista', 'aceito', 'indo_coleta', 'chegou_coleta'].includes(data.status)) {
+         setStep(prev => prev !== 'busca' ? 'busca' : prev);
+      }
+
       if (data.origemLat && data.origemLng) {
         setOrigemGPS({ lat: data.origemLat, lng: data.origemLng });
       }
@@ -445,7 +449,6 @@ export default function Cliente() {
         uf: via.uf || undefined,
       });
     } catch (_) {
-      // ViaCEP offline não bloqueia o fluxo
     }
   };
 
@@ -454,7 +457,6 @@ export default function Cliente() {
       return coordsCache.current[addressStr];
     }
 
-    // Completa cidade/UF com ViaCEP antes de chamar o Google no servidor
     let enriched = addressStr;
     const cepDigits = (cepHint || '').replace(/\D/g, '');
     if (cepDigits.length === 8) {
@@ -581,7 +583,6 @@ export default function Cliente() {
 
         const valorPedagioOperacao = calculoFinanceiro.tollCost;
         
-        // CTO FIX: Fatiamento correto do array de paradas (Removendo o destino final do payload de paradas intermediárias).
         const payload = {
           clienteId: currentUser.uid,
           categoria: vehicle,
@@ -624,12 +625,7 @@ export default function Cliente() {
           interessados: 0, 
         };
 
-        const freteId = await createFreight({
-           freightData: payload,
-           onError: (msg) => {
-              throw new Error(msg);
-           }
-        });
+        const freteId = await createFreight(payload);
 
         if (!freteId) throw new Error('Falha estrutural ao registrar carga no servidor.');
         
@@ -638,7 +634,6 @@ export default function Cliente() {
         setCurrentOrderId(createdFreteId);
       }
 
-      // CTO FIX: Injeção do returnUrl forçando o Mercado Pago a devolver o cliente para o acompanhamento do frete.
       const paymentPayload = {
         valor: valorOfertaNum, 
         descricao: `Postagem de Carga - ${vehicle ? VEHICLE_CONFIG[vehicle]?.nome : 'FretoGo'}`,
@@ -650,7 +645,8 @@ export default function Cliente() {
       const res = await paymentService.processarPagamento(paymentPayload);
       
       if (res.success && res.url) {
-         window.location.href = res.url; 
+         window.open(res.url, '_blank'); 
+         setStep('busca'); 
       } else {
          throw new Error(res.error || 'Falha ao gerar link de pagamento seguro.');
       }
@@ -684,7 +680,7 @@ export default function Cliente() {
       const res = await paymentService.processarPagamento(payload);
       
       if (res.success && res.url) {
-         window.location.href = res.url; 
+         window.open(res.url, '_blank'); 
       } else {
          throw new Error(res.error || 'Falha ao gerar link de pagamento seguro.');
       }
@@ -1403,7 +1399,6 @@ export default function Cliente() {
                     onSmartPricing={handleSmartPricing}
                     onRepublicar={handleRepublicar}
                     onCancelar={() => setShowCancelModal(true)}
-                    // @ts-ignore - liveEta será declarado na interface do card no próximo commit
                     liveEta={liveEta}
                   />
               </div>
