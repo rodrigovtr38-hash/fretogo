@@ -63,11 +63,20 @@ function getGoogleMapsKey() {
   return key;
 }
 
+// 🔥 CTO FIX: Tratamento resiliente para strings numéricas do Frontend ("1,00" -> 1.00)
 function toFiniteNumber(value, fieldName) {
   if (value === null || value === undefined || value === '') {
     throw new functions.https.HttpsError('invalid-argument', `${fieldName} ausente.`);
   }
-  const parsed = Number(value);
+  let parsed = value;
+  if (typeof value === 'string') {
+    let cleanStr = value.replace(/[^\d.,-]/g, '');
+    if (cleanStr.includes(',')) {
+        cleanStr = cleanStr.replace(/\./g, '').replace(',', '.');
+    }
+    parsed = cleanStr;
+  }
+  parsed = Number(parsed);
   if (!Number.isFinite(parsed)) {
     throw new functions.https.HttpsError('invalid-argument', `${fieldName} inválido.`);
   }
@@ -104,20 +113,19 @@ function parseTimestampMillis(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+// 🔥 CTO FIX: Resiliência contra payload estrutural quebrado do Frontend
 function sanitizeAddress(value, fallbackCoordinates, label) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new functions.https.HttpsError('invalid-argument', `${label} inválido.`);
-  }
+  const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {};
 
   const coordinates = validateCoordinates(
-    value.lat ?? fallbackCoordinates?.lat,
-    value.lng ?? fallbackCoordinates?.lng,
+    obj.lat ?? fallbackCoordinates?.lat,
+    obj.lng ?? fallbackCoordinates?.lng,
     label
   );
 
   const clean = { ...coordinates };
   for (const key of ['cep', 'bairro', 'rua', 'num', 'cidade', 'uf', 'endereco']) {
-    const normalized = sanitizeText(value[key], key === 'endereco' ? 500 : 120);
+    const normalized = sanitizeText(obj[key], key === 'endereco' ? 500 : 120);
     if (normalized !== undefined) clean[key] = normalized;
   }
   return clean;
@@ -182,16 +190,28 @@ function sanitizeFreightPayload(payload, uid) {
   clean.cidadeDestino = sanitizeText(clean.entrega.cidade || payload.cidadeDestino, 120) || '';
   clean.multiplasEntregas = paradas.length > 0;
 
-  const peso = Number(payload.pesoKg ?? payload.peso);
-  if (!Number.isFinite(peso) || peso <= 0 || peso > VEHICLE_WEIGHT_LIMITS[categoria]) {
+  // 🔥 CTO FIX: Tratamento resiliente de peso (Evita crash por Frontend enviando texto/vazio)
+  let pesoRaw = payload.pesoKg ?? payload.peso;
+  let pesoNum = pesoRaw;
+  if (typeof pesoNum === 'string') {
+      let cleanStr = pesoNum.replace(/[^\d.,]/g, '');
+      if (cleanStr.includes(',')) cleanStr = cleanStr.replace(/\./g, '').replace(',', '.');
+      pesoNum = Number(cleanStr);
+  } else {
+      pesoNum = Number(pesoNum);
+  }
+  if (!Number.isFinite(pesoNum) || pesoNum <= 0) pesoNum = 1; // Fallback automático
+  if (pesoNum > VEHICLE_WEIGHT_LIMITS[categoria]) {
     throw new functions.https.HttpsError('invalid-argument', 'Peso incompatível com a categoria selecionada.');
   }
-  clean.peso = String(payload.peso ?? payload.pesoKg);
-  clean.pesoKg = peso;
+  clean.peso = String(pesoNum);
+  clean.pesoKg = pesoNum;
 
-  const qtdVolumes = Number(payload.qtdVolumes);
-  if (!Number.isInteger(qtdVolumes) || qtdVolumes < 1 || qtdVolumes > 100000) {
-    throw new functions.https.HttpsError('invalid-argument', 'Quantidade de volumes inválida.');
+  // 🔥 CTO FIX: Tratamento resiliente de volumes
+  const qtdRaw = payload.qtdVolumes;
+  let qtdVolumes = Number(qtdRaw);
+  if (!Number.isFinite(qtdVolumes) || qtdVolumes < 1 || qtdVolumes > 100000) {
+      qtdVolumes = 1; // Fallback automático
   }
   clean.qtdVolumes = String(qtdVolumes);
 
