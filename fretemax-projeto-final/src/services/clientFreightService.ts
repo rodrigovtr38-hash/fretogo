@@ -1,8 +1,7 @@
 // =========================================================
 // NOME DO ARQUIVO: src/services/clientFreightService.ts
 // Publicação segura via Cloud Function com idempotência persistente.
-// CTO-Log: Correção da trava de Idempotência. Chave agora é limpa também em cenários de falha, 
-// impedindo o "Loop Fantasma" (Falha Estrutural) em novas tentativas.
+// CTO-Log: Injeção de Filtro Zero-Trust para aniquilar Paradas Fantasmas.
 // =========================================================
 
 import { doc, getDoc } from 'firebase/firestore';
@@ -178,7 +177,7 @@ class ClientFreightService {
     try {
       window.sessionStorage.removeItem(this.buildStorageKey(fingerprint));
     } catch {
-      // O backend continua protegido pela chave já enviada.
+      // Backend continua protegido.
     }
   }
 
@@ -199,9 +198,7 @@ class ClientFreightService {
       return 'COORDENADAS_DESTINO_INVALIDAS';
     }
     
-    // 🔥 CTO FIX: Permite rotas diretas (arrays vazios) limitando o máximo de paradas a 5, 
-    // corrigindo o bloqueio originado pelo fatiamento correto do componente Cliente.tsx.
-    if (payload.paradas && (!Array.isArray(payload.paradas) || payload.paradas.length > 5)) {
+    if (payload.paradas && !Array.isArray(payload.paradas)) {
       return 'PARADAS_INVALIDAS';
     }
     
@@ -212,8 +209,22 @@ class ClientFreightService {
     const validationError = this.validatePayload(payload);
     if (validationError) return { success: false, error: validationError };
 
+    // 🔥 CTO FIX: Expurgo de Paradas Fantasmas (Lixo do Frontend)
+    const rawParadas = Array.isArray(payload.paradas) ? payload.paradas : [];
+    const cleanParadas = rawParadas.filter(p => {
+      if (!p || typeof p !== 'object') return false;
+      // Só aceita a parada se tiver dados reais
+      return Boolean(p.lat || p.lng || p.endereco || p.cidade || p.cep);
+    });
+
+    if (cleanParadas.length > 5) {
+      return { success: false, error: 'LIMITE_DE_5_PARADAS_EXCEDIDO' };
+    }
+
     const normalizedPayload: FreightPayload = {
       ...payload,
+      paradas: cleanParadas,
+      multiplasEntregas: cleanParadas.length > 0,
       interessados: payload.interessados ?? payload.interressados ?? 0,
     };
     delete normalizedPayload.interressados;
@@ -239,12 +250,10 @@ class ClientFreightService {
           return { success: true, freteId };
         }
         
-        // 🔥 CTO FIX: Limpa a chave em caso de rejeição silenciosa do backend para não travar novas tentativas
         this.clearIdempotencyKey(fingerprint);
         return { success: false, error: 'RESPOSTA_INVALIDA_CRIACAO_FRETE' };
       } catch (error: unknown) {
         console.error('[FREIGHT SERVICE] Erro ao criar frete:', error);
-        // 🔥 CTO FIX: Limpa a chave em caso de explosão (Erro 500, Timeout, etc)
         this.clearIdempotencyKey(fingerprint);
         return { success: false, error: normalizeError(error, 'ERRO_CRIAR_FRETE') };
       } finally {
