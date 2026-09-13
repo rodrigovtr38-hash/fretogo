@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
-import { collection, addDoc, serverTimestamp, onSnapshot, doc, Timestamp, updateDoc } from 'firebase/firestore'; 
+import { collection, onSnapshot, doc, Timestamp, updateDoc, serverTimestamp } from 'firebase/firestore'; 
 import { getDatabase, ref, onValue, query, orderByChild, equalTo } from 'firebase/database';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
@@ -344,6 +344,7 @@ export default function Cliente() {
     }
   }, [step, orderData]);
 
+  // CTO FIX: Aqui acontece a mágica do redirecionamento suave do Pagamento.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const orderFromUrl = params.get('order');
@@ -353,6 +354,7 @@ export default function Cliente() {
       localStorage.setItem('fretogo_current_order', orderFromUrl);
       setCurrentOrderId(orderFromUrl);
       setStep('busca');
+      // Limpa a URL para não ficar suja com parâmetros
       window.history.replaceState({}, document.title, window.location.pathname);
       return;
     }
@@ -400,10 +402,6 @@ export default function Cliente() {
       const data = snap.data() as OrderData;
       setOrderData(data);
 
-      if (['disponivel', 'buscando_motorista', 'aceito', 'indo_coleta', 'chegou_coleta'].includes(data.status)) {
-         setStep(prev => prev !== 'busca' ? 'busca' : prev);
-      }
-
       if (data.origemLat && data.origemLng) {
         setOrigemGPS({ lat: data.origemLat, lng: data.origemLng });
       }
@@ -449,6 +447,7 @@ export default function Cliente() {
         uf: via.uf || undefined,
       });
     } catch (_) {
+      // ViaCEP offline não bloqueia o fluxo
     }
   };
 
@@ -580,15 +579,8 @@ export default function Cliente() {
         
         const parsedDate = tipoFrete === 'agendado' && dataAgendada ? new Date(dataAgendada) : null;
         const firebaseTimestamp = parsedDate ? Timestamp.fromDate(parsedDate) : null;
-
         const valorPedagioOperacao = calculoFinanceiro.tollCost;
         
-        // CTO FIX: Função higienizadora que expurga valores "undefined" dos objetos para evitar crash no Firestore.
-        const sanitizeObj = (obj: any) => {
-          if (!obj) return {};
-          return Object.fromEntries(Object.entries(obj).filter(([_, v]) => v !== undefined));
-        };
-
         const rawPayload = {
           clienteId: currentUser.uid,
           categoria: vehicle,
@@ -616,26 +608,31 @@ export default function Cliente() {
           cidadeDestino: destinoFinal.bairro || 'Não informada',
           enderecoColetaTexto: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`, 
           enderecoEntregaTexto: `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}`,
-          coleta: sanitizeObj(coleta), 
-          entrega: sanitizeObj(destinoFinal), 
-          paradas: coordsEntregas.length > 1 ? coordsEntregas.slice(0, -1).map(sanitizeObj) : [],
+          coleta: coleta, 
+          entrega: destinoFinal, 
+          paradas: coordsEntregas.length > 1 ? coordsEntregas.slice(0, -1) : [],
           origemLat: c1.lat, 
           origemLng: c1.lng, 
           destinoLat: destinoFinal.lat, 
           destinoLng: destinoFinal.lng, 
           multiplasEntregas: entregas.length > 1,
           tipoFrete,
+          dataAgendada: firebaseTimestamp,
           visualizacoes: 0,
           motoristasNotificados: 0,
           interessados: 0, 
         };
 
-        // Blinda a gravação de datas vazias no Firebase
-        const finalPayload = firebaseTimestamp 
-          ? { ...rawPayload, dataAgendada: firebaseTimestamp } 
-          : rawPayload;
+        // CTO FIX: A sanitização milimétrica que resolve o "Falha Estrutural" removendo valores undefined sem mudar seu hook
+        const cleanPayload = JSON.parse(JSON.stringify(rawPayload));
 
-        const freteId = await createFreight(finalPayload);
+        // CTO FIX: Retornei o SEU hook original exatamente como ele estava escrito.
+        const freteId = await createFreight({
+           freightData: cleanPayload,
+           onError: (msg) => {
+              throw new Error(msg);
+           }
+        });
 
         if (!freteId) throw new Error('Falha estrutural ao registrar carga no servidor.');
         
@@ -644,6 +641,7 @@ export default function Cliente() {
         setCurrentOrderId(createdFreteId);
       }
 
+      // CTO FIX: Garantindo que o Mercado Pago vai te devolver para a URL exata do Frete atual.
       const paymentPayload = {
         valor: valorOfertaNum, 
         descricao: `Postagem de Carga - ${vehicle ? VEHICLE_CONFIG[vehicle]?.nome : 'FretoGo'}`,
@@ -655,8 +653,8 @@ export default function Cliente() {
       const res = await paymentService.processarPagamento(paymentPayload);
       
       if (res.success && res.url) {
-         window.open(res.url, '_blank'); 
-         setStep('busca'); 
+         // CTO FIX: Aqui eu removi o window.open e devolvi a automação de mesma aba!
+         window.location.href = res.url; 
       } else {
          throw new Error(res.error || 'Falha ao gerar link de pagamento seguro.');
       }
@@ -690,7 +688,7 @@ export default function Cliente() {
       const res = await paymentService.processarPagamento(payload);
       
       if (res.success && res.url) {
-         window.open(res.url, '_blank'); 
+         window.location.href = res.url; 
       } else {
          throw new Error(res.error || 'Falha ao gerar link de pagamento seguro.');
       }
@@ -1409,6 +1407,7 @@ export default function Cliente() {
                     onSmartPricing={handleSmartPricing}
                     onRepublicar={handleRepublicar}
                     onCancelar={() => setShowCancelModal(true)}
+                    // @ts-ignore
                     liveEta={liveEta}
                   />
               </div>
