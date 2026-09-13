@@ -196,9 +196,13 @@ class ClientFreightService {
     if (destinoLat === null || destinoLng === null || destinoLat < -90 || destinoLat > 90 || destinoLng < -180 || destinoLng > 180) {
       return 'COORDENADAS_DESTINO_INVALIDAS';
     }
-    if (!Array.isArray(payload.paradas) || payload.paradas.length < 1 || payload.paradas.length > 5) {
+    
+    // 🔥 CTO FIX: Permite rotas diretas (arrays vazios) limitando o máximo de paradas a 5, 
+    // corrigindo o bloqueio originado pelo fatiamento correto do componente Cliente.tsx.
+    if (payload.paradas && (!Array.isArray(payload.paradas) || payload.paradas.length > 5)) {
       return 'PARADAS_INVALIDAS';
     }
+    
     return null;
   }
 
