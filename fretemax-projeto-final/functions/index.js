@@ -17,8 +17,8 @@
 // 13. 🔥 CTO FIX (PATCH BLOCO 01): Criação de Frete Zero Trust e Idempotência.
 // 14. 🔥 CTO FIX (PATCH BLOCO 01): Cancelamento Server-Side e Máquina de Estados.
 // 15. 🔥 CTO FIX (PATCH BLOCO 01): Auto-Bid Server-Side Recalculation.
-// 16. 🔥 CTO FIX (FALHA ESTRUTURAL): Correção do bloqueio de rotas diretas (0 paradas) no sanitizeFreightPayload.
-// 17. 🔥 CTO FIX (BUG MULTIDROP): Proteção de geração de PIN para rotas diretas (Garantia de 1 PIN no Destino).
+// 16. 🔥 CTO FIX (FALHA ESTRUTURAL): Correção do bloqueio de rotas diretas (0 paradas).
+// 17. 🔥 CTO FIX (RESILIÊNCIA): Filtro backend absoluto para destruição de paradas fantasmas e PIN fixo no destino.
 // =========================================================
 
 const functions = require('firebase-functions');
@@ -133,7 +133,11 @@ function sanitizeFreightPayload(payload, uid) {
     throw new functions.https.HttpsError('invalid-argument', 'Categoria de veículo inválida.');
   }
 
-  const paradasInput = Array.isArray(payload.paradas) ? payload.paradas : [];
+  // 🔥 CTO FIX: Escudo Backend contra Frontend. Filtra e destrói silenciosamente qualquer parada fantasma (objetos sem lat/lng reais)
+  const paradasInput = Array.isArray(payload.paradas) 
+    ? payload.paradas.filter(p => p && typeof p === 'object' && !Array.isArray(p) && p.lat !== undefined && p.lng !== undefined)
+    : [];
+
   if (paradasInput.length > 5) {
     throw new functions.https.HttpsError('invalid-argument', 'O frete não pode possuir mais de 5 paradas adicionais.');
   }
@@ -1518,7 +1522,10 @@ exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data,
   }
 
   const uid = context.auth.uid;
+  
+  // O processamento e filtragem de lixo do frontend acontece DENTRO desta função agora
   const cleanPayload = sanitizeFreightPayload(payload, uid);
+  
   const valorBrutoInput = toFiniteNumber(
     payload.valorTotal ?? payload.valorBruto ?? payload.valorFreteBruto,
     'valorTotal'
@@ -1544,11 +1551,13 @@ exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data,
   const generatePin = () => Math.floor(1000 + Math.random() * 9000).toString();
   const pinColeta = generatePin();
   
-  // 🔥 CTO FIX: Se NÃO houver paradas extras, gera OBRIGATORIAMENTE 1 PIN para o Destino Final. 
-  // Se houver paradas extras, gera um PIN para CADA UMA delas.
-  const pinEntregas = cleanPayload.paradas.length > 0 
-    ? cleanPayload.paradas.map(() => generatePin())
-    : [generatePin()];
+  // Garantia absoluta de array estruturado para PINs:
+  let pinEntregas = [];
+  if (cleanPayload.paradas && cleanPayload.paradas.length > 0) {
+      pinEntregas = cleanPayload.paradas.map(() => generatePin());
+  } else {
+      pinEntregas = [generatePin()];
+  }
     
   const cidadeDestinoFormatada = sanitizeText(
     cleanPayload.cidadeDestino || cleanPayload.destino?.cidade,
@@ -1586,7 +1595,7 @@ exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data,
       notificadoD1: false,
       notificado1h: false,
       pinColeta,
-      pinEntregas, // Agora esse array NUNCA fica vazio, garantindo que a tela do motorista destrave no final
+      pinEntregas, 
       valorTotal: valorBrutoInput,
       valorBruto: valorBrutoInput,
       valorFreteBruto: valorBrutoInput,
