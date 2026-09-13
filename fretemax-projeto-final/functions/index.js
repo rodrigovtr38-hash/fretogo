@@ -17,6 +17,7 @@
 // 13. 🔥 CTO FIX (PATCH BLOCO 01): Criação de Frete Zero Trust e Idempotência.
 // 14. 🔥 CTO FIX (PATCH BLOCO 01): Cancelamento Server-Side e Máquina de Estados.
 // 15. 🔥 CTO FIX (PATCH BLOCO 01): Auto-Bid Server-Side Recalculation.
+// 16. 🔥 CTO FIX (FALHA ESTRUTURAL): Correção do bloqueio de rotas diretas (0 paradas) no sanitizeFreightPayload.
 // =========================================================
 
 const functions = require('firebase-functions');
@@ -30,8 +31,8 @@ const db = admin.firestore();
 // 🛡 TRAVAS DE NUVEM
 const runtimeOpts = {
   timeoutSeconds: 30, 
-  memory: '256MB',    
-  maxInstances: 50    
+  memory: '256MB',   
+  maxInstances: 50   
 };
 
 const VALID_VEHICLE_CATEGORIES = new Set([
@@ -57,7 +58,6 @@ const VEHICLE_WEIGHT_LIMITS = {
 };
 
 function getGoogleMapsKey() {
-  // 🔥 CTO FIX: Injeção Absoluta. A chave não depende mais de variáveis ocultas.
   const key = 'AIzaSyCPpkKpbOvbb58eot9-EEW5lFtOpFZVuCU';
   return key;
 }
@@ -132,8 +132,10 @@ function sanitizeFreightPayload(payload, uid) {
     throw new functions.https.HttpsError('invalid-argument', 'Categoria de veículo inválida.');
   }
 
-  if (!Array.isArray(payload.paradas) || payload.paradas.length < 1 || payload.paradas.length > 5) {
-    throw new functions.https.HttpsError('invalid-argument', 'O frete deve possuir entre 1 e 5 destinos.');
+  // 🔥 CTO FIX: Tratativa correta de arrays vazios para permitir rotas diretas (sem múltiplas paradas)
+  const paradasInput = Array.isArray(payload.paradas) ? payload.paradas : [];
+  if (paradasInput.length > 5) {
+    throw new functions.https.HttpsError('invalid-argument', 'O frete não pode possuir mais de 5 paradas adicionais.');
   }
 
   const origem = sanitizeAddress(
@@ -146,7 +148,7 @@ function sanitizeFreightPayload(payload, uid) {
     { lat: payload.destinoLat, lng: payload.destinoLng },
     'destino'
   );
-  const paradas = payload.paradas.map((parada, index) =>
+  const paradas = paradasInput.map((parada, index) =>
     sanitizeAddress(parada, null, `paradas[${index}]`)
   );
 
@@ -174,7 +176,7 @@ function sanitizeFreightPayload(payload, uid) {
   clean.destinoLng = destino.lng;
   clean.cidadeOrigem = sanitizeText(clean.coleta.cidade || payload.cidadeOrigem, 120) || '';
   clean.cidadeDestino = sanitizeText(clean.entrega.cidade || payload.cidadeDestino, 120) || '';
-  clean.multiplasEntregas = paradas.length > 1;
+  clean.multiplasEntregas = paradas.length > 0;
 
   const peso = Number(payload.pesoKg ?? payload.peso);
   if (!Number.isFinite(peso) || peso <= 0 || peso > VEHICLE_WEIGHT_LIMITS[categoria]) {
