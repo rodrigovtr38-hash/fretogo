@@ -2,7 +2,7 @@
 // NOME DO ARQUIVO: src/components/driver/dashboard/AvailableFreights.tsx
 // CTO-Log: FASE 3 - Auditoria UX Feed.
 // Correção: Remoção do botão de favoritar. Injeção de Tipo de Carga e Volumes.
-// CTO-Log [Bloco 4]: Anti-Ghosting, Correção de Alarme por ID e Padronização de CTA.
+// CTO-Log [Bloco 3]: Anti-Duplicação Absoluta, Anti-Ghosting e Padronização.
 // =========================================================
 
 import { useEffect, useRef, useState } from 'react';
@@ -58,11 +58,10 @@ export default function AvailableFreights({
         if (!viewedFreights.current.has(freight.id)) {
           viewedFreights.current.add(freight.id);
           dispatchRealtimeService.registrarVisualizacao(freight.id);
-          hasNewFreight = true; // 🔥 CTO FIX: Detecta novidade pelo ID único
+          hasNewFreight = true; 
         }
       });
 
-      // 🔥 CTO FIX: Dispara notificação se há uma carga nova no set, ou se a carga do topo mudou
       if (hasNewFreight || (currentTopFreight && currentTopFreight.id !== prevTopFreightId.current)) {
         try {
           const beep = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
@@ -83,18 +82,22 @@ export default function AvailableFreights({
   }, [freights, isOnline]);
 
   const now = Date.now();
-  const validFreights = freights.filter(freight => {
-    // 🔥 CTO FIX: Filtra Cargas Agendadas (Elas não devem poluir a malha ativa)
+
+  // 🔥 CTO FIX [Bloco 3]: Deduplicação Absoluta. Destrói cargas fantasmas clonadas por instabilidade de rede.
+  const uniqueFreights = Array.from(new Map(freights.map(f => [f.id, f])).values());
+
+  const validFreights = uniqueFreights.filter(freight => {
+    // Filtra Cargas Agendadas (Elas não devem poluir a malha ativa)
     if (freight.agendado || freight.tipoFrete === 'agendado') {
         return false; 
     }
 
-    // 🔥 CTO FIX [Problema 1]: Anti-Ghosting. Esconde instantaneamente fretes já aceitos
+    // Anti-Ghosting. Esconde instantaneamente fretes já aceitos
     if (freight.status && !['disponivel', 'buscando_motorista'].includes(freight.status)) {
         return false;
     }
     
-    // CTO FIX: Lê a data de expiração real gerada no backend
+    // Lê a data de expiração real gerada no backend
     if (freight.expiraEm) {
         const expirationTime = freight.expiraEm.toMillis ? freight.expiraEm.toMillis() : new Date(freight.expiraEm).getTime();
         return now < expirationTime;
@@ -255,7 +258,6 @@ export default function AvailableFreights({
                     `}
                   >
                     <CheckCircle2 size={18} />
-                    {/* 🔥 CTO FIX [Problema 3]: Padronização realista de CTA */}
                     Revisar Oferta
                   </button>
                 </div>
