@@ -16,6 +16,7 @@ type CreatePixPaymentPayload = {
     phone: string;
   };
   freteId: string; // 🔥 CTO FIX: Passa a ser obrigatório receber o freteId de quem chama o hook.
+  returnUrl?: string; // 🔥 CTO FIX: Injeção da URL de retorno para garantir o redirecionamento após o PIX.
 };
 
 const PAYMENT_TIMEOUT = 1000 * 60 * 15; 
@@ -39,7 +40,8 @@ export const useClientPayment = () => {
         valor: payload.amount,
         descricao: payload.description,
         clienteId: payload.customer.name, 
-        freteId: payload.freteId // 🔥 CTO FIX: Injeção do dado dinâmico. Fim do "chumbamento" vazio.
+        freteId: payload.freteId, // 🔥 CTO FIX: Injeção do dado dinâmico. Fim do "chumbamento" vazio.
+        returnUrl: payload.returnUrl // 🔥 CTO FIX: Repasse da URL de callback para o webhook.
       });
 
       if (!response.success) throw new Error(response.error);
