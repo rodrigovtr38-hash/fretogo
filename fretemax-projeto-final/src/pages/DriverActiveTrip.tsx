@@ -1,9 +1,6 @@
 // =========================================================
 // NOME DO ARQUIVO: src/pages/DriverActiveTrip.tsx
-// CTO-Log: Auditoria Final - Bloco 6 (Operação & Contingência).
-// Correção Executada: Bypass substituído por Autenticação em Nuvem (Zero Trust).
-// Modificação Recente: Transição final (ENTREGUE) e salvamento de chave PIX 
-// delegados para a Cloud Function 'liquidarViagemMotorista' para contornar bloqueio de rules.
+// CTO-Log: Blindagem de GPS contra Paradas Fantasmas e Ajuste de Nomenclatura.
 // =========================================================
 
 import { useState, useEffect } from 'react';
@@ -110,8 +107,15 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     ? { lat: frete.origemLat, lng: frete.origemLng } 
     : mapDestinoGPS;
 
+  // 🔥 CTO FIX: Blindagem contra quebra de mapa quando a parada anterior não existe (Fantasma)
   const mapOriginGPS = currentGps || (frete?.status === AppTripState.EM_TRANSPORTE 
-    ? (paradaAtualIndex === 0 ? { lat: frete?.origemLat as number, lng: frete?.origemLng as number } : { lat: paradas[paradaAtualIndex-1]?.lat, lng: paradas[paradaAtualIndex-1]?.lng })
+    ? (paradaAtualIndex === 0 
+        ? { lat: frete?.origemLat as number, lng: frete?.origemLng as number } 
+        : { 
+            lat: paradas[paradaAtualIndex-1]?.lat ?? frete?.origemLat as number, 
+            lng: paradas[paradaAtualIndex-1]?.lng ?? frete?.origemLng as number
+          }
+      )
     : null);
 
   const distanceToTarget = (!currentGps || !navDestinoGPS?.lat || !navDestinoGPS?.lng) 
@@ -135,7 +139,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       || frete.enderecoEntregaTexto
       || 'Destino da rota';
 
-  // FIX: Blindagem contra leitura de length de Strings (Evita Entregas Fantasma)
   const pinEntregasArray = Array.isArray(frete.pinEntregas) ? frete.pinEntregas : (frete.pinEntregas ? [frete.pinEntregas as string] : []);
   const totalParadas = pinEntregasArray.length > 0 ? pinEntregasArray.length : (paradas.length || 1);
 
