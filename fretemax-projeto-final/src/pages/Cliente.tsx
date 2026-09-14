@@ -625,9 +625,14 @@ export default function Cliente() {
           interessados: 0, 
         };
 
-        const freteId = await createFreight(payload);
+        // 🔥 CTO FIX: Corrige a tipagem enviando o objeto `{ freightData }` e captura o erro real.
+        let errorMessage = 'Falha estrutural ao registrar carga no servidor.';
+        const freteId = await createFreight({ 
+          freightData: payload,
+          onError: (msg) => { errorMessage = msg; }
+        });
 
-        if (!freteId) throw new Error('Falha estrutural ao registrar carga no servidor.');
+        if (!freteId) throw new Error(errorMessage);
         
         createdFreteId = freteId;
         localStorage.setItem('fretogo_current_order', createdFreteId);
