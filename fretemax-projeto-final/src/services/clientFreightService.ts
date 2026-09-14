@@ -1,7 +1,7 @@
 // =========================================================
 // NOME DO ARQUIVO: src/services/clientFreightService.ts
 // Publicação segura via Cloud Function com idempotência persistente.
-// CTO-Log: Injeção de Filtro Zero-Trust para aniquilar Paradas Fantasmas.
+// CTO-Log: Injeção de Filtro Zero-Trust para aniquilar Paradas Fantasmas e Bypass do Bug de "Undefined" do SDK Firebase.
 // =========================================================
 
 import { doc, getDoc } from 'firebase/firestore';
@@ -26,9 +26,9 @@ type ServiceResult<T = undefined> = {
 
 export interface FreightPayload {
   clienteId: string;
-  categoria: string;
-  origem: { lat: number; lng: number; endereco?: string; cidade?: string; uf?: string };
-  destino: { lat: number; lng: number; endereco?: string; cidade?: string; uf?: string };
+  categoria?: string;
+  origem?: { lat: number; lng: number; endereco?: string; cidade?: string; uf?: string };
+  destino?: { lat: number; lng: number; endereco?: string; cidade?: string; uf?: string };
   valor?: number;
   valorBruto?: number;
   distanciaTotalKm?: number;
@@ -117,20 +117,26 @@ class ClientFreightService {
     const destinoLat = getCoordinate(payload, 'destino', 'lat') ?? 0;
     const destinoLng = getCoordinate(payload, 'destino', 'lng') ?? 0;
     const valor = Number(payload.valorTotal ?? payload.valorBruto ?? payload.valorFreteBruto ?? 0);
-    const dataAgendada = payload.dataAgendada && typeof payload.dataAgendada === 'object'
-      ? JSON.stringify(payload.dataAgendada)
-      : String(payload.dataAgendada ?? '');
+    
+    let dataAgendadaStr = '';
+    try {
+        dataAgendadaStr = payload.dataAgendada && typeof payload.dataAgendada === 'object'
+          ? JSON.stringify(payload.dataAgendada)
+          : String(payload.dataAgendada ?? '');
+    } catch {
+        dataAgendadaStr = 'data_invalida';
+    }
 
     return [
       payload.clienteId,
-      payload.categoria,
+      payload.categoria || payload.veiculo,
       origemLat.toFixed(6),
       origemLng.toFixed(6),
       destinoLat.toFixed(6),
       destinoLng.toFixed(6),
       Number.isFinite(valor) ? valor.toFixed(2) : '0',
       payload.tipoFrete || 'imediato',
-      dataAgendada,
+      dataAgendadaStr,
       payload.paradas?.length || 0,
     ].join('|');
   }
@@ -184,7 +190,10 @@ class ClientFreightService {
   private validatePayload(payload: FreightPayload): string | null {
     if (!payload || typeof payload !== 'object') return 'DADOS_DO_FRETE_INVALIDOS';
     if (typeof payload.clienteId !== 'string' || !payload.clienteId.trim()) return 'CLIENTE_INVALIDO';
-    if (typeof payload.categoria !== 'string' || !payload.categoria.trim()) return 'CATEGORIA_INVALIDA';
+    
+    // CTO FIX: Tolerância (aceita tanto 'categoria' quanto 'veiculo')
+    const category = payload.categoria || payload.veiculo;
+    if (typeof category !== 'string' || !category.trim()) return 'CATEGORIA_INVALIDA';
 
     const origemLat = getCoordinate(payload, 'origem', 'lat');
     const origemLng = getCoordinate(payload, 'origem', 'lng');
@@ -213,7 +222,6 @@ class ClientFreightService {
     const rawParadas = Array.isArray(payload.paradas) ? payload.paradas : [];
     const cleanParadas = rawParadas.filter(p => {
       if (!p || typeof p !== 'object') return false;
-      // Só aceita a parada se tiver dados reais
       return Boolean(p.lat || p.lng || p.endereco || p.cidade || p.cep);
     });
 
@@ -223,6 +231,8 @@ class ClientFreightService {
 
     const normalizedPayload: FreightPayload = {
       ...payload,
+      categoria: payload.categoria || payload.veiculo || 'utilitarios',
+      veiculo: payload.veiculo || payload.categoria || 'utilitarios',
       paradas: cleanParadas,
       multiplasEntregas: cleanParadas.length > 0,
       interessados: payload.interessados ?? payload.interressados ?? 0,
@@ -237,12 +247,17 @@ class ClientFreightService {
       try {
         const functions = getFunctions();
         const criarFreteB2B = httpsCallable<
-          { payload: FreightPayload; idempotencyKey: string },
+          { payload: Record<string, any>; idempotencyKey: string },
           { success?: boolean; freteId?: string }
         >(functions, 'criarFreteB2B');
 
         const idempotencyKey = this.getOrCreateIdempotencyKey(normalizedPayload, fingerprint);
-        const response = await criarFreteB2B({ payload: normalizedPayload, idempotencyKey });
+
+        // 🔥 CTO FIX MÁXIMO: O Firebase SDK crasha brutalmente se enviarmos propriedades com valor "undefined".
+        // Este parse sanitiza 100% o payload transformando num objeto limpo. É isso que causava a FALHA ESTRUTURAL.
+        const safePayload = JSON.parse(JSON.stringify(normalizedPayload));
+
+        const response = await criarFreteB2B({ payload: safePayload, idempotencyKey });
         const freteId = typeof response.data?.freteId === 'string' ? response.data.freteId.trim() : '';
 
         if (response.data?.success && freteId) {
