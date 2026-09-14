@@ -1,7 +1,6 @@
 // =========================================================
 // NOME DO ARQUIVO: src/hooks/useClientFreight.ts
-// CTO-Log: Refinamento de Hook - ENGOLIDOR DE ERROS REMOVIDO.
-// Agora o Hook devolve a mensagem exata de falha do Firebase ou de Validação.
+// CTO-Log: Refinamento de Hook - Validação Flexível de Coordenadas e Categorias para evitar falsos positivos locais.
 // =========================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -25,19 +24,28 @@ const normalizeErrorMessage = (error: unknown, fallback: string): string => {
   return fallback;
 };
 
-const hasFiniteCoordinates = (value: unknown): boolean => {
+// 🔥 CTO FIX: Reconhece coords agrupadas ({lat, lng}) ou planas (origemLat, origemLng) para não dar falso positivo.
+const hasFiniteCoordinates = (value: unknown, flatLat?: unknown, flatLng?: unknown): boolean => {
+  if (Number.isFinite(Number(flatLat)) && Number.isFinite(Number(flatLng))) return true;
   if (!value || typeof value !== 'object') return false;
   const coords = value as { lat?: unknown; lng?: unknown };
   return Number.isFinite(Number(coords.lat)) && Number.isFinite(Number(coords.lng));
 };
 
-// CTO FIX: Validação agora diz O QUE está faltando, em vez de apenas bloquear o frete.
 const validateFreightPayload = (freightData: Record<string, any>): string | null => {
   if (!freightData) return "Payload vazio enviado ao hook.";
   if (!freightData.clienteId) return "ID do cliente (clienteId) está ausente.";
-  if (!freightData.categoria && !freightData.veiculo) return "Categoria ou Veículo ausente no payload.";
-  if (!hasFiniteCoordinates(freightData.origem)) return "Coordenadas de origem inválidas ou ausentes.";
-  if (!hasFiniteCoordinates(freightData.destino)) return "Coordenadas de destino inválidas ou ausentes.";
+  
+  const categoriaOuVeiculo = freightData.categoria || freightData.veiculo;
+  if (!categoriaOuVeiculo) return "Categoria ou Veículo ausente no payload.";
+  
+  if (!hasFiniteCoordinates(freightData.origem, freightData.origemLat, freightData.origemLng)) {
+      return "Coordenadas de origem inválidas ou ausentes.";
+  }
+  if (!hasFiniteCoordinates(freightData.destino, freightData.destinoLat, freightData.destinoLng)) {
+      return "Coordenadas de destino inválidas ou ausentes.";
+  }
+  
   return null; // Null significa que passou em todas as checagens
 };
 
@@ -76,18 +84,12 @@ export const useClientFreight = () => {
     };
   }, []);
 
-  /*
-  =========================================================
-  CREATE FREIGHT (COMUNICAÇÃO DIRETA SEM SUPRESSÃO)
-  =========================================================
-  */
   const createFreight = useCallback(async ({ freightData, onSuccess, onError }: CreateFreightPayload): Promise<string | null> => {
     if (actionLock.current) {
       if (onError) onError('OPERACAO_EM_PROCESSAMENTO');
       return null;
     }
 
-    // Validação que não esconde o motivo do erro
     const validationErrorMsg = validateFreightPayload(freightData);
     if (validationErrorMsg) {
       console.error("[HOOK - CTO LOG] Payload barrado:", validationErrorMsg, freightData);
@@ -101,7 +103,6 @@ export const useClientFreight = () => {
     try {
       const response = await clientFreightService.criarFrete(freightData as any);
 
-      // Se o Firebase rejeitar, agora a mensagem VAI estourar na tela do Cliente!
       if (!response?.success) {
         const errorMsg = normalizeErrorMessage(response?.error, 'O servidor rejeitou a cotação. Verifique permissões do Firebase.');
         if (onError) onError(errorMsg);
@@ -130,11 +131,6 @@ export const useClientFreight = () => {
     }
   }, []);
 
-  /*
-  =========================================================
-  CANCEL FREIGHT
-  =========================================================
-  */
   const cancelFreight = useCallback(async (freightId: string, onSuccess?: () => void, onError?: (message: string) => void) => {
     const normalizedFreightId = typeof freightId === 'string' ? freightId.trim() : '';
     
