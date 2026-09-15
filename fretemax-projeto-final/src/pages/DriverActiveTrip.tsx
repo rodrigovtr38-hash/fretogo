@@ -1,8 +1,3 @@
-// =========================================================
-// NOME DO ARQUIVO: src/pages/DriverActiveTrip.tsx
-// CTO-Log: Blindagem de GPS contra Paradas Fantasmas e Ajuste de Nomenclatura.
-// =========================================================
-
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db, auth, storage } from '../firebase'; 
@@ -107,7 +102,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     ? { lat: frete.origemLat, lng: frete.origemLng } 
     : mapDestinoGPS;
 
-  // 🔥 CTO FIX: Blindagem contra quebra de mapa quando a parada anterior não existe (Fantasma)
   const mapOriginGPS = currentGps || (frete?.status === AppTripState.EM_TRANSPORTE 
     ? (paradaAtualIndex === 0 
         ? { lat: frete?.origemLat as number, lng: frete?.origemLng as number } 
@@ -140,9 +134,9 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       || 'Destino da rota';
 
   const pinEntregasArray = Array.isArray(frete.pinEntregas) ? frete.pinEntregas : (frete.pinEntregas ? [frete.pinEntregas as string] : []);
-  const totalParadas = pinEntregasArray.length > 0 ? pinEntregasArray.length : (paradas.length || 1);
+  const totalParadas = pinEntregasArray.length > 0 ? pinEntregasArray.length : (paradas.length + 1);
 
-  const etapasRoteiro = ['Coleta', ...Array.from({length: totalParadas}).map((_, i) => totalParadas > 1 ? `Entrega ${i+1}` : 'Entrega')];
+  const etapasRoteiro = ['COLETA', ...Array.from({length: totalParadas}).map((_, i) => `ENTREGA ${i+1}/${totalParadas}`)];
   let etapaAtualIndex = 0;
   
   if (!isFaseColeta) {
@@ -448,7 +442,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
 
         <div className="mb-6 text-center">
           <h2 className="text-xl font-black text-cyan-400 uppercase tracking-widest">
-            {isFaseColeta ? 'Etapa 1: Coleta' : totalParadas > 1 ? `Etapa ${etapaAtualIndex + 1}: Entrega ${paradaAtualIndex + 1} de ${totalParadas}` : 'Etapa 2: Entrega Final'}
+            {isFaseColeta ? 'COLETA' : `ENTREGA ${paradaAtualIndex + 1}/${totalParadas}`}
           </h2>
           <div className="mt-2 flex flex-col items-center gap-2">
             <p className="text-[10px] uppercase font-black text-slate-500">Embarcador: <span className="text-white">{frete.clienteNome || 'Privado'}</span></p>
@@ -527,7 +521,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
 
           {new Set<string>([AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE]).has(String(frete.status)) && (
             <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full flex items-center justify-center h-16 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.4)] bg-cyan-500 hover:bg-cyan-400">
-              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : frete.status === AppTripState.COLETANDO ? 'Registrar Evidência de Coleta' : totalParadas > 1 ? `Cheguei na Entrega ${paradaAtualIndex + 1} - Registrar PIN` : 'Cheguei na Entrega - Registrar PIN'}
+              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : frete.status === AppTripState.COLETANDO ? 'Registrar Evidência de Coleta' : `Cheguei na Entrega ${paradaAtualIndex + 1}/${totalParadas} - Registrar PIN`}
             </button>
           )}
         </div>
@@ -603,7 +597,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
               ) : (
                 <>
                   <div className="flex justify-center mb-4"><div className="bg-cyan-500/10 p-4 rounded-full border border-cyan-500/20"><LockKeyhole size={32} className="text-cyan-400" /></div></div>
-                  <h3 className="text-white text-center font-black mb-2 uppercase text-xl tracking-tight">{frete.status === AppTripState.COLETANDO ? 'Evidência de Coleta' : 'Evidência de Entrega'}</h3>
+                  <h3 className="text-white text-center font-black mb-2 uppercase text-xl tracking-tight">{frete.status === AppTripState.COLETANDO ? 'Evidência de Coleta' : `Evidência de Entrega ${paradaAtualIndex + 1}/${totalParadas}`}</h3>
                   
                   {!isFotoConfirmada ? (
                     <div className="mb-6 mt-4">
