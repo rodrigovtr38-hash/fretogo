@@ -47,11 +47,12 @@ export interface FreightPayload {
   clienteDocumento?: string;
   distancia?: number;
   veiculo?: string;
-  peso?: string;
+  peso?: string | number;
   tipoMaterial?: string;
   qtdVolumes?: string;
   valorNF?: string;
   observacoes?: string;
+  valorBrutoInput?: number;
   valorTotal?: number;
   valorFreteBruto?: number;
   valorMotorista?: number;
@@ -97,8 +98,9 @@ const getCoordinate = (payload: FreightPayload, side: 'origem' | 'destino', axis
 const normalizeError = (error: unknown, fallback: string): string => {
   if (error && typeof error === 'object') {
     const firebaseError = error as { code?: unknown; message?: unknown };
-    if (typeof firebaseError.code === 'string' && firebaseError.code.trim()) return firebaseError.code;
+    // CTO FIX: A mensagem de erro real tem precedência absoluta sobre o código abstrato.
     if (typeof firebaseError.message === 'string' && firebaseError.message.trim()) return firebaseError.message;
+    if (typeof firebaseError.code === 'string' && firebaseError.code.trim()) return firebaseError.code;
   }
   return fallback;
 };
