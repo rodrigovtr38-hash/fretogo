@@ -13,7 +13,6 @@ interface MapaClienteProps {
   motoristaId?: string | null;
   vehicleType?: string;
   realDriversCount?: number;
-  // 🔥 CTO FIX: Props adicionadas para roteamento dinâmico
   paradaAtualIndex?: number;
   onRouteUpdate?: (eta: number, distance: number) => void;
 }
@@ -102,12 +101,21 @@ function MapaCliente({
   const motoristaLat = motoristaPos?.lat;
   const motoristaLng = motoristaPos?.lng;
 
-  // 🔥 CTO FIX: Inteligência do Roteador (Quem é a Origem e Quem é o Destino AGORA)
+  // Estado para ancorar a origem da rota apenas uma vez durante a coleta, evitando recálculos por flutuação de GPS
+  const [pickupStartPos, setPickupStartPos] = useState<Coordinates | null>(null);
+
+  useEffect(() => {
+      if (motoristaLat && motoristaLng && !pickupStartPos) {
+          setPickupStartPos({ lat: motoristaLat, lng: motoristaLng });
+      }
+  }, [motoristaLat, motoristaLng, pickupStartPos]);
+
+  // 🔥 CTO FIX: Inteligência do Roteador blindada contra memory/API leak do GPS
   const activeRouting = useMemo(() => {
       if (!origem || !destino) return null;
 
       // 1. Cenário pré-aceite: Motorista não existe. Desenha a rota inteira Origem -> Destinos
-      if (!motoristaLat || !motoristaLng) {
+      if (!motoristaId) {
           return {
               origin: origem,
               destination: allStops[allStops.length - 1] || destino,
@@ -115,25 +123,31 @@ function MapaCliente({
           };
       }
 
-      // 2. Cenário Pós-Aceite: Rota viva partindo do motorista
-      const posAtual = { lat: motoristaLat, lng: motoristaLng };
       const msg = (operationalMessage || '').toLowerCase();
       const isGoingToPickup = msg.includes('aceito') || msg.includes('indo') || msg.includes('coleta');
 
+      // 2. Cenário Pós-Aceite (Indo Coleta): Rota viva partindo da posição ancorada do motorista
       if (isGoingToPickup) {
-          // O motorista está a caminho da Coleta
-          return { origin: posAtual, destination: origem, waypoints: [] };
+          if (!pickupStartPos) return null; // Aguarda o primeiro pulso de GPS ancorar
+          return { origin: pickupStartPos, destination: origem, waypoints: [] };
       }
 
-      // O motorista está a caminho de uma Entrega específica
+      // 3. Cenário Pós-Coleta (Entregas): O motorista está a caminho das Entregas
       const pIndex = paradaAtualIndex || 0;
-      const currentDrop = allStops[pIndex] || allStops[allStops.length - 1] || destino;
+      
+      // A rota sempre parte da origem do frete (se for a primeira parada) ou do ponto de parada recém finalizado.
+      const startPoint = pIndex === 0 ? origem : (allStops[pIndex - 1] || origem);
+      const endDrop = allStops[allStops.length - 1] || destino;
 
-      return { origin: posAtual, destination: currentDrop, waypoints: [] };
+      // Waypoints carregam o "restante" das paradas
+      const waypoints = allStops.slice(pIndex, -1).map(p => ({ location: p, stopover: true }));
 
-  }, [origem, destino, motoristaLat, motoristaLng, motoristaId, allStops, operationalMessage, paradaAtualIndex]);
+      return { origin: startPoint, destination: endDrop, waypoints };
 
-  // 🔥 CTO FIX: Chamada Real ao Google Maps baseada na rota ativa calculada
+  // 🔥 NOTA: motoristaLat e motoristaLng NÃO ESTÃO AQUI para impedir múltiplas requisições pagas!
+  }, [origem, destino, motoristaId, allStops, operationalMessage, paradaAtualIndex, pickupStartPos]);
+
+  // 🔥 CTO FIX: Chamada Real ao Google Maps baseada na rota ativa calculada (Dispara apenas nas trocas de estado)
   useEffect(() => {
      if (!isLoaded || !activeRouting || !window.google) return;
      
