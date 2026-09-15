@@ -3,10 +3,12 @@
 // CTO-Log: Torre de Controle Inteligente (Operacional Definitivo).
 // Status: Senha hardcoded removida. Card Operacional Full-Stack (Cliente, PIX, MP, PINs).
 // Correção (Fluxo Motorista): Refatoração de leitura do payload (fotosPod e chavePixMotorista).
+// Melhoria: Badges Dinâmicos, Bypass Seguro, Desbloqueio de PIN e Painel de Ocorrências.
 // =========================================================
 
 import { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { collection, onSnapshot, doc, query, orderBy, runTransaction, where, serverTimestamp, limit, writeBatch, getDocs } from 'firebase/firestore';
 import { AppTripState } from '../state/tripStateMachine'; 
 import { paymentService } from '../services/paymentService';
@@ -14,7 +16,7 @@ import {
   Loader2, CheckCircle, XCircle, Search, ShieldAlert, Truck, Users, 
   DollarSign, Activity, Clock, AlertTriangle, Eye, 
   Map as MapIcon, Wallet, Zap, MessageCircle, ShieldCheck, RefreshCcw, Lock, Target, Key, Radio,
-  Trash2, BrainCircuit, TrendingDown, ArrowUpRight, PieChart, Package, FileText, Copy
+  Trash2, BrainCircuit, TrendingDown, ArrowUpRight, PieChart, Package, FileText, Copy, Unlock, FastForward, CheckSquare
 } from 'lucide-react';
 
 import { ftiAnalytics } from '../core/ai/analytics/ia.metrics';
@@ -57,6 +59,9 @@ export default function Admin() {
 
   const [ftiSummary, setFtiSummary] = useState<any>(null);
   const [isCleaning, setIsCleaning] = useState(false);
+  
+  const [isProcessingContingency, setIsProcessingContingency] = useState(false);
+  const [archivedAlerts, setArchivedAlerts] = useState<Set<string>>(new Set());
 
   // 1. CONEXÕES
   useEffect(() => {
@@ -137,6 +142,15 @@ export default function Admin() {
     });
   }, [fretes, searchTerm, statusFilter, timeFilter]);
 
+  const alertasCriticos = useMemo(() => {
+    return fretes.filter(f => {
+      if (archivedAlerts.has(f.id)) return false;
+      const isBlock = f.bloqueioPin === true;
+      const isPixPendente = f.status === 'finalizando' && !(f.chavePixMotorista || f.motoristaPix || f.chavePix);
+      return isBlock || isPixPendente;
+    });
+  }, [fretes, archivedAlerts]);
+
   const stats = useMemo(() => {
     const period = fretes.filter(f => filterByTime(f, timeFilter));
     const hoje = new Date(); hoje.setHours(0,0,0,0);
@@ -162,26 +176,73 @@ export default function Admin() {
     return c;
   }, [motoristasAprovados]);
 
-  // 3. AÇÕES
+  // 3. AÇÕES & CONTINGÊNCIA
   const forceStatus = async (id: string, novoStatus: string) => {
-    if (!window.confirm(`Forçar status para: ${novoStatus.toUpperCase()}?`)) return;
+    if (novoStatus === 'finalizado' || novoStatus === AppTripState.CANCELADO) {
+      if (!window.confirm(`Forçar status para: ${novoStatus.toUpperCase()}?`)) return;
+      try {
+        await runTransaction(db, async (t) => {
+          const ref = doc(db, 'fretes', id);
+          const d = await t.get(ref);
+          if (!d.exists()) throw new Error("Frete não encontrado.");
+          if (novoStatus === AppTripState.CANCELADO && d.data().status === AppTripState.EM_TRANSPORTE) throw new Error("Em transporte. Abortado.");
+          
+          if (novoStatus === 'finalizado' && d.data().status !== AppTripState.ENTREGUE) {
+             throw new Error("Apenas fretes 'Entregues' podem ser forçados para 'Finalizado' (Liquidação).");
+          }
+
+          const updateData: any = { status: novoStatus, adminAction: true, updatedAt: serverTimestamp() };
+          if (novoStatus === 'finalizado' && d.data().status === AppTripState.ENTREGUE) {
+            updateData.repasseEfetuado = true;
+            updateData.repasseData = serverTimestamp();
+            updateData.repassePor = authUser.uid;
+            updateData.repasseValor = Number(d.data().valorLiquidoMotorista || d.data().valorMotorista || 0);
+          }
+          t.update(ref, updateData);
+        });
+        alert(novoStatus === 'finalizado' ? '✅ Repasse liquidado!' : `✅ Status alterado para ${novoStatus}`);
+      } catch (e: any) { alert(e.message); }
+    } else {
+       alert("Ação restrita de Torre. Use os controles de Continência (Bypass) ou navegação orgânica da carga.");
+    }
+  };
+
+  const handleBypassEtapa = async (id: string) => {
+    if (!window.confirm("⚠️ ATENÇÃO: Deseja forçar o avanço da etapa sem o PIN do cliente? Esta intervenção será auditada.")) return;
+    setIsProcessingContingency(true);
     try {
-      await runTransaction(db, async (t) => {
-        const ref = doc(db, 'fretes', id);
-        const d = await t.get(ref);
-        if (!d.exists()) throw new Error("Frete não encontrado.");
-        if (novoStatus === AppTripState.CANCELADO && d.data().status === AppTripState.EM_TRANSPORTE) throw new Error("Em transporte. Abortado.");
-        const updateData: any = { status: novoStatus, adminAction: true, updatedAt: serverTimestamp() };
-        if (novoStatus === 'finalizado' && d.data().status === AppTripState.ENTREGUE) {
-          updateData.repasseEfetuado = true;
-          updateData.repasseData = serverTimestamp();
-          updateData.repassePor = authUser.uid;
-          updateData.repasseValor = Number(d.data().valorLiquidoMotorista || d.data().valorMotorista || 0);
-        }
-        t.update(ref, updateData);
-      });
-      alert(novoStatus === 'finalizado' ? '✅ Repasse liquidado!' : `✅ Status alterado para ${novoStatus}`);
-    } catch (e: any) { alert(e.message); }
+      const functions = getFunctions();
+      const bypassFunc = httpsCallable(functions, 'bypassPinEtapaAdmin');
+      await bypassFunc({ freteId: id });
+      alert("✅ Avanço operacional executado com sucesso.");
+    } catch (e: any) {
+      alert(`Erro na Contingência: ${e.message}`);
+    } finally {
+      setIsProcessingContingency(false);
+    }
+  };
+
+  const handleResetBloqueio = async (id: string) => {
+    if (!window.confirm("Deseja desbloquear as tentativas de PIN para este motorista?")) return;
+    setIsProcessingContingency(true);
+    try {
+      const functions = getFunctions();
+      const resetFunc = httpsCallable(functions, 'resetBloqueioPinAdmin');
+      await resetFunc({ freteId: id });
+      alert("✅ PIN Desbloqueado com sucesso.");
+    } catch (e: any) {
+      alert(`Erro no Desbloqueio: ${e.message}`);
+    } finally {
+      setIsProcessingContingency(false);
+    }
+  };
+
+  const arquivarAlerta = (id: string) => {
+    setArchivedAlerts(prev => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
   };
 
   const handleReembolso = async (idPedido: string) => {
@@ -215,6 +276,46 @@ export default function Admin() {
   const copyPix = (pix: string) => {
     navigator.clipboard.writeText(pix);
     alert('Chave PIX copiada para a área de transferência!');
+  };
+
+  // 4. HELPERS VISUAIS DA TORRE
+  const getEstadoOperacional = (f: any) => {
+    const isColeta = f.status === 'coletando';
+    const isTransporte = f.status === 'em_transporte';
+    const isFinalizando = f.status === 'finalizando';
+    const isConcluido = f.status === 'entregue' || f.status === 'finalizado';
+
+    let paradaIndex = f.paradaAtualIndex || 0;
+    const totalEntregas = f.paradas ? f.paradas.length + 1 : 1;
+    let etapaChave = isColeta ? 'coleta' : `parada_${paradaIndex}`;
+    
+    const temFoto = !!(f.fotosPod && f.fotosPod[etapaChave]);
+    
+    let currentNome = isColeta ? 'COLETA' : isTransporte ? `ENTREGA ${paradaIndex + 1}/${totalEntregas}` : f.status.toUpperCase();
+    
+    let badgeType = 'default';
+    let badgeLabel = f.status.toUpperCase();
+
+    if (f.bloqueioPin) {
+       badgeType = 'red';
+       badgeLabel = '🔴 BLOQUEADO (PIN)';
+    } else if (isColeta || isTransporte) {
+       if (temFoto) {
+          badgeType = 'green';
+          badgeLabel = '🟢 FOTO OK / AGUARD. PIN';
+       } else {
+          badgeType = 'yellow';
+          badgeLabel = '🟡 AGUARDANDO FOTO';
+       }
+    } else if (isFinalizando) {
+       badgeType = 'blue';
+       badgeLabel = '🔵 ETAPAS CONCLUÍDAS';
+    } else if (isConcluido) {
+       badgeType = 'green-solid';
+       badgeLabel = '✅ FINALIZADO';
+    }
+
+    return { etapaChave, currentNome, paradaIndex, totalEntregas, temFoto, badgeType, badgeLabel, isColeta, isTransporte };
   };
 
   if (loading) return (
@@ -260,6 +361,33 @@ export default function Admin() {
         {/* ================== CORRIDAS (MALHA LOGÍSTICA FULL-STACK) ================== */}
         {tab === 'corridas' && (
           <div className="animate-in fade-in duration-500 space-y-6">
+
+             {/* PAINEL DE ALERTAS CRÍTICOS */}
+             {alertasCriticos.length > 0 && (
+                <div className="bg-red-500/10 border border-red-500/30 p-4 rounded-[2rem] shadow-xl">
+                   <div className="flex items-center gap-3 mb-4">
+                      <AlertTriangle className="text-red-500" />
+                      <h3 className="text-red-500 font-black uppercase tracking-widest text-sm">Ocorrências na Operação</h3>
+                   </div>
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {alertasCriticos.map(a => (
+                         <div key={`alerta_${a.id}`} className="bg-slate-950 p-3 rounded-xl border border-white/5 flex justify-between items-center">
+                            <div>
+                               <p className="text-[10px] font-mono text-slate-400">ID: #{a.id.slice(0,8).toUpperCase()}</p>
+                               <p className="text-xs font-bold text-white">
+                                  {a.bloqueioPin ? '🔴 Bloqueio de PIN detectado' : '💰 Aguardando PIX para Liquidação'}
+                               </p>
+                            </div>
+                            <div className="flex gap-2">
+                               <button onClick={() => setSearchTerm(a.id.slice(0,8))} className="text-[10px] bg-slate-800 px-3 py-1.5 rounded-lg text-white font-bold">Ver Frete</button>
+                               <button onClick={() => arquivarAlerta(a.id)} className="text-[10px] bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-lg text-slate-500 font-bold hover:text-white">Arquivar</button>
+                            </div>
+                         </div>
+                      ))}
+                   </div>
+                </div>
+             )}
+
              <div className="bg-slate-900/60 p-6 rounded-[2.5rem] border border-white/5 flex flex-col md:flex-row gap-4 mb-4 shadow-xl">
                 <div className="flex-1 relative">
                    <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-cyan-500 w-5 h-5" />
@@ -278,12 +406,24 @@ export default function Admin() {
              {fretesFiltrados.length === 0 ? (
                <div className="text-center py-24 bg-slate-900/30 rounded-[3rem] border border-dashed border-white/5"><p className="text-slate-400 font-black uppercase tracking-widest text-lg">Malha Limpa</p></div>
              ) : (
-               fretesFiltrados.map(f => (
+               fretesFiltrados.map(f => {
+                 const estadoObj = getEstadoOperacional(f);
+
+                 return (
                  <div key={f.id} className="bg-slate-900/80 border rounded-[2.5rem] p-6 transition-all relative border-white/5 shadow-2xl overflow-hidden">
                     {/* CABEÇALHO */}
                     <div className="flex flex-wrap justify-between items-center mb-6 border-b border-white/5 pb-4 gap-4">
                       <div className="flex items-center gap-4">
-                        <span className="px-4 py-1.5 rounded-lg text-[10px] font-black uppercase border bg-cyan-500/10 text-cyan-400 border-cyan-500/20">{f.status.replace('_', ' ')}</span>
+                        <span className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase border 
+                           ${estadoObj.badgeType === 'red' ? 'bg-red-500/20 text-red-400 border-red-500/30' : 
+                             estadoObj.badgeType === 'green' ? 'bg-green-500/20 text-green-400 border-green-500/30' : 
+                             estadoObj.badgeType === 'yellow' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' : 
+                             estadoObj.badgeType === 'blue' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 
+                             estadoObj.badgeType === 'green-solid' ? 'bg-green-600 text-white border-green-500/50' : 
+                             'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'}`}>
+                           {estadoObj.badgeLabel}
+                        </span>
+                        <span className="text-[10px] font-black uppercase bg-slate-800 text-slate-300 px-3 py-1 rounded-md">ETAPA: {estadoObj.currentNome}</span>
                         <span className="text-[10px] font-mono text-slate-500 font-bold">ID: #{f.id.slice(0,8).toUpperCase()}</span>
                       </div>
                       <span className="text-xs font-black uppercase text-white bg-slate-800 px-4 py-2 rounded-xl border border-white/10 flex items-center gap-2"><Users size={14} className="text-cyan-400"/> CLIENTE: {f.clienteNome || 'Embarcador Não Identificado'}</span>
@@ -309,31 +449,61 @@ export default function Admin() {
 
                           {/* PINS & FOTOS COMPROBATIVAS */}
                           <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700/50">
-                             <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-3 flex items-center gap-1"><ShieldCheck size={12}/> Auditoria de Entrega (PINs e Comprovantes)</p>
+                             <div className="flex justify-between items-center mb-3">
+                                <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest flex items-center gap-1"><ShieldCheck size={12}/> Auditoria de Entrega (PINs e Comprovantes)</p>
+                                
+                                {/* AÇÕES DE CONTINGÊNCIA */}
+                                <div className="flex gap-2">
+                                   {(estadoObj.isColeta || estadoObj.isTransporte) && (
+                                     <button 
+                                       disabled={isProcessingContingency} 
+                                       onClick={() => handleBypassEtapa(f.id)} 
+                                       className="text-[9px] flex items-center gap-1 bg-slate-950 hover:bg-slate-800 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg font-bold uppercase transition-all"
+                                     >
+                                       <FastForward size={10}/> Bypass Etapa
+                                     </button>
+                                   )}
+                                   {f.bloqueioPin && (
+                                     <button 
+                                       disabled={isProcessingContingency} 
+                                       onClick={() => handleResetBloqueio(f.id)} 
+                                       className="text-[9px] flex items-center gap-1 bg-red-950 hover:bg-red-900 border border-red-500/50 text-red-400 px-3 py-1.5 rounded-lg font-bold uppercase transition-all"
+                                     >
+                                       <Unlock size={10}/> Desbloquear PIN
+                                     </button>
+                                   )}
+                                </div>
+                             </div>
+
                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                               <div className="bg-slate-950 p-3 rounded-lg border border-white/5">
-                                  <p className="text-[8px] uppercase text-slate-500 font-bold mb-1">PIN Coleta</p>
-                                  <p className="text-sm font-mono text-white tracking-widest">{f.pinColeta || '---'}</p>
+                               <div className="bg-slate-950 p-3 rounded-lg border border-white/5 flex flex-col justify-between">
+                                  <div>
+                                     <p className="text-[8px] uppercase text-slate-500 font-bold mb-1">PIN Coleta</p>
+                                     <p className="text-sm font-mono text-white tracking-widest">{f.pinColeta || (f.pinColeta === null ? 'CONSUMIDO' : '---')}</p>
+                                  </div>
+                                  {(f.fotosPod && f.fotosPod['coleta']) ? <a href={f.fotosPod['coleta']} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase text-cyan-400 underline mt-2 flex items-center gap-1"><Eye size={10}/> Ver Evidência</a> : <p className="text-[9px] text-amber-500 mt-2">Sem Foto</p>}
                                </div>
                                
                                {/* Iteração de Múltiplos PINs de Entrega com resgate no Map f.fotosPod */}
                                {f.pinEntregas && Array.isArray(f.pinEntregas) ? f.pinEntregas.map((pin: string, idx: number) => {
                                   const fotoUrl = (f.fotosPod && f.fotosPod[`parada_${idx}`]) || (f.fotosEntregas && f.fotosEntregas[idx]);
+                                  const isCurrent = (estadoObj.isTransporte && estadoObj.paradaIndex === idx);
                                   return (
-                                      <div key={idx} className="bg-slate-950 p-3 rounded-lg border border-white/5 flex flex-col justify-between">
-                                        <div><p className="text-[8px] uppercase text-emerald-500 font-bold mb-1">PIN Entrega {idx + 1}</p><p className="text-sm font-mono text-emerald-400">{pin}</p></div>
-                                        {fotoUrl ? <a href={fotoUrl} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase text-cyan-400 underline mt-2">Ver Foto</a> : <p className="text-[9px] text-amber-500 mt-2">Pendente</p>}
+                                      <div key={idx} className={`bg-slate-950 p-3 rounded-lg border flex flex-col justify-between ${isCurrent ? 'border-cyan-500/30 bg-cyan-950/20' : 'border-white/5'}`}>
+                                        <div><p className="text-[8px] uppercase text-emerald-500 font-bold mb-1">PIN Entrega {idx + 1}</p><p className="text-sm font-mono text-emerald-400">{pin === null ? 'CONSUMIDO' : pin}</p></div>
+                                        {fotoUrl ? <a href={fotoUrl} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase text-cyan-400 underline mt-2 flex items-center gap-1"><Eye size={10}/> Ver Evidência</a> : <p className="text-[9px] text-amber-500 mt-2">Sem Foto</p>}
                                       </div>
                                   );
                                }) : (
-                                  <div className="bg-slate-950 p-3 rounded-lg border border-white/5 flex flex-col justify-between">
-                                    <div><p className="text-[8px] uppercase text-emerald-500 font-bold mb-1">PIN Final</p><p className="text-sm font-mono text-emerald-400">{typeof f.pinEntregas === 'string' ? f.pinEntregas : f.pinEntrega || '---'}</p></div>
-                                    {((f.fotosPod && (f.fotosPod['parada_0'] || Object.values(f.fotosPod)[0])) || f.comprovanteUrl) ? <a href={((f.fotosPod && (f.fotosPod['parada_0'] || Object.values(f.fotosPod)[0])) || f.comprovanteUrl) as string} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase text-cyan-400 underline mt-2">Ver Foto</a> : <p className="text-[9px] text-amber-500 mt-2">Pendente</p>}
+                                  <div className={`bg-slate-950 p-3 rounded-lg border ${estadoObj.isTransporte ? 'border-cyan-500/30' : 'border-white/5'} flex flex-col justify-between`}>
+                                    <div><p className="text-[8px] uppercase text-emerald-500 font-bold mb-1">PIN Final</p><p className="text-sm font-mono text-emerald-400">{f.pinEntrega || (typeof f.pinEntregas === 'string' ? f.pinEntregas : '---')}</p></div>
+                                    {((f.fotosPod && (f.fotosPod['parada_0'] || Object.values(f.fotosPod)[0])) || f.comprovanteUrl) ? <a href={((f.fotosPod && (f.fotosPod['parada_0'] || Object.values(f.fotosPod)[0])) || f.comprovanteUrl) as string} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase text-cyan-400 underline mt-2 flex items-center gap-1"><Eye size={10}/> Ver Evidência</a> : <p className="text-[9px] text-amber-500 mt-2">Sem Foto</p>}
                                   </div>
                                )}
 
-                               {/* Garante a exibição de fotos extras do Map fotosPod (caso a estrutura do PIN não acompanhe a quantidade de paradas) */}
+                               {/* Garante a exibição de fotos extras do Map fotosPod */}
                                {f.fotosPod && Object.entries(f.fotosPod).map(([chave, url], idx) => {
+                                  if (chave === 'coleta') return null;
                                   if (Array.isArray(f.pinEntregas)) {
                                       const index = parseInt(chave.replace('parada_', ''), 10);
                                       if (!isNaN(index) && index < f.pinEntregas.length) return null; // Já mostrado
@@ -347,7 +517,7 @@ export default function Admin() {
                                                <p className="text-[8px] uppercase text-emerald-500 font-bold mb-1">Comprovante</p>
                                                <p className="text-[10px] font-mono text-slate-500">Parada Extra</p>
                                            </div>
-                                           <a href={url as string} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase text-cyan-400 underline mt-2">Ver Foto</a>
+                                           <a href={url as string} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase text-cyan-400 underline mt-2 flex items-center gap-1"><Eye size={10}/> Ver Foto</a>
                                        </div>
                                   );
                                })}
@@ -362,7 +532,7 @@ export default function Admin() {
                              <div><p className="text-[8px] text-slate-500 uppercase font-black mb-1">Valor Embarcador</p><p className="text-lg font-black text-green-400">R$ {Number(f.valorBruto || f.valorTotal || 0).toFixed(2)}</p></div>
                           </div>
 
-                          <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700/50 space-y-3">
+                          <div className={`bg-slate-900/50 p-4 rounded-xl border ${(f.status === 'finalizando' && !(f.chavePixMotorista || f.motoristaPix || f.chavePix)) ? 'border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.1)]' : 'border-slate-700/50'} space-y-3`}>
                              <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest flex items-center gap-1"><Wallet size={12}/> Financeiro Motorista</p>
                              <div className="flex justify-between items-center bg-slate-950 p-3 rounded-lg border border-white/5">
                                 <div><p className="text-[8px] uppercase text-slate-500 font-bold mb-1">Status Repasse</p><p className={`text-sm font-black ${f.repasseEfetuado ? 'text-green-500' : 'text-amber-500'}`}>{f.repasseEfetuado ? 'LIQUIDADO' : 'PENDENTE'}</p></div>
@@ -370,7 +540,12 @@ export default function Admin() {
                              </div>
                              
                              <div className="flex justify-between items-center bg-slate-950 p-3 rounded-lg border border-white/5">
-                                <div><p className="text-[8px] uppercase text-slate-500 font-bold mb-1">Chave PIX Cadastrada</p><p className="text-sm font-mono text-white truncate max-w-[150px]">{f.chavePixMotorista || f.motoristaPix || f.chavePix || 'Não informada na DB'}</p></div>
+                                <div>
+                                   <p className="text-[8px] uppercase text-slate-500 font-bold mb-1">Chave PIX Cadastrada</p>
+                                   <p className={`text-sm font-mono truncate max-w-[150px] ${(f.chavePixMotorista || f.motoristaPix || f.chavePix) ? 'text-white' : 'text-amber-500'}`}>
+                                      {f.chavePixMotorista || f.motoristaPix || f.chavePix || 'Não informada na DB'}
+                                   </p>
+                                </div>
                                 {(f.chavePixMotorista || f.motoristaPix || f.chavePix) && <button onClick={() => copyPix(f.chavePixMotorista || f.motoristaPix || f.chavePix)} className="text-[10px] bg-cyan-900/30 hover:bg-cyan-900/60 px-3 py-1.5 rounded-md text-cyan-400 border border-cyan-500/20 font-bold uppercase transition-all flex gap-1"><Copy size={12}/> Copiar</button>}
                              </div>
                           </div>
@@ -386,7 +561,8 @@ export default function Admin() {
                        </div>
                     </div>
                  </div>
-               ))
+                 );
+               })
              )}
           </div>
         )}
