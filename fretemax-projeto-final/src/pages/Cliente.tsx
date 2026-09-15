@@ -568,7 +568,6 @@ export default function Cliente() {
     let requiresNewDocument = !createdFreteId;
 
     try {
-      // CTO FIX: Auditoria rigorosa de Estado para Bloquear IDs Zumbis
       if (createdFreteId) {
         const docRef = doc(db, 'fretes', createdFreteId);
         const docSnap = await getDoc(docRef);
@@ -586,12 +585,11 @@ export default function Cliente() {
 
           if (lockedStates.includes(data.status) || data.pagamentoStatus === 'aprovado' || data.transactionId) {
             requiresNewDocument = true;
-            createdFreteId = null; // Destrói referência do zumbi, forçando um novo ciclo limpo
+            createdFreteId = null; 
           }
         }
       }
 
-      // Preparação universal do Payload (Usado tanto para Create quanto para Sync/Update)
       const c1 = await getValidCoords([coleta.rua, coleta.num, coleta.bairro, coleta.cidade, coleta.uf, coleta.cep, 'Brasil'].filter(Boolean).join(', '), coleta.cep);
       
       const coordsEntregas = [];
@@ -637,6 +635,7 @@ export default function Cliente() {
         coleta, 
         entrega: destinoFinal, 
         paradas: coordsEntregas.length > 1 ? coordsEntregas.slice(0, -1) : [],
+        todasEntregas: coordsEntregas,
         origemLat: c1.lat, 
         origemLng: c1.lng, 
         destinoLat: destinoFinal.lat, 
@@ -662,7 +661,6 @@ export default function Cliente() {
         localStorage.setItem('fretogo_current_order', createdFreteId);
         setCurrentOrderId(createdFreteId);
       } else {
-        // CTO FIX: Sincronização obrigatória do banco ANTES do pagamento
         await updateDoc(doc(db, 'fretes', createdFreteId as string), {
           ...payload,
           status: 'aguardando_pagamento',
@@ -670,7 +668,6 @@ export default function Cliente() {
         });
       }
 
-      // Despacho Financeiro (Payload ID e Valor agora estão matematicamente idênticos ao banco)
       const paymentPayload = {
         valor: valorOfertaNum, 
         descricao: `Postagem de Carga - ${vehicle ? VEHICLE_CONFIG[vehicle]?.nome : 'FretoGo'}`,
