@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
-import { collection, addDoc, serverTimestamp, onSnapshot, doc, Timestamp, updateDoc } from 'firebase/firestore'; 
+import { collection, addDoc, serverTimestamp, onSnapshot, doc, Timestamp, updateDoc, getDoc } from 'firebase/firestore'; 
 import { getDatabase, ref, onValue, query, orderByChild, equalTo } from 'firebase/database';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
@@ -565,72 +565,91 @@ export default function Cliente() {
     }
 
     let createdFreteId = currentOrderId;
+    let requiresNewDocument = !createdFreteId;
 
     try {
-      if (!createdFreteId) {
-        const c1 = await getValidCoords([coleta.rua, coleta.num, coleta.bairro, coleta.cidade, coleta.uf, coleta.cep, 'Brasil'].filter(Boolean).join(', '), coleta.cep);
-        
-        const coordsEntregas = [];
-        for (const e of entregas) {
-           const c = await getValidCoords([e.rua, e.num, e.bairro, e.cidade, e.uf, e.cep, 'Brasil'].filter(Boolean).join(', '), e.cep);
-           coordsEntregas.push({ ...e, lat: c.lat, lng: c.lng });
+      // CTO FIX: Auditoria rigorosa de Estado para Bloquear IDs Zumbis
+      if (createdFreteId) {
+        const docRef = doc(db, 'fretes', createdFreteId);
+        const docSnap = await getDoc(docRef);
+
+        if (!docSnap.exists()) {
+          requiresNewDocument = true;
+          createdFreteId = null;
+        } else {
+          const data = docSnap.data();
+          const lockedStates = [
+            'pago', 'disponivel', 'reservado', 'aceito', 'indo_coleta',
+            'chegou_coleta', 'coletando', 'em_transporte', 'chegou_entrega',
+            'entregando', 'finalizado', 'cancelado'
+          ];
+
+          if (lockedStates.includes(data.status) || data.pagamentoStatus === 'aprovado' || data.transactionId) {
+            requiresNewDocument = true;
+            createdFreteId = null; // Destrói referência do zumbi, forçando um novo ciclo limpo
+          }
         }
-        const destinoFinal = coordsEntregas[coordsEntregas.length - 1];
-        const documentoLimpo = documento.replace(/\D/g, ''); 
-        
-        // CTO FIX: Preparação limpa de data para envio seguro (ISO 8601).
-        const parsedDate = tipoFrete === 'agendado' && dataAgendada ? new Date(dataAgendada) : null;
-        const dataAgendadaISO = parsedDate ? parsedDate.toISOString() : null;
+      }
 
-        const valorPedagioOperacao = calculoFinanceiro.tollCost;
-        
-        const payload = {
-          clienteId: currentUser.uid,
-          categoria: vehicle,
-          origem: { lat: c1.lat, lng: c1.lng, endereco: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}` },
-          destino: { lat: destinoFinal.lat, lng: destinoFinal.lng, endereco: `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}` },
-          valorPedagio: valorPedagioOperacao,
-          empresaId: currentUser.uid, 
-          tipoConta: 'b2b',
-          empresaNome: nome || 'Empresa Embarcadora',
-          empresaDocumento: documentoLimpo,
-          clienteNome: nome || 'Empresa Embarcadora', 
-          clienteZap: whatsapp, 
-          clienteDocumento: documentoLimpo,
-          distancia: validDistancia <= 15 ? 15 : validDistancia, 
-          distanciaRealKm: validDistancia, 
-          distanciaTotalKm: validDistancia, 
-          distanciaTarifada: validDistancia <= 15 ? 15 : validDistancia, 
-          veiculo: vehicle, 
-          // CTO FIX: Garantir que peso seja numérico se o backend extrair.
-          peso: peso ? parseInt(peso.replace(/\D/g, ''), 10) || 0 : 0, 
-          tipoMaterial: tipoMaterial,
-          qtdVolumes: qtdVolumes,
-          observacoes: observacoes,
-          // CTO FIX: A chave vital de precificação do Backend
-          valorBrutoInput: valorOfertaNum,
-          valorTotal: valorOfertaNum, 
-          cidadeOrigem: coleta.bairro, 
-          cidadeDestino: destinoFinal.bairro,
-          enderecoColetaTexto: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`, 
-          enderecoEntregaTexto: `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}`,
-          coleta, 
-          entrega: destinoFinal, 
-          paradas: coordsEntregas.length > 1 ? coordsEntregas.slice(0, -1) : [],
-          origemLat: c1.lat, 
-          origemLng: c1.lng, 
-          destinoLat: destinoFinal.lat, 
-          destinoLng: destinoFinal.lng, 
-          multiplasEntregas: entregas.length > 1,
-          tipoFrete,
-          // CTO FIX: ISO String é 100% serializável, ao contrário do objeto Timestamp
-          dataAgendada: dataAgendadaISO,
-          visualizacoes: 0,
-          motoristasNotificados: 0,
-          interessados: 0, 
-        };
+      // Preparação universal do Payload (Usado tanto para Create quanto para Sync/Update)
+      const c1 = await getValidCoords([coleta.rua, coleta.num, coleta.bairro, coleta.cidade, coleta.uf, coleta.cep, 'Brasil'].filter(Boolean).join(', '), coleta.cep);
+      
+      const coordsEntregas = [];
+      for (const e of entregas) {
+         const c = await getValidCoords([e.rua, e.num, e.bairro, e.cidade, e.uf, e.cep, 'Brasil'].filter(Boolean).join(', '), e.cep);
+         coordsEntregas.push({ ...e, lat: c.lat, lng: c.lng });
+      }
+      const destinoFinal = coordsEntregas[coordsEntregas.length - 1];
+      const documentoLimpo = documento.replace(/\D/g, ''); 
+      
+      const parsedDate = tipoFrete === 'agendado' && dataAgendada ? new Date(dataAgendada) : null;
+      const dataAgendadaISO = parsedDate ? parsedDate.toISOString() : null;
+      const valorPedagioOperacao = calculoFinanceiro.tollCost;
+      
+      const payload = {
+        clienteId: currentUser.uid,
+        categoria: vehicle,
+        origem: { lat: c1.lat, lng: c1.lng, endereco: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}` },
+        destino: { lat: destinoFinal.lat, lng: destinoFinal.lng, endereco: `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}` },
+        valorPedagio: valorPedagioOperacao,
+        empresaId: currentUser.uid, 
+        tipoConta: 'b2b',
+        empresaNome: nome || 'Empresa Embarcadora',
+        empresaDocumento: documentoLimpo,
+        clienteNome: nome || 'Empresa Embarcadora', 
+        clienteZap: whatsapp, 
+        clienteDocumento: documentoLimpo,
+        distancia: validDistancia <= 15 ? 15 : validDistancia, 
+        distanciaRealKm: validDistancia, 
+        distanciaTotalKm: validDistancia, 
+        distanciaTarifada: validDistancia <= 15 ? 15 : validDistancia, 
+        veiculo: vehicle, 
+        peso: peso ? parseInt(peso.replace(/\D/g, ''), 10) || 0 : 0, 
+        tipoMaterial: tipoMaterial,
+        qtdVolumes: qtdVolumes,
+        observacoes: observacoes,
+        valorBrutoInput: valorOfertaNum,
+        valorTotal: valorOfertaNum, 
+        cidadeOrigem: coleta.bairro, 
+        cidadeDestino: destinoFinal.bairro,
+        enderecoColetaTexto: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`, 
+        enderecoEntregaTexto: `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}`,
+        coleta, 
+        entrega: destinoFinal, 
+        paradas: coordsEntregas.length > 1 ? coordsEntregas.slice(0, -1) : [],
+        origemLat: c1.lat, 
+        origemLng: c1.lng, 
+        destinoLat: destinoFinal.lat, 
+        destinoLng: destinoFinal.lng, 
+        multiplasEntregas: entregas.length > 1,
+        tipoFrete,
+        dataAgendada: dataAgendadaISO,
+        visualizacoes: 0,
+        motoristasNotificados: 0,
+        interessados: 0, 
+      };
 
-        // 🔥 CTO FIX: Corrige a tipagem enviando o objeto `{ freightData }` e captura o erro real.
+      if (requiresNewDocument) {
         let errorMessage = 'Falha estrutural ao registrar carga no servidor.';
         const freteId = await createFreight({ 
           freightData: payload,
@@ -642,8 +661,16 @@ export default function Cliente() {
         createdFreteId = freteId;
         localStorage.setItem('fretogo_current_order', createdFreteId);
         setCurrentOrderId(createdFreteId);
+      } else {
+        // CTO FIX: Sincronização obrigatória do banco ANTES do pagamento
+        await updateDoc(doc(db, 'fretes', createdFreteId as string), {
+          ...payload,
+          status: 'aguardando_pagamento',
+          updatedAt: serverTimestamp()
+        });
       }
 
+      // Despacho Financeiro (Payload ID e Valor agora estão matematicamente idênticos ao banco)
       const paymentPayload = {
         valor: valorOfertaNum, 
         descricao: `Postagem de Carga - ${vehicle ? VEHICLE_CONFIG[vehicle]?.nome : 'FretoGo'}`,
