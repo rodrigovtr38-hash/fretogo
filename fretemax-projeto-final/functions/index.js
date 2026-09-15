@@ -1720,3 +1720,124 @@ exports.recalcularAutoBid = functions.firestore.document('fretes/{freteId}').onU
   });
   return null;
 });
+
+// ========================================================
+// 16. CONTINGÊNCIA ADMINISTRATIVA (NOVO - TORRE DE CONTROLE)
+// ========================================================
+exports.bypassPinEtapaAdmin = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Acesso negado. Ação restrita à Torre.');
+
+  const freteId = sanitizeText(data?.freteId, 160);
+  if (!freteId) throw new functions.https.HttpsError('invalid-argument', 'Identificador de frete ausente.');
+
+  const freteRef = db.collection('fretes').doc(freteId);
+
+  return await db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(freteRef);
+    if (!snap.exists) throw new functions.https.HttpsError('not-found', 'Frete operacional não encontrado.');
+
+    const frete = snap.data();
+    let payloadUpdate = { atualizadoEm: FieldValue.serverTimestamp() };
+    let logMsg = '';
+    let nextDriverState = '';
+
+    if (frete.status === 'coletando') {
+      payloadUpdate.status = 'em_transporte';
+      payloadUpdate.pinColeta = null; // PIN destruído logicamente
+      payloadUpdate.tentativasPin = 0;
+      payloadUpdate.bloqueioPin = false;
+      nextDriverState = 'em_transporte';
+      logMsg = "🚨 [BYPASS_TORRE]: Avanço administrativo forçado na COLETA. PIN inutilizado por contingência. Motorista liberado para a Rota.";
+    } else if (frete.status === 'em_transporte') {
+      const paradaAtualIndex = frete.paradaAtualIndex || 0;
+      const paradas = frete.paradas || [];
+      const totalEntregas = paradas.length + 1;
+
+      if (paradaAtualIndex >= totalEntregas) {
+         throw new functions.https.HttpsError('failed-precondition', 'Não existem mais entregas para avançar.');
+      }
+
+      const pinEntregasAtualizados = [...(frete.pinEntregas || [])];
+      pinEntregasAtualizados[paradaAtualIndex] = null; // Consome PIN local sem afetar array
+      
+      payloadUpdate.pinEntregas = pinEntregasAtualizados;
+      payloadUpdate.tentativasPin = 0;
+      payloadUpdate.bloqueioPin = false;
+
+      if (paradaAtualIndex + 1 < totalEntregas) {
+        payloadUpdate.paradaAtualIndex = paradaAtualIndex + 1;
+        payloadUpdate.status = 'em_transporte';
+        nextDriverState = 'em_transporte';
+        logMsg = `🚨 [BYPASS_TORRE]: Avanço administrativo executado na ENTREGA ${paradaAtualIndex + 1}/${totalEntregas}.`;
+      } else {
+        payloadUpdate.status = 'finalizando';
+        nextDriverState = 'finalizando';
+        logMsg = `🚨 [BYPASS_TORRE]: Avanço administrativo executado na ÚLTIMA ENTREGA. Rota concluída.`;
+      }
+    } else {
+      throw new functions.https.HttpsError('failed-precondition', `Bypass não aplicável ao status atual (${frete.status}).`);
+    }
+
+    transaction.update(freteRef, payloadUpdate);
+
+    // Sync Operacional do Motorista
+    if (frete.motoristaId) {
+      const motoristaRef = db.collection('motoristas_cadastros').doc(frete.motoristaId);
+      const motoristaOnlineRef = db.collection('motoristas_online').doc(frete.motoristaId);
+      const driverSync = {
+        state: nextDriverState,
+        atualizadoEm: FieldValue.serverTimestamp()
+      };
+      transaction.set(motoristaRef, driverSync, { merge: true });
+      transaction.set(motoristaOnlineRef, driverSync, { merge: true });
+    }
+
+    // Auditoria Oficial
+    const chatRef = freteRef.collection('chat').doc();
+    transaction.set(chatRef, {
+      texto: logMsg,
+      nome: 'Torre de Controle (Admin)',
+      tipoUsuario: 'admin',
+      administradorId: context.auth.uid,
+      createdAt: FieldValue.serverTimestamp()
+    });
+
+    return { success: true, novoStatus: payloadUpdate.status };
+  });
+});
+
+exports.resetBloqueioPinAdmin = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Acesso negado. Ação restrita à Torre.');
+
+  const freteId = sanitizeText(data?.freteId, 160);
+  if (!freteId) throw new functions.https.HttpsError('invalid-argument', 'Identificador de frete ausente.');
+
+  const freteRef = db.collection('fretes').doc(freteId);
+
+  return await db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(freteRef);
+    if (!snap.exists) throw new functions.https.HttpsError('not-found', 'Frete operacional não encontrado.');
+
+    const frete = snap.data();
+    if (!frete.bloqueioPin) {
+      throw new functions.https.HttpsError('failed-precondition', 'O motorista não possui bloqueio de PIN ativo no momento.');
+    }
+
+    transaction.update(freteRef, {
+      bloqueioPin: false,
+      tentativasPin: 0,
+      atualizadoEm: FieldValue.serverTimestamp()
+    });
+
+    const chatRef = freteRef.collection('chat').doc();
+    transaction.set(chatRef, {
+      texto: '🔓 [BYPASS_TORRE]: O Bloqueio de PIN (Bruteforce) foi limpo administrativamente. Tentativas resetadas.',
+      nome: 'Torre de Controle (Admin)',
+      tipoUsuario: 'admin',
+      administradorId: context.auth.uid,
+      createdAt: FieldValue.serverTimestamp()
+    });
+
+    return { success: true };
+  });
+});
