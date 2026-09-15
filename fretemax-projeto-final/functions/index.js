@@ -1,26 +1,3 @@
-// =========================================================
-// NOME DO ARQUIVO: functions/index.js
-// CTO-Log: Auditoria Backend - Motor de Despacho (Ponte)
-// Melhorias Implementadas:
-// 1. Arquitetura "Mural/Feed": Cargas permanecem visíveis por 15 minutos reais.
-// 2. Haversine Formula: Cálculo de distância nativo preciso.
-// 3. Centralização das Coleções Oficiais.
-// 4. 🔥 CTO FIX: Injeção da Cloud Function "getDistance" (Google Distance Matrix API).
-// 5. 🔥 CTO FIX: Injeção direta da Chave de API para deploy automático via GitHub.
-// 6. 🔥 CTO FIX: Auditoria Forense. Preservação do status real, error_message e payload completo do Google.
-// 7. 🔎 DIAGNOSTIC-LOG: Logs completos de rastreamento adicionados antes de cada throw.
-// 8. 🔥 CTO FIX (BLOCO 02): Watchdog de Reservas. Ceifador autônomo para fretes sem pagamento após 5 minutos.
-// 9. 🔥 CTO FIX (BLOCO 10): Watchdog de Liberação de Agendamentos (O "Relógio").
-// 10. 🔥 CTO FIX (BLOCO 10): Watchdog de Expiração Absoluta (Garbage Collector do expiraEm).
-// 11. 🔥 CTO FIX: Injeção da Validação Zero Trust para Foto + PIN.
-// 12. 🔥 CTO FIX: Injeção de Liquidação Centralizada de Viagem (Bypass Firestore Rules).
-// 13. 🔥 CTO FIX (PATCH BLOCO 01): Criação de Frete Zero Trust e Idempotência.
-// 14. 🔥 CTO FIX (PATCH BLOCO 01): Cancelamento Server-Side e Máquina de Estados.
-// 15. 🔥 CTO FIX (PATCH BLOCO 01): Auto-Bid Server-Side Recalculation.
-// 16. 🔥 CTO FIX (FALHA ESTRUTURAL): Correção do bloqueio de rotas diretas (0 paradas).
-// 17. 🔥 CTO FIX (RESILIÊNCIA): Filtro backend absoluto para destruição de paradas fantasmas e PIN fixo no destino.
-// =========================================================
-
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const { FieldValue, Timestamp } = require('firebase-admin/firestore');
@@ -182,6 +159,10 @@ function sanitizeFreightPayload(payload, uid) {
     ? sanitizeAddress(payload.entrega, destino, 'entrega')
     : destino;
   clean.paradas = paradas;
+  // CTO FIX: Armazena o array completo para o motorista, integrando paradas e destino
+  clean.todasEntregas = payload.todasEntregas && Array.isArray(payload.todasEntregas) 
+    ? payload.todasEntregas.map((e, i) => sanitizeAddress(e, null, `todasEntregas[${i}]`)) 
+    : [...paradas, clean.entrega];
   clean.origemLat = origem.lat;
   clean.origemLng = origem.lng;
   clean.destinoLat = destino.lat;
@@ -1350,9 +1331,10 @@ exports.validarPinDaEtapa = functions.runWith(runtimeOpts).https.onCall(async (d
     } else if (frete.status === 'em_transporte') {
       const paradaAtualIndex = frete.paradaAtualIndex || 0;
       const paradas = frete.paradas || [];
-      
-      if (paradaAtualIndex >= paradas.length && paradas.length > 0) {
-         throw new functions.https.HttpsError('failed-precondition', 'Todas as paradas já foram concluídas.');
+      const totalEntregas = paradas.length + 1; // CTO FIX: Considera destino final
+
+      if (paradaAtualIndex >= totalEntregas) {
+         throw new functions.https.HttpsError('failed-precondition', 'Todas as entregas já foram concluídas.');
       }
       
       pinCorreto = frete.pinEntregas ? frete.pinEntregas[paradaAtualIndex] : null;
@@ -1401,17 +1383,17 @@ exports.validarPinDaEtapa = functions.runWith(runtimeOpts).https.onCall(async (d
     } else {
       const paradaAtualIndex = frete.paradaAtualIndex || 0;
       const paradas = frete.paradas || [];
-      const totalParadas = paradas.length > 0 ? paradas.length : 1;
+      const totalEntregas = paradas.length + 1;
 
       // Consome o PIN desta entrega sem apagar os PINs das entregas seguintes
       const pinEntregasAtualizados = [...(frete.pinEntregas || [])];
       pinEntregasAtualizados[paradaAtualIndex] = null;
       payloadUpdate.pinEntregas = pinEntregasAtualizados;
 
-      if (paradaAtualIndex + 1 < totalParadas) {
+      if (paradaAtualIndex + 1 < totalEntregas) {
         payloadUpdate.paradaAtualIndex = paradaAtualIndex + 1;
         payloadUpdate.status = 'em_transporte';
-        mensagemLog = `✅ [Torre Operacional]: Entrega da Parada ${paradaAtualIndex + 1} validada (PIN consumido). Iniciando trajeto para o próximo ponto.`;
+        mensagemLog = `✅ [Torre Operacional]: Entrega ${paradaAtualIndex + 1}/${totalEntregas} validada (PIN consumido). Iniciando trajeto para o próximo ponto.`;
       } else {
         payloadUpdate.status = 'finalizando';
         mensagemLog = "🏁 [Torre Operacional]: Rota Logística Finalizada (Último PIN validado). Aguardando liquidação.";
@@ -1571,12 +1553,11 @@ exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data,
   const generatePin = () => Math.floor(1000 + Math.random() * 9000).toString();
   const pinColeta = generatePin();
   
-  // Garantia absoluta de array estruturado para PINs:
+  // Garantia absoluta de array estruturado para PINs (Paradas + Destino Final):
   let pinEntregas = [];
-  if (cleanPayload.paradas && cleanPayload.paradas.length > 0) {
-      pinEntregas = cleanPayload.paradas.map(() => generatePin());
-  } else {
-      pinEntregas = [generatePin()];
+  const totalEntregas = (cleanPayload.paradas ? cleanPayload.paradas.length : 0) + 1;
+  for (let i = 0; i < totalEntregas; i++) {
+      pinEntregas.push(generatePin());
   }
     
   const cidadeDestinoFormatada = sanitizeText(
