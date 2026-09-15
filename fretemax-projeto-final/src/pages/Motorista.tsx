@@ -4,6 +4,7 @@
 // Status: "Vírus dos 15km" e "Buraco Negro da Recusa" erradicados pela raiz da leitura do Firestore.
 // Evolução Fase 12 (Escrow): Transação manual removida. Lock atômico centralizado no TripLifecycle.
 // Correção "Execução Dois": Remoção do sequestro de tela. Motorista aguarda o pagamento no próprio Feed.
+// Correção "Execução Três": CTO FIX - Proteção Temporal Absoluta. Eliminação do Bug dos Fretes Fantasmas.
 // =========================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -304,10 +305,31 @@ export default function Motorista() {
         .filter(document => {
           const data = document.data();
           const expiresAt = timestampToMillis(data.ofertaExpiraEm);
+          const createdAtMillis = timestampToMillis(data.criadoEm || data.createdAt) || now;
+          const isAgendado = data.tipoFrete === 'agendado' || Boolean(data.agendado);
+
+          // 🔥 CTO FIX: Proteção Temporal Absoluta
+          let isTimeValid = false;
+
+          if (isAgendado) {
+            // Fretes Agendados não morrem em 24h. Respeita expiracao caso exista.
+            isTimeValid = expiresAt > 0 ? expiresAt >= now : true;
+          } else {
+            // Fretes Imediatos ou Legados/Testes (sem flag agendado)
+            if (expiresAt > 0) {
+              // Fonte de verdade 1: Se tem data de expiração, obedece rigorosamente.
+              isTimeValid = expiresAt >= now;
+            } else {
+              // Fonte de verdade 2 (Fallback): Fretes fantasmas/antigos sem expiraEm
+              const ageInHours = (now - createdAtMillis) / (1000 * 60 * 60);
+              isTimeValid = ageInHours <= 24; // Aborta e destrói documentos criados há mais de 24h
+            }
+          }
+
           return data.pagamentoStatus === 'aprovado'
             && !data.motoristaId
             && !BLOCKED_DISPATCH_STATUSES.has(String(data.dispatchStatus || ''))
-            && (!expiresAt || expiresAt >= now);
+            && isTimeValid;
         })
         .map(document => normalizeFreight(document.id, document.data()));
 
