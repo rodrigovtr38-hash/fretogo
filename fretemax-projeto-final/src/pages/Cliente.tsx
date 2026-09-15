@@ -578,8 +578,9 @@ export default function Cliente() {
         const destinoFinal = coordsEntregas[coordsEntregas.length - 1];
         const documentoLimpo = documento.replace(/\D/g, ''); 
         
+        // CTO FIX: Preparação limpa de data para envio seguro (ISO 8601).
         const parsedDate = tipoFrete === 'agendado' && dataAgendada ? new Date(dataAgendada) : null;
-        const firebaseTimestamp = parsedDate ? Timestamp.fromDate(parsedDate) : null;
+        const dataAgendadaISO = parsedDate ? parsedDate.toISOString() : null;
 
         const valorPedagioOperacao = calculoFinanceiro.tollCost;
         
@@ -601,10 +602,13 @@ export default function Cliente() {
           distanciaTotalKm: validDistancia, 
           distanciaTarifada: validDistancia <= 15 ? 15 : validDistancia, 
           veiculo: vehicle, 
-          peso: peso || 'Não informado', 
+          // CTO FIX: Garantir que peso seja numérico se o backend extrair.
+          peso: peso ? parseInt(peso.replace(/\D/g, ''), 10) || 0 : 0, 
           tipoMaterial: tipoMaterial,
           qtdVolumes: qtdVolumes,
           observacoes: observacoes,
+          // CTO FIX: A chave vital de precificação do Backend
+          valorBrutoInput: valorOfertaNum,
           valorTotal: valorOfertaNum, 
           cidadeOrigem: coleta.bairro, 
           cidadeDestino: destinoFinal.bairro,
@@ -619,7 +623,8 @@ export default function Cliente() {
           destinoLng: destinoFinal.lng, 
           multiplasEntregas: entregas.length > 1,
           tipoFrete,
-          dataAgendada: firebaseTimestamp,
+          // CTO FIX: ISO String é 100% serializável, ao contrário do objeto Timestamp
+          dataAgendada: dataAgendadaISO,
           visualizacoes: 0,
           motoristasNotificados: 0,
           interessados: 0, 
