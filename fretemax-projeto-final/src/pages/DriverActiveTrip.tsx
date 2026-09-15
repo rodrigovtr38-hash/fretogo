@@ -62,6 +62,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
   const [ocorrenciaMotivo, setOcorrenciaMotivo] = useState('');
 
   const [currentGps, setCurrentGps] = useState<{lat: number, lng: number} | null>(null);
+  const [etaAtiva, setEtaAtiva] = useState<number | null>(null);
 
   useEffect(() => {
     const unsubscribeGps = locationRealtimeService.onPositionUpdate((pos) => {
@@ -148,6 +149,10 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
 
   const etapaAtualKey = frete.status === AppTripState.COLETANDO ? 'coleta' : `parada_${paradaAtualIndex}`;
   const isFotoConfirmada = !!frete.fotosPod?.[etapaAtualKey];
+
+  // Preparar os mapeamentos estruturais passados ao Google Maps
+  const destinoFinalMap = frete.entrega?.lat ? { lat: frete.entrega.lat, lng: frete.entrega.lng } : null;
+  const paradasExtrasMap = paradas.filter(p => p.lat && p.lng).map(p => ({ lat: p.lat, lng: p.lng }));
 
   const handleOpenNav = async (app: 'waze' | 'google') => {
     setActionLoading(true);
@@ -432,6 +437,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
               <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400 flex items-center gap-1"><Radio size={12}/> Rastreamento Ativo</p>
               <p className="text-xs font-bold text-slate-300">
                 {distStr ? `Alvo a ${distStr}` : 'Central Conectada'}
+                {etaAtiva !== null ? ` • ~${etaAtiva} min` : ''}
               </p>
             </div>
           </div>
@@ -463,11 +469,13 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
         <div className="h-[250px] w-full mb-4 rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 relative shadow-[0_0_20px_rgba(6,182,212,0.1)]">
           <MapaCliente 
             origem={frete.origemLat ? { lat: frete.origemLat, lng: frete.origemLng } : mapOriginGPS} 
-            destino={mapDestinoGPS} 
+            destino={destinoFinalMap || mapDestinoGPS} 
+            paradasExtras={paradasExtrasMap}
             motoristaPos={currentGps}
             motoristaId={auth.currentUser?.uid || frete.id}
             paradaAtualIndex={paradaAtualIndex}
-            operationalMessage="Navegando..." 
+            operationalMessage={isFaseColeta ? "Indo para Coleta" : `Navegando para Entrega ${paradaAtualIndex + 1}/${totalParadas}`}
+            onRouteUpdate={(eta) => setEtaAtiva(eta)}
           />
         </div>
 
