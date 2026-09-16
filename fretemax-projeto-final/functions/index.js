@@ -883,6 +883,7 @@ const DRIVER_OPERATIONAL_TRANSITIONS = {
   aceito: ['indo_coleta'],
   indo_coleta: ['chegou_coleta'],
   chegou_coleta: ['coletando'],
+  coletando: ['em_transporte'],
 };
 
 const DRIVER_CANCELABLE_STATUSES = new Set([
@@ -893,6 +894,7 @@ const DRIVER_STATE_BY_TRIP_STATUS = {
   indo_coleta: 'indo_coleta',
   chegou_coleta: 'chegou_coleta',
   coletando: 'coletando',
+  em_transporte: 'em_transporte',
 };
 
 exports.atualizarDisponibilidadeMotorista = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
@@ -1157,6 +1159,7 @@ exports.alterarStatusOperacionalMotorista = functions.runWith(runtimeOpts).https
     if (novoStatus === 'indo_coleta') tripUpdate.indoColetaEm = now;
     if (novoStatus === 'chegou_coleta') tripUpdate.chegouColetaEm = now;
     if (novoStatus === 'coletando') tripUpdate.coletaIniciadaEm = now;
+    if (novoStatus === 'em_transporte') tripUpdate.transporteIniciadoEm = now;
 
     const driverUpdate = {
       state: DRIVER_STATE_BY_TRIP_STATUS[novoStatus],
@@ -1176,7 +1179,9 @@ exports.alterarStatusOperacionalMotorista = functions.runWith(runtimeOpts).https
         ? '🚚 [Torre Operacional]: Motorista iniciou o deslocamento para a coleta.'
         : novoStatus === 'chegou_coleta'
           ? '📍 [Torre Operacional]: Motorista confirmou chegada ao ponto de coleta.'
-          : '📦 [Torre Operacional]: Coleta iniciada no local.',
+          : novoStatus === 'coletando'
+            ? '📦 [Torre Operacional]: Coleta iniciada no local.'
+            : '🚀 [Torre Operacional]: Coleta concluída. Motorista iniciou a rota de entrega.',
       nome: 'Torre de Controle (Operação)',
       tipoUsuario: 'admin',
       createdAt: now,
@@ -1551,7 +1556,9 @@ exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data,
   }
 
   const generatePin = () => Math.floor(1000 + Math.random() * 9000).toString();
-  const pinColeta = generatePin();
+  
+  // 🔥 CTO FIX: Coleta livre de barreira. PINs devem ser exigidos apenas na ENTREGA.
+  const pinColeta = null; 
   
   // Garantia absoluta de array estruturado para PINs (Paradas + Destino Final):
   let pinEntregas = [];
