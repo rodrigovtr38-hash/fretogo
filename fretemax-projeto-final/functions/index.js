@@ -1725,7 +1725,7 @@ exports.recalcularAutoBid = functions.firestore.document('fretes/{freteId}').onU
 // 16. CONTINGÊNCIA ADMINISTRATIVA (NOVO - TORRE DE CONTROLE)
 // ========================================================
 exports.bypassPinEtapaAdmin = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Acesso negado. Ação restrita à Torre.');
+  if (!context.auth || context.auth.token.admin !== true) throw new functions.https.HttpsError('permission-denied', 'Acesso negado. Ação restrita à Torre.');
 
   const freteId = sanitizeText(data?.freteId, 160);
   if (!freteId) throw new functions.https.HttpsError('invalid-argument', 'Identificador de frete ausente.');
@@ -1807,7 +1807,7 @@ exports.bypassPinEtapaAdmin = functions.runWith(runtimeOpts).https.onCall(async 
 });
 
 exports.resetBloqueioPinAdmin = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Acesso negado. Ação restrita à Torre.');
+  if (!context.auth || context.auth.token.admin !== true) throw new functions.https.HttpsError('permission-denied', 'Acesso negado. Ação restrita à Torre.');
 
   const freteId = sanitizeText(data?.freteId, 160);
   if (!freteId) throw new functions.https.HttpsError('invalid-argument', 'Identificador de frete ausente.');
