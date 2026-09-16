@@ -162,7 +162,7 @@ function MapaCliente({
          if (status === window.google.maps.DirectionsStatus.OK && result) {
              setDirectionsResult(result);
 
-             // Extrai a matemática viária e despacha pro componente pai
+             // Extrai a matemática viária base inicial
              if (result.routes && result.routes.length > 0) {
                  const route = result.routes[0];
                  let distMeters = 0;
@@ -183,6 +183,59 @@ function MapaCliente({
          }
      });
   }, [isLoaded, activeRouting]);
+
+  // 🔥 CTO FIX: Atualização Offline de ETA/Distância em Tempo Real via Motor Matemático (Haversine Ratio)
+  // Calcula o progresso sem acionar novas chamadas de API do Google Maps.
+  useEffect(() => {
+      if (!motoristaPos || !directionsResult || !directionsResult.routes[0] || !onRouteUpdateRef.current) return;
+
+      const route = directionsResult.routes[0];
+      if (!route.legs || route.legs.length === 0) return;
+
+      const firstLeg = route.legs[0]; // A perna que o motorista está percorrendo atualmente
+      if (!firstLeg.start_location || !firstLeg.end_location) return;
+
+      const startLat = firstLeg.start_location.lat();
+      const startLng = firstLeg.start_location.lng();
+      const endLat = firstLeg.end_location.lat();
+      const endLng = firstLeg.end_location.lng();
+
+      // Cálculo de distância em linha reta (Haversine)
+      const calcHaversine = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+          const R = 6371; 
+          const dLat = (lat2 - lat1) * Math.PI / 180;
+          const dLon = (lon2 - lon1) * Math.PI / 180;
+          const a = Math.sin(dLat/2) * Math.sin(dLat/2) + 
+                    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+                    Math.sin(dLon/2) * Math.sin(dLon/2);
+          return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      };
+
+      const initialLineDist = calcHaversine(startLat, startLng, endLat, endLng);
+      const currentLineDist = calcHaversine(motoristaPos.lat, motoristaPos.lng, endLat, endLng);
+
+      // Descobre o percentual que falta para finalizar a perna atual
+      let ratio = initialLineDist > 0.05 ? (currentLineDist / initialLineDist) : 0;
+      if (ratio > 1) ratio = 1; // Trava a distância na máxima calculada pelo Google Maps original
+      if (ratio < 0) ratio = 0;
+
+      // Aplica a proporção (ratio) exclusivamente nos totais da perna em andamento
+      let remainingDistMeters = (firstLeg.distance?.value || 0) * ratio;
+      let remainingDurSeconds = (firstLeg.duration?.value || 0) * ratio;
+
+      // Soma o total absoluto de todas as entregas (pernas) seguintes se houver
+      for (let i = 1; i < route.legs.length; i++) {
+          remainingDistMeters += route.legs[i].distance?.value || 0;
+          remainingDurSeconds += route.legs[i].duration?.value || 0;
+      }
+
+      const etaMinutes = Math.max(1, Math.ceil(remainingDurSeconds / 60));
+      const distanceKm = Number((remainingDistMeters / 1000).toFixed(1));
+
+      // Emite a nova ETA cirúrgica para a interface do cliente
+      onRouteUpdateRef.current(etaMinutes, distanceKm);
+
+  }, [motoristaPos, directionsResult]);
 
   const getVehicleIcon = (category: string) => {
     if (!isLoaded || !window.google) return null;
