@@ -516,20 +516,37 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
               {actionLoading ? <Loader2 className="animate-spin" size={24}/> : 'Deslocar p/ Coleta'}
             </button>
           )}
+          
           {frete.status === AppTripState.INDO_COLETA && (
             <button onClick={() => handleStatusUpdate(AppTripState.CHEGOU_COLETA)} disabled={actionLoading} className="w-full flex items-center justify-center h-16 font-black uppercase tracking-widest rounded-xl text-white disabled:opacity-50 transition-all active:scale-95 bg-indigo-500 hover:bg-indigo-400">
               {actionLoading ? <Loader2 className="animate-spin" size={24}/> : 'Cheguei no Local'}
             </button>
           )}
+          
           {frete.status === AppTripState.CHEGOU_COLETA && (
             <button onClick={() => handleStatusUpdate(AppTripState.COLETANDO)} disabled={actionLoading} className="w-full flex items-center justify-center h-16 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50 transition-all active:scale-95 bg-amber-500 hover:bg-amber-400">
               {actionLoading ? <Loader2 className="animate-spin" size={24}/> : 'Iniciar Coleta'}
             </button>
           )}
 
-          {new Set<string>([AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE]).has(String(frete.status)) && (
+          {/* FLUXO NOVO E CORRETO: Avançar para Em Transporte diretamente da Coleta */}
+          {frete.status === AppTripState.COLETANDO && !frete.pinColeta && (
+            <button onClick={() => handleStatusUpdate(AppTripState.EM_TRANSPORTE)} disabled={actionLoading} className="w-full flex items-center justify-center h-16 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(245,158,11,0.4)] bg-amber-500 hover:bg-amber-400">
+              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : 'Iniciar Transporte'}
+            </button>
+          )}
+
+          {/* CONTINGÊNCIA LEGADA: Se um motorista estiver preso num frete antigo com pinColeta já gravado no servidor */}
+          {frete.status === AppTripState.COLETANDO && frete.pinColeta && (
             <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full flex items-center justify-center h-16 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.4)] bg-cyan-500 hover:bg-cyan-400">
-              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : frete.status === AppTripState.COLETANDO ? 'Registrar Evidência de Coleta' : `Cheguei na Entrega ${paradaAtualIndex + 1}/${totalParadas} - Registrar PIN`}
+              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : 'Registrar Evidência de Coleta (Legado)'}
+            </button>
+          )}
+
+          {/* FLUXO DE ENTREGA DEFINITIVO: Trava Criptográfica OBRIGATÓRIA nas entregas */}
+          {frete.status === AppTripState.EM_TRANSPORTE && (
+            <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full flex items-center justify-center h-16 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.4)] bg-cyan-500 hover:bg-cyan-400">
+              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : `Cheguei na Entrega ${paradaAtualIndex + 1}/${totalParadas} - Registrar PIN`}
             </button>
           )}
         </div>
