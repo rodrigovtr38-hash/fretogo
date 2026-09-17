@@ -4,7 +4,7 @@ import { db, auth, storage } from '../firebase';
 import { doc, onSnapshot, DocumentData } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage'; 
 import { getFunctions, httpsCallable } from 'firebase/functions'; 
-import { LockKeyhole, AlertTriangle, Loader2, MapPin, Radio, Navigation, Scale, Camera, Wallet, CheckCircle2, MessageCircle, FileText, Check, XCircle, Info, UploadCloud } from 'lucide-react';
+import { LockKeyhole, AlertTriangle, Loader2, MapPin, Radio, Navigation, Scale, Camera, Wallet, CheckCircle2, MessageCircle, FileText, Check, XCircle, Info, UploadCloud, Truck, Package, MapPinned } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
 import { locationRealtimeService } from '../services/locationRealtimeService'; 
@@ -448,7 +448,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
 
         <div className="mb-6 text-center">
           <h2 className="text-xl font-black text-cyan-400 uppercase tracking-widest">
-            {isFaseColeta ? 'COLETA' : `ENTREGA ${paradaAtualIndex + 1}/${totalParadas}`}
+            {isFaseColeta ? 'LOCAL DE RETIRADA' : `ENTREGA ${paradaAtualIndex + 1}/${totalParadas}`}
           </h2>
           <div className="mt-2 flex flex-col items-center gap-2">
             <p className="text-[10px] uppercase font-black text-slate-500">Embarcador: <span className="text-white">{frete.clienteNome || 'Privado'}</span></p>
@@ -474,7 +474,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
             motoristaPos={currentGps}
             motoristaId={auth.currentUser?.uid || frete.id}
             paradaAtualIndex={paradaAtualIndex}
-            operationalMessage={isFaseColeta ? "Indo para Coleta" : `Navegando para Entrega ${paradaAtualIndex + 1}/${totalParadas}`}
+            operationalMessage={isFaseColeta ? "Buscando Carga" : `Navegando para Entrega ${paradaAtualIndex + 1}/${totalParadas}`}
             onRouteUpdate={(eta) => setEtaAtiva(eta)}
           />
         </div>
@@ -512,27 +512,47 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
 
         <div className="space-y-4">
           {frete.status === AppTripState.ACEITO && (
-            <button onClick={() => handleStatusUpdate(AppTripState.INDO_COLETA)} disabled={actionLoading} className="w-full flex items-center justify-center bg-blue-600 h-16 font-black uppercase tracking-widest rounded-xl disabled:opacity-50 transition-all hover:bg-blue-500 active:scale-95 text-white shadow-[0_0_20px_rgba(37,99,235,0.3)]">
-              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : 'Deslocar p/ Coleta'}
+            <button onClick={() => handleStatusUpdate(AppTripState.INDO_COLETA)} disabled={actionLoading} className="w-full flex flex-col items-center justify-center bg-blue-600 py-4 px-2 font-black uppercase tracking-widest rounded-xl disabled:opacity-50 transition-all hover:bg-blue-500 active:scale-95 text-white shadow-[0_0_20px_rgba(37,99,235,0.3)]">
+              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : (
+                 <>
+                   <div className="flex items-center gap-2 mb-1"><MapPinned size={18} /> <span className="text-lg">Ir Buscar a Carga</span></div>
+                   <span className="text-[9px] text-blue-200 normal-case tracking-normal">Clique para avisar que iniciou o deslocamento</span>
+                 </>
+              )}
             </button>
           )}
           
           {frete.status === AppTripState.INDO_COLETA && (
-            <button onClick={() => handleStatusUpdate(AppTripState.CHEGOU_COLETA)} disabled={actionLoading} className="w-full flex items-center justify-center h-16 font-black uppercase tracking-widest rounded-xl text-white disabled:opacity-50 transition-all active:scale-95 bg-indigo-500 hover:bg-indigo-400">
-              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : 'Cheguei no Local'}
+            <button onClick={() => handleStatusUpdate(AppTripState.CHEGOU_COLETA)} disabled={actionLoading} className="w-full flex flex-col items-center justify-center py-4 px-2 font-black uppercase tracking-widest rounded-xl text-white disabled:opacity-50 transition-all active:scale-95 bg-indigo-500 hover:bg-indigo-400 shadow-[0_0_20px_rgba(99,102,241,0.3)]">
+              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : (
+                 <>
+                   <div className="flex items-center gap-2 mb-1"><MapPin size={18} /> <span className="text-lg">Cheguei no Local</span></div>
+                   <span className="text-[9px] text-indigo-200 normal-case tracking-normal">Avisar o embarcador que você chegou</span>
+                 </>
+              )}
             </button>
           )}
           
           {frete.status === AppTripState.CHEGOU_COLETA && (
-            <button onClick={() => handleStatusUpdate(AppTripState.COLETANDO)} disabled={actionLoading} className="w-full flex items-center justify-center h-16 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50 transition-all active:scale-95 bg-amber-500 hover:bg-amber-400">
-              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : 'Iniciar Coleta'}
+            <button onClick={() => handleStatusUpdate(AppTripState.COLETANDO)} disabled={actionLoading} className="w-full flex flex-col items-center justify-center py-4 px-2 font-black uppercase tracking-widest rounded-xl text-slate-900 disabled:opacity-50 transition-all active:scale-95 bg-amber-400 hover:bg-amber-300 shadow-[0_0_20px_rgba(251,191,36,0.3)]">
+              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : (
+                 <>
+                   <div className="flex items-center gap-2 mb-1"><Package size={18} /> <span className="text-lg">Iniciando Carregamento</span></div>
+                   <span className="text-[9px] text-amber-900 normal-case tracking-normal">Comece a colocar as mercadorias no veículo</span>
+                 </>
+              )}
             </button>
           )}
 
           {/* FLUXO NOVO E CORRETO: Avançar para Em Transporte diretamente da Coleta */}
           {frete.status === AppTripState.COLETANDO && !frete.pinColeta && (
-            <button onClick={() => handleStatusUpdate(AppTripState.EM_TRANSPORTE)} disabled={actionLoading} className="w-full flex items-center justify-center h-16 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(245,158,11,0.4)] bg-amber-500 hover:bg-amber-400">
-              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : 'Iniciar Transporte'}
+            <button onClick={() => handleStatusUpdate(AppTripState.EM_TRANSPORTE)} disabled={actionLoading} className="w-full flex flex-col items-center justify-center py-4 px-2 font-black uppercase tracking-widest rounded-xl text-slate-900 disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(16,185,129,0.4)] bg-emerald-500 hover:bg-emerald-400">
+              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : (
+                 <>
+                   <div className="flex items-center gap-2 mb-1"><Truck size={18} /> <span className="text-lg">Carga no Veículo (Iniciar Rota)</span></div>
+                   <span className="text-[9px] text-emerald-900 normal-case tracking-normal">Tudo pronto! Partir para a primeira entrega</span>
+                 </>
+              )}
             </button>
           )}
 
@@ -545,8 +565,13 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
 
           {/* FLUXO DE ENTREGA DEFINITIVO: Trava Criptográfica OBRIGATÓRIA nas entregas */}
           {frete.status === AppTripState.EM_TRANSPORTE && (
-            <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full flex items-center justify-center h-16 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.4)] bg-cyan-500 hover:bg-cyan-400">
-              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : `Cheguei na Entrega ${paradaAtualIndex + 1}/${totalParadas} - Registrar PIN`}
+            <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full flex flex-col items-center justify-center py-4 px-2 font-black uppercase tracking-widest rounded-xl text-slate-900 disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.4)] bg-cyan-500 hover:bg-cyan-400">
+              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : (
+                 <>
+                   <div className="flex items-center gap-2 mb-1"><MapPin size={18} /> <span className="text-lg">Cheguei na Entrega {paradaAtualIndex + 1}/{totalParadas}</span></div>
+                   <span className="text-[9px] text-cyan-900 normal-case tracking-normal">Registrar Foto e PIN de Segurança</span>
+                 </>
+              )}
             </button>
           )}
         </div>
