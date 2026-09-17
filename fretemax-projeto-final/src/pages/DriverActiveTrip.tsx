@@ -78,7 +78,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       (docSnap) => {
         if (docSnap.exists()) setFrete({ id: docSnap.id, ...docSnap.data() } as ActiveFreightData);
         else setFrete(null);
-        setLoading(false);
+        loading && setLoading(false);
       },
       (error) => {
         console.error('[CTO-Log] Falha ao acompanhar viagem ativa:', error);
@@ -87,7 +87,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       }
     );
     return () => unsubscribe();
-  }, [freteId]);
+  }, [freteId, loading]);
 
   const paradas = frete?.paradas || [];
   const paradaAtualIndex = frete?.paradaAtualIndex || 0;
@@ -194,10 +194,10 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     setActionLoading(true);
     setOperationError('');
     try {
-      await dispatchRealtimeService.atualizarStatusTrip(frete.id, novoStatus);
-    } catch (e) {
-      console.error(e);
-      setOperationError('Não foi possível avançar a etapa. Verifique sua conexão e tente novamente.');
+      await TripLifecycleService.executarAcaoMotorista(frete.id, novoStatus);
+    } catch (e: any) {
+      console.error('[CTO-Log] Erro na transição de status:', e);
+      setOperationError(e.message || 'Não foi possível avançar a etapa. Verifique sua conexão e tente novamente.');
     } finally { setActionLoading(false); }
   };
 
