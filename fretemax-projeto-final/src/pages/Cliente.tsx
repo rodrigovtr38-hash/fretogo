@@ -661,10 +661,12 @@ export default function Cliente() {
         localStorage.setItem('fretogo_current_order', createdFreteId);
         setCurrentOrderId(createdFreteId);
       } else {
-        await updateDoc(doc(db, 'fretes', createdFreteId as string), {
-          ...payload,
-          status: 'aguardando_pagamento',
-          updatedAt: serverTimestamp()
+        const functions = getFunctions();
+        const updateFreteB2B = httpsCallable(functions, 'atualizarFreteB2B');
+        
+        await updateFreteB2B({
+          freteId: createdFreteId,
+          freightData: payload
         });
       }
 
