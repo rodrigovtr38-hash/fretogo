@@ -1628,6 +1628,116 @@ exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data,
 });
 
 // ========================================================
+// 13.1 ATUALIZAR FRETE B2B (ZERO TRUST)
+// ========================================================
+exports.atualizarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
+  // 1. Validação de Autenticação
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Acesso negado. Embarcador não autenticado.');
+  }
+
+  const { freteId, freightData } = data;
+  if (!freteId || !freightData) {
+    throw new functions.https.HttpsError('invalid-argument', 'Payload estrutural ausente.');
+  }
+
+  const uid = context.auth.uid;
+  const freteRef = db.collection('fretes').doc(freteId);
+
+  // 2. Operação Atômica (Transaction)
+  return await db.runTransaction(async (transaction) => {
+    const freteDoc = await transaction.get(freteRef);
+    if (!freteDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Operação não localizada na Torre.');
+    }
+
+    const frete = freteDoc.data();
+
+    // 3. Validação de Propriedade
+    if (frete.clienteId !== uid && frete.empresaId !== uid) {
+      throw new functions.https.HttpsError('permission-denied', 'Bypass bloqueado. Você não tem autoridade sobre esta carga.');
+    }
+
+    // 4. Bloqueio de Estados Críticos
+    const lockedStates = [
+      'pago', 'disponivel', 'reservado', 'aceito', 'indo_coleta',
+      'chegou_coleta', 'coletando', 'em_transporte', 'chegou_entrega',
+      'entregando', 'finalizado', 'cancelado'
+    ];
+
+    if (lockedStates.includes(frete.status) || frete.pagamentoStatus === 'aprovado' || frete.transactionId) {
+      throw new functions.https.HttpsError('failed-precondition', 'O ciclo de vida desta carga não permite edição estrutural.');
+    }
+
+    // 5. Limpeza e Validação de Dados usando padrão técnico existente
+    const cleanPayload = sanitizeFreightPayload(freightData, uid);
+
+    const valorBrutoInput = toFiniteNumber(
+      freightData.valorTotal ?? freightData.valorBruto ?? freightData.valorFreteBruto ?? frete.valorTotal,
+      'valorTotal'
+    );
+    const valorPedagio = freightData.valorPedagio === undefined || freightData.valorPedagio === null || freightData.valorPedagio === ''
+      ? (frete.valorPedagio || 0)
+      : toFiniteNumber(freightData.valorPedagio, 'valorPedagio');
+
+    if (valorBrutoInput <= 0 || valorPedagio < 0 || valorPedagio > valorBrutoInput) {
+      throw new functions.https.HttpsError('invalid-argument', 'Valores financeiros inválidos.');
+    }
+
+    // 6. Recálculo Financeiro (Mesmo padrão de criarFreteB2B para preservação fiscal)
+    const categoria = cleanPayload.categoria || frete.categoria;
+    const isHeavy = ['toco', 'truck', 'carreta', 'bitrem'].includes(categoria);
+    const taxa = isHeavy ? 0.15 : 0.20;
+    const baseComissao = Math.max(0, valorBrutoInput - valorPedagio);
+    const valorComissao = Number((baseComissao * taxa).toFixed(2));
+    const valorLiquidoMotorista = Number((valorBrutoInput - valorComissao).toFixed(2));
+
+    // 7. Normalização de Segurança e Geração de PINs
+    const totalEntregas = (cleanPayload.paradas ? cleanPayload.paradas.length : 0) + 1;
+    const pinEntregas = [];
+    const generatePin = () => Math.floor(1000 + Math.random() * 9000).toString();
+    for (let i = 0; i < totalEntregas; i++) {
+      pinEntregas.push(generatePin());
+    }
+
+    const cidadeDestinoFormatada = sanitizeText(
+      cleanPayload.cidadeDestino || cleanPayload.destino?.cidade,
+      120
+    ) || frete.cidadeDestinoFormatada || '';
+
+    // 8. Construção do Payload Limpo
+    const updatePayload = {
+      ...cleanPayload,
+      cidadeDestinoFormatada,
+      pinColeta: null, // Regra estrita: coleta não gera PIN
+      pinEntregas: pinEntregas,
+      status: 'aguardando_pagamento',
+      pagamentoStatus: 'pendente',
+      dispatchStatus: 'retido_pagamento',
+      valorTotal: valorBrutoInput,
+      valorBruto: valorBrutoInput,
+      valorFreteBruto: valorBrutoInput,
+      taxaFreto: taxa * 100,
+      valorComissao,
+      lucroPlataforma: valorComissao,
+      valorLiquidoMotorista,
+      valorMotorista: valorLiquidoMotorista,
+      valorPedagio,
+      atualizadoEm: FieldValue.serverTimestamp()
+    };
+
+    // 9. Gravação Sincronizada
+    transaction.update(freteRef, updatePayload);
+
+    return {
+        success: true,
+        freteId,
+        totalEntregasSincronizadas: pinEntregas.length
+    };
+  });
+});
+
+// ========================================================
 // 14. CANCELAR FRETE COM VALIDAÇÃO DE ESTADO (PATCH BLOCO 01)
 // ========================================================
 exports.cancelarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
