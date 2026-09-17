@@ -5,6 +5,7 @@
 // Evolução Fase 12 (Escrow): Transação manual removida. Lock atômico centralizado no TripLifecycle.
 // Correção "Execução Dois": Remoção do sequestro de tela. Motorista aguarda o pagamento no próprio Feed.
 // Correção "Execução Três": CTO FIX - Proteção Temporal Absoluta. Eliminação do Bug dos Fretes Fantasmas.
+// Correção "Execução Quatro": CTO FIX - Otimização UI/UX Feed (Remoção Valor Cliente, Foco Líquido/KM).
 // =========================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -71,7 +72,8 @@ const FeedSkeleton = () => (
       <div className="h-8 w-20 bg-slate-800 rounded-xl"></div>
     </div>
     <div className="h-28 w-full bg-slate-800/50 rounded-2xl mb-6"></div>
-    <div className="grid grid-cols-3 gap-2">
+    <div className="grid grid-cols-4 gap-2">
+      <div className="h-14 bg-slate-800 rounded-xl"></div>
       <div className="h-14 bg-slate-800 rounded-xl"></div>
       <div className="h-14 bg-slate-800 rounded-xl"></div>
       <div className="h-14 bg-slate-800 rounded-xl"></div>
@@ -603,13 +605,8 @@ export default function Motorista() {
 
                         <div className="flex justify-between items-start mb-6 pt-2">
                            <div className="flex flex-col gap-1.5">
-                              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest flex items-center gap-1.5">
-                                 <Star size={10} className="text-slate-500"/> Cliente pagou: R$ {freight.valorCliente?.toFixed(2).replace('.', ',')}
-                              </p>
-                              <div className="flex items-end gap-2">
-                                 <h3 className="text-4xl font-black text-emerald-400 tracking-tighter">R$ {freight.valorMotorista?.toFixed(2).replace('.', ',')}</h3>
-                                 <span className="text-[10px] text-emerald-600 font-black uppercase tracking-widest mb-1.5">Líquido</span>
-                              </div>
+                              <span className="text-[10px] text-emerald-500 font-black uppercase tracking-widest">Valor Líquido</span>
+                              <h3 className="text-4xl md:text-5xl font-black text-emerald-400 tracking-tighter">R$ {freight.valorMotorista?.toFixed(2).replace('.', ',')}</h3>
                            </div>
                            <div className="text-right">
                               <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Publicado</p>
@@ -622,31 +619,35 @@ export default function Motorista() {
                            <div className="flex items-start gap-4 mb-6 relative z-10">
                               <div className="w-6 h-6 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center shrink-0 mt-1"><div className="w-2 h-2 rounded-full bg-slate-400"></div></div>
                               <div>
-                                 <p className="text-[10px] uppercase tracking-widest font-black text-slate-500 mb-1">Coleta</p>
+                                 <p className="text-[10px] uppercase tracking-widest font-black text-slate-500 mb-1">Pegar em</p>
                                  <p className="text-sm font-bold text-white leading-snug">{freight.enderecoColetaTexto}</p>
                               </div>
                            </div>
                            <div className="flex items-start gap-4 relative z-10">
                               <div className="w-6 h-6 rounded-full bg-emerald-900/50 border-2 border-emerald-50 flex items-center justify-center shrink-0 mt-1"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div></div>
                               <div>
-                                 <p className="text-[10px] uppercase tracking-widest font-black text-emerald-500 mb-1">Destino</p>
+                                 <p className="text-[10px] uppercase tracking-widest font-black text-emerald-500 mb-1">Entregar em</p>
                                  <p className="text-sm font-bold text-white leading-snug">{freight.enderecoEntregaTexto}</p>
                               </div>
                            </div>
                         </div>
 
-                        <div className="grid grid-cols-3 gap-2 mb-6">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-6">
                           <div className="bg-slate-900 rounded-xl p-3 text-center border border-slate-800">
-                            <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1 flex items-center justify-center gap-1"><Ruler size={10}/> Renda Bruta</p>
-                            <p className="text-xs font-black text-emerald-400">R$ {ganhoPorKm.toFixed(2)}/km</p>
+                            <p className="text-[9px] text-emerald-500 uppercase font-black tracking-widest mb-1">Ganho / KM</p>
+                            <p className="text-sm font-black text-emerald-400">R$ {ganhoPorKm.toFixed(2)}</p>
                           </div>
                           <div className="bg-slate-900 rounded-xl p-3 text-center border border-slate-800">
                             <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Distância</p>
-                            <p className="text-xs font-bold text-slate-300">{freight.distanciaTotalKm?.toFixed(1)} km</p>
+                            <p className="text-sm font-bold text-slate-300">{freight.distanciaTotalKm?.toFixed(1)} km</p>
                           </div>
                           <div className="bg-slate-900 rounded-xl p-3 text-center border border-slate-800">
-                            <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Peso/Vol</p>
-                            <p className="text-xs font-bold text-slate-300">{freight.pesoKg ? `${freight.pesoKg}kg` : freight.volumes}</p>
+                            <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Peso / Vol</p>
+                            <p className="text-sm font-bold text-slate-300">{freight.pesoKg ? `${freight.pesoKg}kg` : `${freight.volumes} vol`}</p>
+                          </div>
+                          <div className="bg-slate-900 rounded-xl p-3 text-center border border-slate-800 flex flex-col justify-center overflow-hidden">
+                            <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Carga</p>
+                            <p className="text-[11px] font-bold text-slate-300 truncate w-full px-1">{freight.tipoCarga || 'Geral'}</p>
                           </div>
                         </div>
 
