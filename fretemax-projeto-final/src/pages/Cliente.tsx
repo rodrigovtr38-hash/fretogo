@@ -295,16 +295,21 @@ export default function Cliente() {
   const valorSugeridoCalculado = calculoFinanceiro.precoFinalCliente + calculoFinanceiro.tollCost;
   const valorOfertaNum = Number(valorOferta.replace(/\./g, '').replace(',', '.')) || 0;
   
+  const limitePisoOperacional = Number((valorSugeridoCalculado * 0.85).toFixed(2));
+  const isOfertaAbaixoDoPiso = valorOfertaNum > 0 && valorOfertaNum < (limitePisoOperacional - 0.01);
+
   const iaChanceAceite = useMemo(() => {
     if (valorOfertaNum === 0) return null;
+    if (isOfertaAbaixoDoPiso) return { status: 'Bloqueada: Abaixo do Mínimo', color: 'text-red-500', icon: <AlertOctagon size={16} /> };
+    
     const diff = valorOfertaNum / valorSugeridoCalculado;
     if (diff >= 1.05) return { status: 'Muito Alta', color: 'text-emerald-500', icon: <Flame size={16} className="text-orange-500 animate-pulse" /> };
     if (diff >= 0.95) return { status: 'Alta', color: 'text-blue-500', icon: <CheckCircle size={16} /> };
     
-    return { status: 'Abaixo do Mercado', color: 'text-amber-500', icon: <AlertTriangle size={16} /> };
-  }, [valorOfertaNum, valorSugeridoCalculado]);
+    return { status: 'Abaixo do Mercado (Permitido)', color: 'text-amber-500', icon: <AlertTriangle size={16} /> };
+  }, [valorOfertaNum, valorSugeridoCalculado, isOfertaAbaixoDoPiso]);
 
-  const isOfertaValida = valorOfertaNum > 0;
+  const isOfertaValida = valorOfertaNum > 0 && !isOfertaAbaixoDoPiso;
   const isOfertaBoa = valorOfertaNum >= (valorSugeridoCalculado * 0.95);
 
   useEffect(() => {
@@ -540,6 +545,11 @@ export default function Cliente() {
     
     if (valorOfertaNum <= 0) {
       showToast("Insira o valor da sua oferta oficial antes de confirmar.", "warning");
+      return;
+    }
+
+    if (isOfertaAbaixoDoPiso) {
+      showToast("A oferta está abaixo do limite permitido para esta operação. Ajuste o valor para continuar.", "warning");
       return;
     }
 
@@ -1240,20 +1250,20 @@ export default function Cliente() {
                         <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100 flex items-center gap-3">
                            <BarChart3 className="w-5 h-5 text-blue-500" />
                            <div>
-                             <p className="text-[9px] uppercase font-black text-slate-400">Valor Recomendado</p>
+                             <p className="text-[9px] uppercase font-black text-slate-400">Valor Referência</p>
                              <p className="text-sm font-black text-blue-600">R$ {valorSugeridoCalculado.toFixed(2).replace('.', ',')}</p>
                            </div>
                         </div>
                      </div>
 
                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                        <p className="text-[10px] uppercase font-bold text-slate-400 mb-2">Previsão de Aceite no Feed</p>
+                        <p className="text-[10px] uppercase font-bold text-slate-400 mb-2">Status da Operação</p>
                         {valorOfertaNum === 0 ? (
                           <div className="text-sm font-bold text-slate-400 flex items-center gap-2">
                             <AlertOctagon className="w-4 h-4" /> Insira seu valor de oferta abaixo.
                           </div>
                         ) : (
-                          <div className={`flex items-center gap-2 text-lg font-black uppercase tracking-widest ${iaChanceAceite?.color}`}>
+                          <div className={`flex items-center gap-2 text-[13px] sm:text-sm font-black uppercase tracking-widest ${iaChanceAceite?.color}`}>
                             {iaChanceAceite?.icon} {iaChanceAceite?.status}
                           </div>
                         )}
@@ -1266,12 +1276,23 @@ export default function Cliente() {
                         <span className="absolute left-6 top-[38px] text-2xl font-black text-emerald-600">R$</span>
                         <input 
                           type="text" 
-                          className={`w-full rounded-[2rem] border-4 ${isOfertaValida && isOfertaBoa ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white'} py-6 pl-16 pr-6 text-3xl font-black text-slate-900 transition-all focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/20 outline-none`} 
+                          className={`w-full rounded-[2rem] border-4 ${
+                            isOfertaAbaixoDoPiso ? 'border-red-400 bg-red-50 text-red-900' : 
+                            (isOfertaValida && isOfertaBoa ? 'border-emerald-400 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-white text-slate-900')
+                          } py-6 pl-16 pr-6 text-3xl font-black transition-all focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/20 outline-none`} 
                           placeholder="0,00" 
                           value={valorOferta} 
                           onChange={e => setValorOferta(formatCurrency(e.target.value))} 
                         />
                      </div>
+
+                     {isOfertaAbaixoDoPiso && (
+                        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center mt-2">
+                          <p className="flex items-center justify-center gap-2 text-[11px] font-black uppercase tracking-widest text-red-600">
+                            <AlertTriangle size={16}/> A oferta está abaixo do limite permitido para esta operação. Ajuste o valor para continuar.
+                          </p>
+                        </div>
+                     )}
                   </div>
                 </div>
               </div>
@@ -1296,7 +1317,15 @@ export default function Cliente() {
                     </p>
                   </div>
                   
-                  <button onClick={handleConfirmarEPagar} disabled={loadingPayment || isProcessingPayment.current} className={`flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[2rem] text-[15px] font-black uppercase tracking-[0.2em] transition-all duration-300 ${loadingPayment ? 'bg-slate-200 text-slate-400' : 'bg-blue-600 text-white shadow-xl shadow-blue-500/40 hover:bg-blue-700 hover:scale-[1.02]'}`}>
+                  <button 
+                    onClick={handleConfirmarEPagar} 
+                    disabled={loadingPayment || isProcessingPayment.current || isOfertaAbaixoDoPiso || valorOfertaNum === 0} 
+                    className={`flex min-h-[72px] w-full items-center justify-center gap-3 rounded-[2rem] text-[15px] font-black uppercase tracking-[0.2em] transition-all duration-300 ${
+                      loadingPayment || isOfertaAbaixoDoPiso || valorOfertaNum === 0
+                        ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
+                        : 'bg-blue-600 text-white shadow-xl shadow-blue-500/40 hover:bg-blue-700 hover:scale-[1.02]'
+                    }`}
+                  >
                     {loadingPayment ? <><Loader2 className="h-6 w-6 animate-spin" /> Aguarde...</> : <><Lock size={22} /> Confirmar e pagar</>}
                   </button>
                   <button onClick={() => setStep('preview')} className="w-full mt-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-white transition-colors">Voltar para Resumo</button>
