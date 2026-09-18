@@ -35,6 +35,69 @@ const VEHICLE_WEIGHT_LIMITS = {
   bitrem: 45000,
 };
 
+// 🛡️ DICIONÁRIO FINANCEIRO E TABELA DE REFERÊNCIA (AUTORIDADE BACKEND)
+const VEHICLE_FINANCE_CONFIG = {
+  moto: { baseRate: 30, perKm: 2.00, isHeavy: false },
+  carro: { baseRate: 100, perKm: 4.00, isHeavy: false },
+  utilitarios: { baseRate: 180, perKm: 6.00, isHeavy: false },
+  toco: { baseRate: 350, perKm: 7.00, isHeavy: true },
+  truck: { baseRate: 550, perKm: 8.50, isHeavy: true },
+  carreta: { baseRate: 1200, perKm: 10.50, isHeavy: true },
+  bitrem: { baseRate: 1800, perKm: 12.50, isHeavy: true }
+};
+
+function calcularReferenciaFretoGo(distancia, categoria, numParadasAdicionais, isMopp) {
+  const cat = categoria?.toLowerCase() || 'utilitarios';
+  const config = VEHICLE_FINANCE_CONFIG[cat] || VEHICLE_FINANCE_CONFIG['utilitarios'];
+
+  const validDistancia = Math.max(15, Number(distancia) || 15);
+
+  // 1. Custo Base (Piso 15km) + Adicional por Km
+  let subtotal = config.baseRate;
+  if (validDistancia > 15) {
+    subtotal += (validDistancia - 15) * config.perKm;
+  }
+
+  // 2. Paradas Extras
+  const taxaParada = config.isHeavy ? 150 : 8;
+  if (numParadasAdicionais > 0) {
+    subtotal += numParadasAdicionais * taxaParada;
+  }
+
+  // 3. Multiplicador MOPP
+  if (isMopp) {
+    subtotal *= 1.20;
+  }
+
+  // 4. Divisor de Margem Plataforma
+  const divisor = config.isHeavy ? 0.85 : 0.80;
+  const valorBaseCliente = subtotal / divisor;
+
+  // 5. Cálculo do Pedágio
+  let pedagioEstimado = 0;
+  if (validDistancia > 40 && cat !== 'moto' && cat !== 'carro') {
+    pedagioEstimado = validDistancia * (config.isHeavy ? 0.85 : 0.35);
+  }
+
+  return {
+    valorSugeridoCalculado: Number((valorBaseCliente + pedagioEstimado).toFixed(2)),
+    pedagioSugeridoCalculado: Number(pedagioEstimado.toFixed(2))
+  };
+}
+
+function safeExtractDistancia(obj) {
+  if (!obj) return 15;
+  const val = obj.distanciaTotalKm ?? obj.distanciaRealKm ?? obj.distancia ?? obj.distanciaReal;
+  if (val === null || val === undefined || val === '') return 15;
+  let parsed = val;
+  if (typeof val === 'string') {
+      let cleanStr = val.replace(/[^\d.,-]/g, '');
+      if (cleanStr.includes(',')) cleanStr = cleanStr.replace(/\./g, '').replace(',', '.');
+      parsed = Number(cleanStr);
+  }
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 15;
+}
+
 function getGoogleMapsKey() {
   const key = 'AIzaSyCPpkKpbOvbb58eot9-EEW5lFtOpFZVuCU';
   return key;
@@ -118,7 +181,7 @@ function sanitizeFreightPayload(payload, uid) {
     throw new functions.https.HttpsError('invalid-argument', 'Categoria de veículo inválida.');
   }
 
-  // 🔥 CTO FIX: Escudo Backend contra Frontend. Filtra e destrói silenciosamente qualquer parada fantasma (objetos sem lat/lng reais)
+  // 🔥 CTO FIX: Escudo Backend contra Frontend. Filtra e destrói silenciosamente qualquer parada fantasma
   const paradasInput = Array.isArray(payload.paradas) 
     ? payload.paradas.filter(p => p && typeof p === 'object' && !Array.isArray(p) && p.lat !== undefined && p.lng !== undefined)
     : [];
@@ -159,7 +222,6 @@ function sanitizeFreightPayload(payload, uid) {
     ? sanitizeAddress(payload.entrega, destino, 'entrega')
     : destino;
   clean.paradas = paradas;
-  // CTO FIX: Armazena o array completo para o motorista, integrando paradas e destino
   clean.todasEntregas = payload.todasEntregas && Array.isArray(payload.todasEntregas) 
     ? payload.todasEntregas.map((e, i) => sanitizeAddress(e, null, `todasEntregas[${i}]`)) 
     : [...paradas, clean.entrega];
@@ -171,7 +233,7 @@ function sanitizeFreightPayload(payload, uid) {
   clean.cidadeDestino = sanitizeText(clean.entrega.cidade || payload.cidadeDestino, 120) || '';
   clean.multiplasEntregas = paradas.length > 0;
 
-  // 🔥 CTO FIX: Tratamento resiliente de peso (Evita crash por Frontend enviando texto/vazio)
+  // 🔥 CTO FIX: Tratamento resiliente de peso
   let pesoRaw = payload.pesoKg ?? payload.peso;
   let pesoNum = pesoRaw;
   if (typeof pesoNum === 'string') {
@@ -181,7 +243,7 @@ function sanitizeFreightPayload(payload, uid) {
   } else {
       pesoNum = Number(pesoNum);
   }
-  if (!Number.isFinite(pesoNum) || pesoNum <= 0) pesoNum = 1; // Fallback automático
+  if (!Number.isFinite(pesoNum) || pesoNum <= 0) pesoNum = 1;
   if (pesoNum > VEHICLE_WEIGHT_LIMITS[categoria]) {
     throw new functions.https.HttpsError('invalid-argument', 'Peso incompatível com a categoria selecionada.');
   }
@@ -192,7 +254,7 @@ function sanitizeFreightPayload(payload, uid) {
   const qtdRaw = payload.qtdVolumes;
   let qtdVolumes = Number(qtdRaw);
   if (!Number.isFinite(qtdVolumes) || qtdVolumes < 1 || qtdVolumes > 100000) {
-      qtdVolumes = 1; // Fallback automático
+      qtdVolumes = 1;
   }
   clean.qtdVolumes = String(qtdVolumes);
 
@@ -1515,7 +1577,7 @@ exports.liquidarViagemMotorista = functions.runWith(runtimeOpts).https.onCall(as
 });
 
 // ========================================================
-// 13. CRIAR FRETE ZERO TRUST
+// 13. CRIAR FRETE ZERO TRUST (COM BLINDAGEM FINANCEIRA)
 // ========================================================
 exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -1529,38 +1591,61 @@ exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data,
   }
 
   const uid = context.auth.uid;
-  
-  // O processamento e filtragem de lixo do frontend acontece DENTRO desta função agora
   const cleanPayload = sanitizeFreightPayload(payload, uid);
-  
+
+  // 🛡️ INÍCIO DA BLINDAGEM FINANCEIRA ZERO TRUST
+  const distanciaNum = safeExtractDistancia(payload);
+  const tipoMaterial = cleanPayload.tipoMaterial || payload.tipoMaterial || '';
+  const isMopp = tipoMaterial.toLowerCase().includes('mopp') || tipoMaterial.toLowerCase().includes('perigos') || tipoMaterial.toLowerCase().includes('químic');
+  const numParadas = cleanPayload.paradas ? cleanPayload.paradas.length : 0;
+  const categoria = cleanPayload.categoria;
+
+  const referencia = calcularReferenciaFretoGo(distanciaNum, categoria, numParadas, isMopp);
+  const pisoPermitido = Number((referencia.valorSugeridoCalculado * 0.85).toFixed(2));
+
   const valorBrutoInput = toFiniteNumber(
     payload.valorTotal ?? payload.valorBruto ?? payload.valorFreteBruto,
     'valorTotal'
   );
-  const valorPedagio = payload.valorPedagio === undefined || payload.valorPedagio === null || payload.valorPedagio === ''
+
+  // VALIDAÇÃO ESTRITA DO PISO OPERACIONAL
+  if (valorBrutoInput < (pisoPermitido - 0.01)) {
+    throw new functions.https.HttpsError(
+      'failed-precondition', 
+      'A oferta informada está abaixo do limite operacional permitido para esta operação. Ajuste o valor da oferta para continuar.'
+    );
+  }
+
+  const valorPedagioOriginal = payload.valorPedagio === undefined || payload.valorPedagio === null || payload.valorPedagio === ''
     ? 0
     : toFiniteNumber(payload.valorPedagio, 'valorPedagio');
+
+  // PROTEÇÃO CONTRA EVASÃO POR PEDÁGIO INFLADO
+  // O teto é o maior entre: 1.5x o pedágio calculado pela rota, ou 30% do valor bruto inserido.
+  const tetoPedagio = Math.max(referencia.pedagioSugeridoCalculado * 1.5, valorBrutoInput * 0.30);
+  const valorPedagioTratado = Math.min(valorPedagioOriginal, tetoPedagio);
+  const valorPedagio = Math.max(0, valorPedagioTratado);
 
   if (valorBrutoInput <= 0 || valorPedagio < 0 || valorPedagio > valorBrutoInput) {
     throw new functions.https.HttpsError('invalid-argument', 'Valores financeiros inválidos.');
   }
 
-  const categoria = cleanPayload.categoria;
   const isHeavy = ['toco', 'truck', 'carreta', 'bitrem'].includes(categoria);
   const taxa = isHeavy ? 0.15 : 0.20;
+  
+  // A comissão incide sobre (Bruto - Pedágio Validado), impedindo zeramento.
   const baseComissao = Math.max(0, valorBrutoInput - valorPedagio);
   const valorComissao = Number((baseComissao * taxa).toFixed(2));
   const valorLiquidoMotorista = Number((valorBrutoInput - valorComissao).toFixed(2));
+  
   if (!Number.isFinite(valorLiquidoMotorista) || valorLiquidoMotorista <= 0) {
     throw new functions.https.HttpsError('invalid-argument', 'Valor líquido do motorista inválido.');
   }
+  // 🛡️ FIM DA BLINDAGEM FINANCEIRA ZERO TRUST
 
   const generatePin = () => Math.floor(1000 + Math.random() * 9000).toString();
-  
-  // 🔥 CTO FIX: Coleta livre de barreira. PINs devem ser exigidos apenas na ENTREGA.
   const pinColeta = null; 
   
-  // Garantia absoluta de array estruturado para PINs (Paradas + Destino Final):
   let pinEntregas = [];
   const totalEntregas = (cleanPayload.paradas ? cleanPayload.paradas.length : 0) + 1;
   for (let i = 0; i < totalEntregas; i++) {
@@ -1628,10 +1713,9 @@ exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data,
 });
 
 // ========================================================
-// 13.1 ATUALIZAR FRETE B2B (ZERO TRUST)
+// 13.1 ATUALIZAR FRETE B2B (ZERO TRUST COM BLINDAGEM)
 // ========================================================
 exports.atualizarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
-  // 1. Validação de Autenticação
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Acesso negado. Embarcador não autenticado.');
   }
@@ -1644,7 +1728,6 @@ exports.atualizarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (d
   const uid = context.auth.uid;
   const freteRef = db.collection('fretes').doc(freteId);
 
-  // 2. Operação Atômica (Transaction)
   return await db.runTransaction(async (transaction) => {
     const freteDoc = await transaction.get(freteRef);
     if (!freteDoc.exists) {
@@ -1653,12 +1736,10 @@ exports.atualizarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (d
 
     const frete = freteDoc.data();
 
-    // 3. Validação de Propriedade
     if (frete.clienteId !== uid && frete.empresaId !== uid) {
       throw new functions.https.HttpsError('permission-denied', 'Bypass bloqueado. Você não tem autoridade sobre esta carga.');
     }
 
-    // 4. Bloqueio de Estados Críticos
     const lockedStates = [
       'pago', 'disponivel', 'reservado', 'aceito', 'indo_coleta',
       'chegou_coleta', 'coletando', 'em_transporte', 'chegou_entrega',
@@ -1669,30 +1750,50 @@ exports.atualizarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (d
       throw new functions.https.HttpsError('failed-precondition', 'O ciclo de vida desta carga não permite edição estrutural.');
     }
 
-    // 5. Limpeza e Validação de Dados usando padrão técnico existente
     const cleanPayload = sanitizeFreightPayload(freightData, uid);
+
+    // 🛡️ INÍCIO DA BLINDAGEM FINANCEIRA ZERO TRUST NO RECALCULO
+    const distExtraida = safeExtractDistancia(freightData);
+    const distanciaNum = distExtraida !== 15 ? distExtraida : safeExtractDistancia(frete);
+    const tipoMaterial = cleanPayload.tipoMaterial || freightData.tipoMaterial || frete.tipoMaterial || '';
+    const isMopp = tipoMaterial.toLowerCase().includes('mopp') || tipoMaterial.toLowerCase().includes('perigos') || tipoMaterial.toLowerCase().includes('químic');
+    const numParadas = cleanPayload.paradas ? cleanPayload.paradas.length : (frete.paradas ? frete.paradas.length : 0);
+    const categoriaParaCalculo = cleanPayload.categoria || frete.categoria;
+
+    const referencia = calcularReferenciaFretoGo(distanciaNum, categoriaParaCalculo, numParadas, isMopp);
+    const pisoPermitido = Number((referencia.valorSugeridoCalculado * 0.85).toFixed(2));
 
     const valorBrutoInput = toFiniteNumber(
       freightData.valorTotal ?? freightData.valorBruto ?? freightData.valorFreteBruto ?? frete.valorTotal,
       'valorTotal'
     );
-    const valorPedagio = freightData.valorPedagio === undefined || freightData.valorPedagio === null || freightData.valorPedagio === ''
+
+    if (valorBrutoInput < (pisoPermitido - 0.01)) {
+      throw new functions.https.HttpsError(
+        'failed-precondition', 
+        'A oferta informada está abaixo do limite operacional permitido para esta operação. Ajuste o valor da oferta para continuar.'
+      );
+    }
+
+    const valorPedagioOriginal = freightData.valorPedagio === undefined || freightData.valorPedagio === null || freightData.valorPedagio === ''
       ? (frete.valorPedagio || 0)
       : toFiniteNumber(freightData.valorPedagio, 'valorPedagio');
+
+    const tetoPedagio = Math.max(referencia.pedagioSugeridoCalculado * 1.5, valorBrutoInput * 0.30);
+    const valorPedagioTratado = Math.min(valorPedagioOriginal, tetoPedagio);
+    const valorPedagio = Math.max(0, valorPedagioTratado);
 
     if (valorBrutoInput <= 0 || valorPedagio < 0 || valorPedagio > valorBrutoInput) {
       throw new functions.https.HttpsError('invalid-argument', 'Valores financeiros inválidos.');
     }
 
-    // 6. Recálculo Financeiro (Mesmo padrão de criarFreteB2B para preservação fiscal)
-    const categoria = cleanPayload.categoria || frete.categoria;
-    const isHeavy = ['toco', 'truck', 'carreta', 'bitrem'].includes(categoria);
+    const isHeavy = ['toco', 'truck', 'carreta', 'bitrem'].includes(categoriaParaCalculo);
     const taxa = isHeavy ? 0.15 : 0.20;
     const baseComissao = Math.max(0, valorBrutoInput - valorPedagio);
     const valorComissao = Number((baseComissao * taxa).toFixed(2));
     const valorLiquidoMotorista = Number((valorBrutoInput - valorComissao).toFixed(2));
+    // 🛡️ FIM DA BLINDAGEM FINANCEIRA ZERO TRUST
 
-    // 7. Normalização de Segurança e Geração de PINs
     const totalEntregas = (cleanPayload.paradas ? cleanPayload.paradas.length : 0) + 1;
     const pinEntregas = [];
     const generatePin = () => Math.floor(1000 + Math.random() * 9000).toString();
@@ -1705,11 +1806,10 @@ exports.atualizarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (d
       120
     ) || frete.cidadeDestinoFormatada || '';
 
-    // 8. Construção do Payload Limpo
     const updatePayload = {
       ...cleanPayload,
       cidadeDestinoFormatada,
-      pinColeta: null, // Regra estrita: coleta não gera PIN
+      pinColeta: null, 
       pinEntregas: pinEntregas,
       status: 'aguardando_pagamento',
       pagamentoStatus: 'pendente',
@@ -1726,7 +1826,6 @@ exports.atualizarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (d
       atualizadoEm: FieldValue.serverTimestamp()
     };
 
-    // 9. Gravação Sincronizada
     transaction.update(freteRef, updatePayload);
 
     return {
@@ -1738,7 +1837,7 @@ exports.atualizarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (d
 });
 
 // ========================================================
-// 14. CANCELAR FRETE COM VALIDAÇÃO DE ESTADO (PATCH BLOCO 01)
+// 14. CANCELAR FRETE COM VALIDAÇÃO DE ESTADO
 // ========================================================
 exports.cancelarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Usuário não autenticado.');
@@ -1792,7 +1891,7 @@ exports.cancelarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (da
 });
 
 // ========================================================
-// 15. AUTO-BID RECALCULATION SERVER-SIDE
+// 15. AUTO-BID RECALCULATION SERVER-SIDE (COM BLINDAGEM)
 // ========================================================
 exports.recalcularAutoBid = functions.firestore.document('fretes/{freteId}').onUpdate(async (change) => {
   const antes = change.before.data();
@@ -1809,7 +1908,11 @@ exports.recalcularAutoBid = functions.firestore.document('fretes/{freteId}').onU
   }
 
   const valorBrutoInput = Number(depois.valorTotal);
-  const valorPedagio = Number(depois.valorPedagio || 0);
+  const valorPedagioOriginal = Number(depois.valorPedagio || 0);
+  
+  // Proteção simples para recalculo passivo de firestore via AutoBid (teto 30%)
+  const valorPedagio = Math.max(0, Math.min(valorPedagioOriginal, valorBrutoInput * 0.30));
+
   if (!Number.isFinite(valorBrutoInput) || valorBrutoInput <= 0 || !Number.isFinite(valorPedagio) || valorPedagio < 0 || valorPedagio > valorBrutoInput) {
     console.error('[AUTO-BID] Valores inválidos; margens não recalculadas.');
     return null;
@@ -1828,6 +1931,7 @@ exports.recalcularAutoBid = functions.firestore.document('fretes/{freteId}').onU
   await change.after.ref.update({
     valorBruto: valorBrutoInput,
     valorFreteBruto: valorBrutoInput,
+    valorPedagio, // Reflete a proteção em banco
     taxaFreto: taxa * 100,
     valorComissao,
     lucroPlataforma: valorComissao,
@@ -1875,7 +1979,7 @@ exports.bypassPinEtapaAdmin = functions.runWith(runtimeOpts).https.onCall(async 
       }
 
       const pinEntregasAtualizados = [...(frete.pinEntregas || [])];
-      pinEntregasAtualizados[paradaAtualIndex] = null; // Consome PIN local sem afetar array
+      pinEntregasAtualizados[paradaAtualIndex] = null; 
       
       payloadUpdate.pinEntregas = pinEntregasAtualizados;
       payloadUpdate.tentativasPin = 0;
