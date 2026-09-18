@@ -164,8 +164,8 @@ function sanitizeAddress(value, fallbackCoordinates, label) {
   );
 
   const clean = { ...coordinates };
-  for (const key of ['cep', 'bairro', 'rua', 'num', 'cidade', 'uf', 'endereco']) {
-    const normalized = sanitizeText(obj[key], key === 'endereco' ? 500 : 120);
+  for (const key of ['cep', 'bairro', 'rua', 'num', 'cidade', 'uf', 'endereco', 'formatted_address']) {
+    const normalized = sanitizeText(obj[key], key === 'endereco' || key === 'formatted_address' ? 500 : 120);
     if (normalized !== undefined) clean[key] = normalized;
   }
   return clean;
@@ -400,12 +400,27 @@ exports.getDistance = functions.runWith(runtimeOpts).https.onCall(async (data, c
 
   const origin = sanitizeText(data?.origin, 500);
   const destination = sanitizeText(data?.destination, 500);
-  if (!origin || !destination || origin.length < 5 || destination.length < 5) {
+  if (!origin || !destination || origin.length < 3 || destination.length < 3) {
     throw new functions.https.HttpsError('invalid-argument', 'Origem e destino válidos são obrigatórios.');
   }
 
+  const parseAndValidateCoord = (input) => {
+    if (typeof input === 'string' && input.includes(',')) {
+      const parts = input.split(',');
+      const lat = parseFloat(parts[0].trim());
+      const lng = parseFloat(parts[1].trim());
+      if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        return `${lat},${lng}`;
+      }
+    }
+    return encodeURIComponent(input);
+  };
+
+  const originsParam = parseAndValidateCoord(origin);
+  const destinationsParam = parseAndValidateCoord(destination);
+
   const key = getGoogleMapsKey();
-  const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&key=${key}`;
+  const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${originsParam}&destinations=${destinationsParam}&key=${key}`;
 
   try {
     const res = await axios.get(url, { timeout: 5000 });
