@@ -16,7 +16,7 @@ import { mapsLoader } from '../services/mapsLoader';
 import { locationService } from '../services/locationService'; 
 import { NotificationService } from '../services/notificationService'; 
 
-interface AddressData { cep: string; bairro: string; rua: string; num: string; cidade?: string; uf?: string; lat?: number; lng?: number; }
+interface AddressData { cep: string; bairro: string; rua: string; num: string; cidade?: string; uf?: string; lat?: number; lng?: number; formatted_address?: string; }
 interface Coords { lat: number; lng: number; }
 interface OrderData { 
   status: string; 
@@ -85,6 +85,35 @@ const callWithRetryAndTimeout = async <T,>(callableName: string, payload: unknow
     } catch (error) { if (attempt === maxRetries) throw error; }
   }
   throw new Error('MAX_RETRIES_EXCEEDED');
+};
+
+const EnderecoAutocomplete = ({ mapsReady, value, placeholder, className, onPlaceSelected, onChangeText }: any) => {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const autocompleteRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!mapsReady || !inputRef.current || autocompleteRef.current) return;
+    autocompleteRef.current = new (window as any).google.maps.places.Autocomplete(inputRef.current, {
+      componentRestrictions: { country: 'br' }
+    });
+    autocompleteRef.current.addListener('place_changed', () => {
+      const place = autocompleteRef.current.getPlace();
+      if (place && place.geometry) {
+        onPlaceSelected(place);
+      }
+    });
+  }, [mapsReady, onPlaceSelected]);
+
+  return (
+    <input
+      ref={inputRef}
+      type="text"
+      className={className}
+      placeholder={placeholder}
+      value={value}
+      onChange={(e) => onChangeText(e.target.value)}
+    />
+  );
 };
 
 export default function Cliente() {
@@ -330,11 +359,10 @@ export default function Cliente() {
       nome.trim() !== '' &&
       whatsapp.replace(/\D/g, '').length >= 10 &&
       documento.replace(/\D/g, '').length >= 11 &&
-      coleta.rua.trim() !== '' &&
+      coleta.lat !== undefined && 
+      coleta.lng !== undefined && 
       coleta.num.trim() !== '' &&
-      coleta.bairro.trim() !== '' &&
-      coleta.cep.replace(/\D/g, '').length === 8 &&
-      entregas.every(e => e.rua.trim() !== '' && e.num.trim() !== '' && e.bairro.trim() !== '' && e.cep.replace(/\D/g, '').length === 8) &&
+      entregas.every(e => e.lat !== undefined && e.lng !== undefined && e.num.trim() !== '') &&
       peso.trim() !== '' &&
       pesoValido &&
       tipoMaterial.trim() !== '' && 
@@ -370,8 +398,14 @@ export default function Cliente() {
         const data = JSON.parse(savedForm);
         if (data.nome || data.documento) setIsAutoFilled(true);
 
-        setNome(data.nome || ''); setColeta(data.coleta || coleta); 
-        setEntregas(data.entregas || (data.entrega ? [data.entrega] : [{ cep: '', bairro: '', rua: '', num: '' }]));
+        const initAddr = (addr: any) => ({
+           ...addr,
+           formatted_address: addr.formatted_address || (addr.rua ? `${addr.rua}, ${addr.num} - ${addr.bairro}` : '')
+        });
+
+        setNome(data.nome || ''); 
+        setColeta(data.coleta ? initAddr(data.coleta) : coleta); 
+        setEntregas(data.entregas ? data.entregas.map(initAddr) : (data.entrega ? [initAddr(data.entrega)] : [{ cep: '', bairro: '', rua: '', num: '' }]));
         setPeso(data.peso || ''); 
         
         setTipoMaterial(data.tipoMaterial || 'Caixas Secas'); 
@@ -437,10 +471,8 @@ export default function Cliente() {
     return () => unsubscribe();
   }, [currentOrderId]);
 
-  const enriquecerEnderecoPorCep = async (
-    cep: string,
-    apply: (patch: Partial<AddressData>) => void
-  ) => {
+  // Função mantida para compatibilidade estática interna (não utilizada no fluxo de geocodificação)
+  const enriquecerEnderecoPorCep = async (cep: string, apply: (patch: Partial<AddressData>) => void) => {
     const digits = cep.replace(/\D/g, '');
     if (digits.length !== 8) return;
     try {
@@ -457,11 +489,9 @@ export default function Cliente() {
     }
   };
 
+  // Mantido para fallback local caso necessário externamente
   const getValidCoords = async (addressStr: string, cepHint?: string): Promise<Coords> => {
-    if (coordsCache.current[addressStr]) {
-      return coordsCache.current[addressStr];
-    }
-
+    if (coordsCache.current[addressStr]) return coordsCache.current[addressStr];
     let enriched = addressStr;
     const cepDigits = (cepHint || '').replace(/\D/g, '');
     if (cepDigits.length === 8) {
@@ -473,7 +503,6 @@ export default function Cliente() {
         }
       } catch (_) {}
     }
-
     try {
       const coords = await callWithRetryAndTimeout<Coords>('getCoords', { address: enriched });
       if (coords && typeof coords.lat === 'number') {
@@ -485,11 +514,36 @@ export default function Cliente() {
     } catch (error: any) {
       const serverMsg = String(error?.message || error?.code || error?.details || '');
       if (/indisponível|REQUEST_DENIED|failed-precondition|API key|chave|maps/i.test(serverMsg)) {
-        throw new Error(
-          'Serviço de mapas indisponível no servidor. A chave do Google Maps precisa estar configurada nas Firebase Functions (GOOGLE_MAPS_KEY).'
-        );
+        throw new Error('Serviço de mapas indisponível no servidor.');
       }
       throw new Error(`Endereço não localizado pelo servidor: ${enriched}`);
+    }
+  };
+
+  const handlePlaceSelected = (place: any, isColeta: boolean, index?: number) => {
+    const lat = place.geometry.location.lat();
+    const lng = place.geometry.location.lng();
+    const extract = (type: string) => place.address_components?.find((c: any) => c.types.includes(type))?.long_name || '';
+    const extractShort = (type: string) => place.address_components?.find((c: any) => c.types.includes(type))?.short_name || '';
+
+    const rua = extract('route');
+    const num = extract('street_number');
+    const bairro = extract('sublocality') || extract('sublocality_level_1') || extract('neighborhood');
+    const cidade = extract('administrative_area_level_2') || extract('locality');
+    const uf = extractShort('administrative_area_level_1');
+    const cep = extract('postal_code');
+    const formatted_address = place.formatted_address;
+
+    const newData = { lat, lng, rua, num, bairro, cidade, uf, cep, formatted_address };
+
+    if (isColeta) {
+      setColeta(prev => ({ ...prev, ...newData }));
+    } else if (index !== undefined) {
+      setEntregas(prev => {
+         const next = [...prev];
+         next[index] = { ...next[index], ...newData };
+         return next;
+      });
     }
   };
 
@@ -497,34 +551,44 @@ export default function Cliente() {
     if (loadingRoute || loadingPayment || !isFormValid) return;
     if (!pesoValido) { showToast("O peso excede o limite da categoria.", 'error'); return; }
 
+    if (!coleta.lat || !coleta.lng) {
+       showToast("Selecione um endereço de coleta válido pela busca do Google.", 'error'); 
+       return; 
+    }
+    for (let i = 0; i < entregas.length; i++) {
+       if (!entregas[i].lat || !entregas[i].lng) {
+          showToast(`Selecione o endereço do destino ${i + 1} válido pela busca.`, 'error');
+          return;
+       }
+    }
+
     setLoadingRoute(true);
     setLoadingStep(0);
     
     try {
-      const origStr = [coleta.rua, coleta.num, coleta.bairro, coleta.cidade, coleta.uf, coleta.cep, 'Brasil'].filter(Boolean).join(', ');
-      
-      const origCoords = await getValidCoords(origStr, coleta.cep);
+      const origCoords = { lat: coleta.lat, lng: coleta.lng };
       setOrigemGPS(origCoords);
 
       const pGPS: Coords[] = [];
       let totalKm = 0;
-      let lastOrigin = origStr;
+      let lastCoords = origCoords;
 
       for (const stop of entregas) {
-        const destStr = [stop.rua, stop.num, stop.bairro, stop.cidade, stop.uf, stop.cep, 'Brasil'].filter(Boolean).join(', ');
-        
-        const destCoords = await getValidCoords(destStr, stop.cep);
+        const destCoords = { lat: stop.lat, lng: stop.lng };
         pGPS.push(destCoords);
 
-        const distanceResult = await callWithRetryAndTimeout<number>('getDistance', { origin: lastOrigin, destination: destStr });
+        const distanceResult = await callWithRetryAndTimeout<number>('getDistance', { 
+           origin: `${lastCoords.lat},${lastCoords.lng}`, 
+           destination: `${destCoords.lat},${destCoords.lng}` 
+        });
         const km = Number(distanceResult);
         
         if (Number.isNaN(km) || km <= 0) {
-           throw new Error(`Rota impossível entre ${lastOrigin} e ${destStr}.`);
+           throw new Error(`Rota impossível entre os pontos selecionados.`);
         }
 
         totalKm += km;
-        lastOrigin = destStr;
+        lastCoords = destCoords;
       }
       
       setParadasGPS(pGPS);
@@ -600,13 +664,9 @@ export default function Cliente() {
         }
       }
 
-      const c1 = await getValidCoords([coleta.rua, coleta.num, coleta.bairro, coleta.cidade, coleta.uf, coleta.cep, 'Brasil'].filter(Boolean).join(', '), coleta.cep);
+      const c1 = { lat: coleta.lat!, lng: coleta.lng! };
       
-      const coordsEntregas = [];
-      for (const e of entregas) {
-         const c = await getValidCoords([e.rua, e.num, e.bairro, e.cidade, e.uf, e.cep, 'Brasil'].filter(Boolean).join(', '), e.cep);
-         coordsEntregas.push({ ...e, lat: c.lat, lng: c.lng });
-      }
+      const coordsEntregas = entregas.map(e => ({ ...e, lat: e.lat!, lng: e.lng! }));
       const destinoFinal = coordsEntregas[coordsEntregas.length - 1];
       const documentoLimpo = documento.replace(/\D/g, ''); 
       
@@ -617,8 +677,8 @@ export default function Cliente() {
       const payload = {
         clienteId: currentUser.uid,
         categoria: vehicle,
-        origem: { lat: c1.lat, lng: c1.lng, endereco: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}` },
-        destino: { lat: destinoFinal.lat, lng: destinoFinal.lng, endereco: `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}` },
+        origem: { lat: c1.lat, lng: c1.lng, endereco: coleta.formatted_address || `${coleta.rua}, ${coleta.num} - ${coleta.bairro}` },
+        destino: { lat: destinoFinal.lat, lng: destinoFinal.lng, endereco: destinoFinal.formatted_address || `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}` },
         valorPedagio: valorPedagioOperacao,
         empresaId: currentUser.uid, 
         tipoConta: 'b2b',
@@ -638,10 +698,10 @@ export default function Cliente() {
         observacoes: observacoes,
         valorBrutoInput: valorOfertaNum,
         valorTotal: valorOfertaNum, 
-        cidadeOrigem: coleta.bairro, 
-        cidadeDestino: destinoFinal.bairro,
-        enderecoColetaTexto: `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`, 
-        enderecoEntregaTexto: `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}`,
+        cidadeOrigem: coleta.bairro || coleta.cidade, 
+        cidadeDestino: destinoFinal.bairro || destinoFinal.cidade,
+        enderecoColetaTexto: coleta.formatted_address || `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`, 
+        enderecoEntregaTexto: destinoFinal.formatted_address || `${destinoFinal.rua}, ${destinoFinal.num} - ${destinoFinal.bairro}`,
         coleta, 
         entrega: destinoFinal, 
         paradas: coordsEntregas.length > 1 ? coordsEntregas.slice(0, -1) : [],
@@ -826,7 +886,8 @@ export default function Cliente() {
     else showToast('Limite máximo de 5 paradas.', 'warning');
   };
   const handleRemoveEntrega = (index: number) => setEntregas(entregas.filter((_, i) => i !== index));
-  const updateEntrega = (index: number, field: string, value: string) => {
+  
+  const updateEntrega = (index: number, field: keyof AddressData, value: string) => {
     const newEntregas = [...entregas];
     newEntregas[index] = { ...newEntregas[index], [field]: value };
     setEntregas(newEntregas);
@@ -985,14 +1046,24 @@ export default function Cliente() {
                     <MapPin className="h-5 w-5 text-blue-500" /> Endereço de Coleta
                   </h2>
                   <div className="space-y-4">
-                    <div className="grid grid-cols-3 gap-4">
-                      <input className={`col-span-2 ${smallInputClass}`} placeholder="Rua da Retirada" value={coleta.rua} onChange={e => setColeta({...coleta, rua: e.target.value})} />
-                      <input className={`col-span-1 ${smallInputClass}`} placeholder="Nº" value={coleta.num} onChange={e => setColeta({...coleta, num: e.target.value})} />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <input className={smallInputClass} placeholder="Bairro" value={coleta.bairro} onChange={e => setColeta({...coleta, bairro: e.target.value})} />
-                      <input className={smallInputClass} placeholder="CEP" value={coleta.cep} onChange={e => setColeta({...coleta, cep: e.target.value})} onBlur={e => enriquecerEnderecoPorCep(e.target.value, (patch) => setColeta(prev => ({ ...prev, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v != null && v !== '')) as Partial<AddressData> })))} />
-                    </div>
+                    <EnderecoAutocomplete
+                      mapsReady={mapsReady}
+                      value={coleta.formatted_address || ''}
+                      onChangeText={(text: string) => {
+                        setColeta({...coleta, formatted_address: text, lat: undefined, lng: undefined});
+                      }}
+                      placeholder="🔍 Pesquise o endereço da coleta..."
+                      className={inputClass}
+                      onPlaceSelected={(place: any) => handlePlaceSelected(place, true)}
+                    />
+                    {coleta.lat ? (
+                      <div className="grid grid-cols-3 gap-4 animate-in fade-in">
+                         <input className={`col-span-2 ${smallInputClass} bg-slate-200 text-slate-500 cursor-not-allowed`} value={`${coleta.rua || ''}${coleta.bairro ? ` - ${coleta.bairro}` : ''}`} readOnly disabled placeholder="Endereço Selecionado" />
+                         <input className={`col-span-1 ${smallInputClass}`} placeholder="Nº (Obrigatório)" value={coleta.num} onChange={e => setColeta({...coleta, num: e.target.value})} />
+                      </div>
+                    ) : (
+                      <p className="text-[10px] text-amber-500 font-bold uppercase tracking-widest px-2">Selecione uma opção da busca do Google</p>
+                    )}
                   </div>
                 </div>
 
@@ -1009,13 +1080,27 @@ export default function Cliente() {
                           </button>
                         )}
                         <p className="text-[10px] font-black uppercase text-blue-400 mb-2">Parada {index + 1}</p>
-                        <div className="grid grid-cols-3 gap-3 mb-3">
-                          <input className={`col-span-2 ${smallInputClass}`} placeholder="Rua da Entrega" value={entrega.rua} onChange={e => updateEntrega(index, 'rua', e.target.value)} />
-                          <input className={`col-span-1 ${smallInputClass}`} placeholder="Nº" value={entrega.num} onChange={e => updateEntrega(index, 'num', e.target.value)} />
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <input className={smallInputClass} placeholder="Bairro" value={entrega.bairro} onChange={e => updateEntrega(index, 'bairro', e.target.value)} />
-                          <input className={smallInputClass} placeholder="CEP" value={entrega.cep} onChange={e => updateEntrega(index, 'cep', e.target.value)} onBlur={e => enriquecerEnderecoPorCep(e.target.value, (patch) => { Object.entries(patch).forEach(([k, v]) => { if (v != null && v !== '') updateEntrega(index, k as keyof AddressData, String(v)); }); })} />
+                        <div className="space-y-3">
+                          <EnderecoAutocomplete
+                            mapsReady={mapsReady}
+                            value={entrega.formatted_address || ''}
+                            onChangeText={(text: string) => {
+                              const newEntregas = [...entregas];
+                              newEntregas[index] = { ...newEntregas[index], formatted_address: text, lat: undefined, lng: undefined };
+                              setEntregas(newEntregas);
+                            }}
+                            placeholder="🔍 Pesquise o endereço de destino..."
+                            className={smallInputClass}
+                            onPlaceSelected={(place: any) => handlePlaceSelected(place, false, index)}
+                          />
+                          {entrega.lat ? (
+                             <div className="grid grid-cols-3 gap-3 animate-in fade-in">
+                               <input className={`col-span-2 ${smallInputClass} bg-slate-100 text-slate-500 cursor-not-allowed`} value={`${entrega.rua || ''}${entrega.bairro ? ` - ${entrega.bairro}` : ''}`} readOnly disabled placeholder="Endereço Selecionado" />
+                               <input className={`col-span-1 ${smallInputClass}`} placeholder="Nº (Obrigatório)" value={entrega.num} onChange={e => updateEntrega(index, 'num', e.target.value)} />
+                             </div>
+                          ) : (
+                             <p className="text-[10px] text-amber-500 font-bold uppercase tracking-widest px-2">Selecione uma opção da busca</p>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -1077,7 +1162,7 @@ export default function Cliente() {
             {!isFormValid && (
               <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-center">
                 <p className="flex items-center justify-center gap-2 text-xs font-black uppercase tracking-widest text-amber-600">
-                  <AlertTriangle size={18}/> Preencha todos os campos obrigatórios para avançar.
+                  <AlertTriangle size={18}/> Preencha todos os campos obrigatórios e endereços válidos para avançar.
                 </p>
               </div>
             )}
@@ -1337,7 +1422,6 @@ export default function Cliente() {
         {step === 'busca' && orderData && (
           <div className="mx-auto w-full animate-in fade-in slide-in-from-bottom-8 duration-700">
 
-            {/* 1 e 2: Cabeçalho/Status e Informações (Largura Total) */}
             <div className="flex flex-col gap-6 mb-8">
                 {orderData?.status === 'aguardando_pagamento' && (
                   <div className="bg-blue-600 rounded-[2.5rem] p-8 shadow-2xl text-white mb-2 relative overflow-hidden">
@@ -1416,10 +1500,8 @@ export default function Cliente() {
                 </div>
             </div>
 
-            {/* 3 e 4: Área Principal (Mapa, Painel Operacional e Chat) */}
             <div className="flex flex-col lg:flex-row gap-8">
               
-              {/* Coluna Principal: Mapa e Chat (Mobile: Order 2 - Baixo | Desktop: Order 1 - Esquerda) */}
               <div className="flex-1 flex flex-col gap-6 order-2 lg:order-1 min-w-0">
                   <div className="h-[400px] w-full rounded-[2.5rem] overflow-hidden border border-slate-200 shadow-xl relative">
                     {mapsReady ? (
@@ -1457,7 +1539,6 @@ export default function Cliente() {
                   )}
               </div>
 
-              {/* Coluna Operacional: Status, Escrow, Radar (Mobile: Order 1 - Cima | Desktop: Order 2 - Direita) */}
               <div className="w-full lg:w-[380px] shrink-0 order-1 lg:order-2">
                   <ClientStatusCard 
                     orderData={orderData} 
