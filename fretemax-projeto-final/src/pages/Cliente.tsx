@@ -287,7 +287,7 @@ export default function Cliente() {
     const valorPedagioCalculado = precisaPedagio ? validDistancia * (isHeavy ? 0.85 : 0.35) : 0;
 
     return {
-      precoFinalCliente: Math.round(precoFinalClienteCalculado),
+      precoFinalCliente: Number(precoFinalClienteCalculado.toFixed(2)),
       tollCost: Number(valorPedagioCalculado.toFixed(2))
     };
   }, [validDistancia, vehicle, entregas.length, tipoMaterial]);
