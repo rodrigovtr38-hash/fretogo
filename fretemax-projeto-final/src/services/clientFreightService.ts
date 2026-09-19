@@ -1,9 +1,3 @@
-// =========================================================
-// NOME DO ARQUIVO: src/services/clientFreightService.ts
-// Publicação segura via Cloud Function com idempotência persistente.
-// CTO-Log: Injeção de Filtro Zero-Trust para aniquilar Paradas Fantasmas e Bypass do Bug de "Undefined" do SDK Firebase.
-// =========================================================
-
 import { doc, getDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { db } from '../firebase';
@@ -98,7 +92,6 @@ const getCoordinate = (payload: FreightPayload, side: 'origem' | 'destino', axis
 const normalizeError = (error: unknown, fallback: string): string => {
   if (error && typeof error === 'object') {
     const firebaseError = error as { code?: unknown; message?: unknown };
-    // CTO FIX: A mensagem de erro real tem precedência absoluta sobre o código abstrato.
     if (typeof firebaseError.message === 'string' && firebaseError.message.trim()) return firebaseError.message;
     if (typeof firebaseError.code === 'string' && firebaseError.code.trim()) return firebaseError.code;
   }
@@ -193,7 +186,6 @@ class ClientFreightService {
     if (!payload || typeof payload !== 'object') return 'DADOS_DO_FRETE_INVALIDOS';
     if (typeof payload.clienteId !== 'string' || !payload.clienteId.trim()) return 'CLIENTE_INVALIDO';
     
-    // CTO FIX: Tolerância (aceita tanto 'categoria' quanto 'veiculo')
     const category = payload.categoria || payload.veiculo;
     if (typeof category !== 'string' || !category.trim()) return 'CATEGORIA_INVALIDA';
 
@@ -220,15 +212,14 @@ class ClientFreightService {
     const validationError = this.validatePayload(payload);
     if (validationError) return { success: false, error: validationError };
 
-    // 🔥 CTO FIX: Expurgo de Paradas Fantasmas (Lixo do Frontend)
     const rawParadas = Array.isArray(payload.paradas) ? payload.paradas : [];
     const cleanParadas = rawParadas.filter(p => {
       if (!p || typeof p !== 'object') return false;
       return Boolean(p.lat || p.lng || p.endereco || p.cidade || p.cep);
     });
 
-    if (cleanParadas.length > 5) {
-      return { success: false, error: 'LIMITE_DE_5_PARADAS_EXCEDIDO' };
+    if (cleanParadas.length > 24) {
+      return { success: false, error: 'LIMITE_DE_24_PARADAS_EXCEDIDO' };
     }
 
     const normalizedPayload: FreightPayload = {
@@ -255,8 +246,6 @@ class ClientFreightService {
 
         const idempotencyKey = this.getOrCreateIdempotencyKey(normalizedPayload, fingerprint);
 
-        // 🔥 CTO FIX MÁXIMO: O Firebase SDK crasha brutalmente se enviarmos propriedades com valor "undefined".
-        // Este parse sanitiza 100% o payload transformando num objeto limpo. É isso que causava a FALHA ESTRUTURAL.
         const safePayload = JSON.parse(JSON.stringify(normalizedPayload));
 
         const response = await criarFreteB2B({ payload: safePayload, idempotencyKey });
