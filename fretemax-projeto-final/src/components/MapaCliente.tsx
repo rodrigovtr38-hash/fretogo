@@ -110,16 +110,16 @@ function MapaCliente({
       }
   }, [motoristaLat, motoristaLng, pickupStartPos]);
 
-  // 🔥 CTO FIX: Inteligência do Roteador blindada contra memory/API leak do GPS
+  // 🔥 CTO FIX [Bloco 3]: Inteligência do Roteador blindada contra memory/API leak do GPS e escalada para 25 entregas
   const activeRouting = useMemo(() => {
       if (!origem || !destino) return null;
 
       // 1. Cenário pré-aceite: Motorista não existe.
       if (!motoristaId) {
-          // Limite estrito para proteger o DirectionsService da API do Google (Max 25 waypoints)
-          // Se existirem mais de 10 stops, nós anulamos o DirectionsResult e forçamos o React-Google-Maps a 
-          // desenhar organicamente a Polyline exata (baseado nas coordenadas)
-          if (allStops.length > 10) return null;
+          // Limite ampliado de 10 para 25 entregas, compatível com a liberação de contrato do backend.
+          // Se o total de paradas superar o máximo da API Directions (25 waypoints), 
+          // ativamos graceful degradation usando a Polyline reta (fallback visual).
+          if (allStops.length > 25) return null;
 
           return {
               origin: origem,
@@ -146,6 +146,9 @@ function MapaCliente({
 
       // Waypoints carregam o "restante" das paradas
       const waypoints = allStops.slice(pIndex, -1).map(p => ({ location: p, stopover: true }));
+
+      // Fallback de segurança contra limite excedido do Google API (MAX_WAYPOINTS_EXCEEDED)
+      if (waypoints.length > 25) return null;
 
       return { origin: startPoint, destination: endDrop, waypoints };
 
