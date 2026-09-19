@@ -4,7 +4,7 @@ import { db, auth, storage } from '../firebase';
 import { doc, onSnapshot, DocumentData } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage'; 
 import { getFunctions, httpsCallable } from 'firebase/functions'; 
-import { LockKeyhole, AlertTriangle, Loader2, MapPin, Radio, Navigation, Scale, Camera, Wallet, CheckCircle2, MessageCircle, FileText, Check, XCircle, Info, UploadCloud, Truck, Package, MapPinned } from 'lucide-react';
+import { LockKeyhole, AlertTriangle, Loader2, MapPin, Radio, Navigation, Scale, Camera, Wallet, CheckCircle2, MessageCircle, FileText, Check, XCircle, Info, UploadCloud, Truck, Package, MapPinned, HelpCircle } from 'lucide-react';
 import MapaCliente from '../components/MapaCliente';
 import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
 import { locationRealtimeService } from '../services/locationRealtimeService'; 
@@ -255,6 +255,32 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       setPinError(e.message || 'Erro sistêmico ao validar. Tente novamente.'); 
     } finally { 
       setActionLoading(false); 
+    }
+  };
+
+  // CTO FIX: Execução Cloud Function do Fluxo Exceção Sem PIN (Zero Trust)
+  const handleExcecaoSemPin = async () => {
+    if (frete.bloqueioPin || actionLoading) return;
+    setActionLoading(true);
+    setPinError('');
+
+    if (!isFotoConfirmada) {
+      setPinError('ERRO: Você precisa obrigatoriamente enviar a FOTO do local/carga para solicitar esta exceção.');
+      setActionLoading(false);
+      return;
+    }
+
+    try {
+      const functions = getFunctions(db.app);
+      const solicitarExcecaoSemPin = httpsCallable(functions, 'solicitarExcecaoSemPin');
+      await solicitarExcecaoSemPin({ freteId: frete.id });
+      
+      setIsPinModalOpen(false);
+      setPinValue('');
+    } catch (e: any) {
+      setPinError(e.message || 'Erro ao processar a exceção. Tente novamente.');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -631,7 +657,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       <AnimatePresence>
         {isPinModalOpen && (
           <motion.div key="pin-modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/90 backdrop-blur-sm p-4">
-            <motion.div key="modal-pin" initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="bg-slate-900 p-8 rounded-[2.5rem] w-full max-w-sm border border-cyan-500/50 shadow-2xl">
+            <motion.div key="modal-pin" initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="bg-slate-900 p-8 rounded-[2.5rem] w-full max-w-sm border border-cyan-500/50 shadow-2xl relative overflow-hidden">
               
               {frete.bloqueioPin ? (
                 <div className="text-center">
@@ -648,7 +674,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
                   {!isFotoConfirmada ? (
                     <div className="mb-6 mt-4">
                       <p className="text-slate-400 text-xs text-center mb-4 leading-relaxed font-bold">
-                        A foto do canhoto assinado ou da mercadoria deixada no local é <span className="text-cyan-400">OBRIGATÓRIA</span> para liberar o teclado numérico do PIN.
+                        A foto do canhoto assinado ou da mercadoria deixada no local é <span className="text-cyan-400">OBRIGATÓRIA</span> para liberar o teclado numérico do PIN ou solicitar exceções.
                       </p>
                       <label className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${fotoPodBase64 ? 'border-emerald-500 bg-emerald-500/10' : 'border-cyan-500/30 bg-slate-950 hover:bg-slate-900 focus:border-cyan-400'}`}>
                           {fotoPodBase64 ? (
@@ -667,15 +693,15 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
                       
                       {fotoPodBase64 && (
                         <button onClick={handleUploadPhoto} disabled={uploadingPod} className="w-full mt-4 flex items-center justify-center gap-2 bg-emerald-500 py-3 font-black uppercase text-xs rounded-xl text-slate-950 hover:bg-emerald-400 transition-colors shadow-[0_0_15px_rgba(16,185,129,0.3)]">
-                          {uploadingPod ? <><Loader2 className="animate-spin text-black" size={16}/> Sincronizando com a Torre</> : <><UploadCloud size={16}/> Enviar Evidência para Liberar PIN</>}
+                          {uploadingPod ? <><Loader2 className="animate-spin text-black" size={16}/> Sincronizando com a Torre</> : <><UploadCloud size={16}/> Enviar Evidência Segura</>}
                         </button>
                       )}
                     </div>
                   ) : (
                     <div className="mt-4">
-                      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 mb-6 flex flex-col items-center">
+                      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 mb-4 flex flex-col items-center">
                         <CheckCircle2 size={24} className="text-emerald-400 mb-1" />
-                        <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest text-center">Foto registrada com sucesso.<br/>O Embarcador já recebeu a evidência.</span>
+                        <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest text-center">Foto registrada com sucesso.<br/>A Torre já recebeu a evidência.</span>
                       </div>
                       
                       <p className="text-slate-400 text-xs text-center mb-4 leading-relaxed font-bold">
@@ -696,6 +722,18 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
                         </button>
                       )}
                     </div>
+
+                    {isFotoConfirmada && (
+                      <div className="pt-4 mt-2 border-t border-white/10">
+                        <button 
+                          onClick={handleExcecaoSemPin} 
+                          disabled={actionLoading}
+                          className="w-full flex items-center justify-center gap-2 bg-amber-500/10 py-3 font-black uppercase text-[10px] tracking-widest rounded-xl text-amber-500 border border-amber-500/30 disabled:opacity-50 hover:bg-amber-500/20 transition-all"
+                        >
+                          <HelpCircle size={14} /> Cliente Ausente / Não tenho o PIN
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </>
               )}
