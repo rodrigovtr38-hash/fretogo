@@ -150,7 +150,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
   const etapaAtualKey = frete.status === AppTripState.COLETANDO ? 'coleta' : `parada_${paradaAtualIndex}`;
   const isFotoConfirmada = !!frete.fotosPod?.[etapaAtualKey];
 
-  // Preparar os mapeamentos estruturais passados ao Google Maps
   const destinoFinalMap = frete.entrega?.lat ? { lat: frete.entrega.lat, lng: frete.entrega.lng } : null;
   const paradasExtrasMap = paradas.filter(p => p.lat && p.lng).map(p => ({ lat: p.lat, lng: p.lng }));
 
@@ -404,7 +403,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
            </div>
         </div>
 
-        {/* CTO FIX: Proteção visual da Timeline para escalabilidade Multi-Drop. Container ajustado para rolagem X e gap para itens infinitos */}
         <div className="mb-6 py-4 overflow-x-auto pb-10">
           <div className="flex items-center justify-between relative min-w-[max-content] gap-12 px-6">
             <div className="absolute top-1/2 left-0 w-full h-1 bg-slate-800 -translate-y-1/2 z-0"></div>
