@@ -114,8 +114,13 @@ function MapaCliente({
   const activeRouting = useMemo(() => {
       if (!origem || !destino) return null;
 
-      // 1. Cenário pré-aceite: Motorista não existe. Desenha a rota inteira Origem -> Destinos
+      // 1. Cenário pré-aceite: Motorista não existe.
       if (!motoristaId) {
+          // Limite estrito para proteger o DirectionsService da API do Google (Max 25 waypoints)
+          // Se existirem mais de 10 stops, nós anulamos o DirectionsResult e forçamos o React-Google-Maps a 
+          // desenhar organicamente a Polyline exata (baseado nas coordenadas)
+          if (allStops.length > 10) return null;
+
           return {
               origin: origem,
               destination: allStops[allStops.length - 1] || destino,
