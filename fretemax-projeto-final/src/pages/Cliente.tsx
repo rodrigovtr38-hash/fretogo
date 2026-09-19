@@ -58,6 +58,7 @@ interface OrderData {
   distanciaRealKm?: number; 
   tipoFrete?: string;
   dataAgendada?: any;
+  todasEntregas?: any[];
 }
 
 type VehicleType = 'moto' | 'carro' | 'utilitarios' | 'toco' | 'truck' | 'carreta' | 'bitrem';
@@ -454,11 +455,8 @@ export default function Cliente() {
       }
 
       if (data.status === 'finalizado') {
+        // CTO FIX: A experiência final deve manter o usuário visualizando o sucesso, sem reset abrupto
         showToast('Entrega Finalizada! Agradecemos pela parceria.', 'success');
-        localStorage.removeItem('fretogo_current_order'); 
-        setCurrentOrderId(null); 
-        setStep('form');
-        return;
       }
 
       if (['cancelado', 'erro_pagamento'].includes(data.status)) {
@@ -880,8 +878,9 @@ export default function Cliente() {
   };
 
   const handleAddEntrega = () => {
-    if (entregas.length < 24) setEntregas([...entregas, { cep: '', bairro: '', rua: '', num: '' }]);
-    else showToast('Limite máximo de 24 paradas intermediárias (25 entregas no total).', 'warning');
+    // CTO FIX: A validação permite que o array chegue exatamente a 25 destinos de entrega
+    if (entregas.length < 25) setEntregas([...entregas, { cep: '', bairro: '', rua: '', num: '' }]);
+    else showToast('Limite máximo de 24 paradas intermediárias (25 entregas no total) atingido.', 'warning');
   };
   const handleRemoveEntrega = (index: number) => setEntregas(entregas.filter((_, i) => i !== index));
   
@@ -1102,7 +1101,8 @@ export default function Cliente() {
                         </div>
                       </div>
                     ))}
-                    {entregas.length < 24 && (
+                    {/* CTO FIX: Apenas mostrar botão de adicionar se estivermos abaixo do teto de 25 entregas globais */}
+                    {entregas.length < 25 && (
                       <button onClick={handleAddEntrega} className="w-full py-3 border-2 border-dashed border-blue-300 text-blue-600 font-bold rounded-2xl hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 text-sm">
                         <Plus size={18}/> Adicionar Parada Extra
                       </button>
@@ -1419,6 +1419,21 @@ export default function Cliente() {
 
         {step === 'busca' && orderData && (
           <div className="mx-auto w-full animate-in fade-in slide-in-from-bottom-8 duration-700">
+
+            {/* CTO FIX: EXPERIÊNCIA DE CONCLUSÃO DE FRETE - Permanece na tela exibindo as informações até o cliente optar por Novo Frete */}
+            {orderData?.status === 'finalizado' && (
+              <div className="bg-emerald-600 rounded-[2.5rem] p-8 shadow-2xl text-white mb-6 text-center relative overflow-hidden">
+                <CheckCircle size={48} className="mx-auto mb-4 text-emerald-200" />
+                <h2 className="text-3xl font-black mb-2 uppercase tracking-tighter">Frete Concluído</h2>
+                <p className="text-emerald-100 font-medium mb-8">
+                  {orderData.todasEntregas?.length || (orderData.paradas ? orderData.paradas.length + 1 : 1)}/
+                  {orderData.todasEntregas?.length || (orderData.paradas ? orderData.paradas.length + 1 : 1)} ENTREGAS REALIZADAS COM SUCESSO.
+                </p>
+                <button onClick={resetFlow} className="mx-auto bg-slate-900 hover:bg-black text-white text-sm font-black uppercase tracking-[0.2em] py-4 px-8 rounded-full shadow-xl transition-all">
+                  Nova Operação
+                </button>
+              </div>
+            )}
 
             <div className="flex flex-col gap-6 mb-8">
                 {orderData?.status === 'aguardando_pagamento' && (
