@@ -1588,7 +1588,121 @@ exports.validarPinDaEtapa = functions.runWith(runtimeOpts).https.onCall(async (d
 });
 
 // ========================================================
-// 12. LIQUIDAÇÃO DE VIAGEM (Bypass Seguro de Firestore Rules)
+// 12.1 EXCEÇÃO OPERACIONAL "NÃO RECEBI PIN" (ZERO TRUST)
+// ========================================================
+exports.solicitarExcecaoSemPin = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
+  // 1. Autenticação e Inputs
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuário não autenticado.');
+  }
+
+  const { freteId } = data;
+  if (!freteId) {
+    throw new functions.https.HttpsError('invalid-argument', 'FreteId ausente.');
+  }
+
+  const freteRef = db.collection('fretes').doc(freteId);
+  const motoristaRef = db.collection('motoristas_cadastros').doc(context.auth.uid);
+  const motoristaOnlineRef = db.collection('motoristas_online').doc(context.auth.uid);
+
+  // 2. Transação Atômica (Evita dupla conclusão / ataques offline)
+  return await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(freteRef);
+    if (!snapshot.exists) {
+      throw new functions.https.HttpsError('not-found', 'Frete não encontrado.');
+    }
+
+    const frete = snapshot.data();
+
+    // Validação de Identidade Operacional
+    if (frete.motoristaId !== context.auth.uid) {
+      throw new functions.https.HttpsError('permission-denied', 'Não autorizado.');
+    }
+    if (frete.pagamentoStatus !== 'aprovado') {
+      throw new functions.https.HttpsError('failed-precondition', 'Pagamento do frete não está aprovado.');
+    }
+
+    let etapaAtualKey = '';
+    let isColeta = false;
+    let paradaAtualIndex = frete.paradaAtualIndex || 0;
+    const paradas = frete.paradas || [];
+    const totalEntregas = paradas.length + 1;
+
+    // Roteamento
+    if (frete.status === 'coletando') {
+      isColeta = true;
+      etapaAtualKey = 'coleta';
+    } else if (frete.status === 'em_transporte') {
+      if (paradaAtualIndex >= totalEntregas) {
+        throw new functions.https.HttpsError('failed-precondition', 'Todas as entregas já concluídas.');
+      }
+      etapaAtualKey = `parada_${paradaAtualIndex}`;
+    } else {
+      throw new functions.https.HttpsError('failed-precondition', 'O status atual não permite solicitação de exceção.');
+    }
+
+    // 🛡️ VALIDAÇÃO ESTRITA DE EVIDÊNCIA FÍSICA (ZERO TRUST)
+    // Se a foto não foi subida para a nuvem, a exceção é negada instantaneamente
+    if (!frete.fotosPod || !frete.fotosPod[etapaAtualKey]) {
+      throw new functions.https.HttpsError('failed-precondition', 'EXCEÇÃO NEGADA: O upload da evidência fotográfica (POD) é obrigatório antes de acionar a Torre.');
+    }
+
+    // 3. Aprovação da Exceção (Avanço Administrativo via Torre)
+    const payloadUpdate = { 
+      atualizadoEm: FieldValue.serverTimestamp(),
+      tentativasPin: 0 // Limpa possíveis erros do motorista
+    };
+    
+    let mensagemLog = '';
+
+    if (isColeta) {
+      payloadUpdate.status = 'em_transporte';
+      payloadUpdate.pinColeta = null; // PIN CONSUMIDO E DESTRUÍDO
+      mensagemLog = "⚠️ [Exceção Operacional]: Coleta finalizada via Torre (Ausência de PIN). Evidência fotográfica validada. Motorista liberado.";
+    } else {
+      const pinEntregasAtualizados = [...(frete.pinEntregas || [])];
+      pinEntregasAtualizados[paradaAtualIndex] = null; // PIN CONSUMIDO
+      payloadUpdate.pinEntregas = pinEntregasAtualizados;
+
+      if (paradaAtualIndex + 1 < totalEntregas) {
+        payloadUpdate.paradaAtualIndex = paradaAtualIndex + 1;
+        payloadUpdate.status = 'em_transporte';
+        mensagemLog = `⚠️ [Exceção Operacional]: Entrega ${paradaAtualIndex + 1}/${totalEntregas} validada via Torre (Ausência de PIN). Evidência fotográfica confirmada.`;
+      } else {
+        payloadUpdate.status = 'finalizando';
+        mensagemLog = "🏁 ⚠️ [Exceção Operacional]: Última entrega validada via Torre (Ausência de PIN). Evidência confirmada. Rota finalizada com sucesso.";
+      }
+    }
+
+    transaction.update(freteRef, payloadUpdate);
+
+    // Sync Motorista Realtime
+    const driverState = payloadUpdate.status === 'finalizando' ? 'finalizando' : 'em_transporte';
+    const driverUpdate = {
+      state: driverState,
+      freteAtualId: freteId,
+      activeTripId: freteId,
+      currentTripId: freteId,
+      atualizadoEm: FieldValue.serverTimestamp(),
+    };
+    transaction.set(motoristaRef, driverUpdate, { merge: true });
+    transaction.set(motoristaOnlineRef, driverUpdate, { merge: true });
+
+    // Trilha de Auditoria (Chat Log)
+    const messagesRef = freteRef.collection('chat').doc();
+    transaction.set(messagesRef, {
+      texto: mensagemLog,
+      nome: 'Torre de Controle (IA)',
+      tipoUsuario: 'admin',
+      createdAt: FieldValue.serverTimestamp()
+    });
+
+    return { success: true, novoStatus: payloadUpdate.status, message: 'Exceção validada e etapa concluída.' };
+  });
+});
+
+// ========================================================
+// 12.2 LIQUIDAÇÃO DE VIAGEM (Bypass Seguro de Firestore Rules)
 // ========================================================
 exports.liquidarViagemMotorista = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
   // 1. Autenticação Obrigatória
