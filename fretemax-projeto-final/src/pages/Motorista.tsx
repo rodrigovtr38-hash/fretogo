@@ -1,11 +1,7 @@
 // =========================================================
 // NOME DO ARQUIVO: src/pages/Motorista.tsx
 // CTO-Log: Auditoria Concluída - FASE 3 (Integração).
-// Status: "Vírus dos 15km" e "Buraco Negro da Recusa" erradicados pela raiz da leitura do Firestore.
-// Evolução Fase 12 (Escrow): Transação manual removida. Lock atômico centralizado no TripLifecycle.
-// Correção "Execução Dois": Remoção do sequestro de tela. Motorista aguarda o pagamento no próprio Feed.
-// Correção "Execução Três": CTO FIX - Proteção Temporal Absoluta. Eliminação do Bug dos Fretes Fantasmas.
-// Correção "Execução Quatro": CTO FIX - Otimização UI/UX Feed (Remoção Valor Cliente, Foco Líquido/KM).
+// Status: Sincronização UI Multi-Drop (Até 25 Entregas) Ativa.
 // =========================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -178,6 +174,11 @@ export default function Motorista() {
     const horasParada = (now - createdTime) / (1000 * 60 * 60);
     const prioridadeMural = horasParada >= 24 || Boolean(data.prioridade);
 
+    // CTO FIX: Cálculo oficial do Total de Entregas sincronizado com backend
+    const paradas = data.paradas || [];
+    const pinEntregasArray = Array.isArray(data.pinEntregas) ? data.pinEntregas : (data.pinEntregas ? [data.pinEntregas] : []);
+    const totalEntregas = pinEntregasArray.length > 0 ? pinEntregasArray.length : (paradas.length > 0 ? paradas.length + 1 : 1);
+
     return {
       id,
       status: data.status || 'disponivel',
@@ -199,6 +200,7 @@ export default function Motorista() {
       createdAt: data.createdAt,
       updatedAt: data.updatedAt,
       multiplasEntregas: Boolean(data.multiplasEntregas),
+      totalEntregas: totalEntregas,
       dataAgendada: data.dataAgendada,
       pagamentoStatus: data.pagamentoStatus,
       dispatchStatus: data.dispatchStatus,
@@ -578,6 +580,7 @@ export default function Motorista() {
                   {fretesFiltradosOrdenados.map((freight) => {
                     const km = freight.distanciaTotalKm && freight.distanciaTotalKm > 0 ? freight.distanciaTotalKm : 1;
                     const ganhoPorKm = (freight.valorMotorista || 0) / km;
+                    const totalD = (freight as any).totalEntregas || 1;
 
                     return (
                       <motion.div 
@@ -607,6 +610,17 @@ export default function Motorista() {
                            <div className="flex flex-col gap-1.5">
                               <span className="text-[10px] text-emerald-500 font-black uppercase tracking-widest">Valor Líquido</span>
                               <h3 className="text-4xl md:text-5xl font-black text-emerald-400 tracking-tighter">R$ {freight.valorMotorista?.toFixed(2).replace('.', ',')}</h3>
+                              
+                              {/* CTO FIX: Tag Visual para alertar Motorista ANTES do Aceite */}
+                              {totalD > 1 ? (
+                                <div className="inline-flex items-center justify-center bg-cyan-500/20 border border-cyan-500/40 rounded-lg px-3 py-1 mt-1 w-max">
+                                   <span className="text-[10px] font-black text-cyan-400 uppercase tracking-widest">MULTI-DROP • {totalD} ENTREGAS</span>
+                                </div>
+                              ) : (
+                                <div className="inline-flex items-center justify-center bg-slate-800 border border-slate-700 rounded-lg px-3 py-1 mt-1 w-max">
+                                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">1 ENTREGA (DIRETA)</span>
+                                </div>
+                              )}
                            </div>
                            <div className="text-right">
                               <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Publicado</p>
@@ -626,7 +640,7 @@ export default function Motorista() {
                            <div className="flex items-start gap-4 relative z-10">
                               <div className="w-6 h-6 rounded-full bg-emerald-900/50 border-2 border-emerald-50 flex items-center justify-center shrink-0 mt-1"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div></div>
                               <div>
-                                 <p className="text-[10px] uppercase tracking-widest font-black text-emerald-500 mb-1">Entregar em</p>
+                                 <p className="text-[10px] uppercase tracking-widest font-black text-emerald-500 mb-1">{totalD > 1 ? 'Último Destino' : 'Entregar em'}</p>
                                  <p className="text-sm font-bold text-white leading-snug">{freight.enderecoEntregaTexto}</p>
                               </div>
                            </div>
