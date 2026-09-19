@@ -1,9 +1,9 @@
 // =========================================================
 // NOME DO ARQUIVO: src/pages/Admin.tsx
 // CTO-Log: Torre de Controle Inteligente (Operacional Definitivo).
-// Status: Senha hardcoded removida. Card Operacional Full-Stack (Cliente, PIX, MP, PINs).
+// Status: Senha hardcoded removida. Card Operacional Full-Stack (Cliente, PIX, MP, PINs, Mapa GPS).
 // Correção (Fluxo Motorista): Refatoração de leitura do payload (fotosPod e chavePixMotorista).
-// Melhoria: Badges Dinâmicos, Bypass Seguro, Desbloqueio de PIN e Painel de Ocorrências.
+// Melhoria: Badges Dinâmicos, Bypass Seguro, Desbloqueio de PIN, Painel de Ocorrências e Mapa da Operação.
 // =========================================================
 
 import { useState, useEffect, useMemo } from 'react';
@@ -12,6 +12,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { collection, onSnapshot, doc, query, orderBy, runTransaction, where, serverTimestamp, limit, writeBatch, getDocs } from 'firebase/firestore';
 import { AppTripState } from '../state/tripStateMachine'; 
 import { paymentService } from '../services/paymentService';
+import MapaCliente from '../components/MapaCliente'; // Injeção do Mapa
 import { 
   Loader2, CheckCircle, XCircle, Search, ShieldAlert, Truck, Users, 
   DollarSign, Activity, Clock, AlertTriangle, Eye, 
@@ -408,6 +409,12 @@ export default function Admin() {
              ) : (
                fretesFiltrados.map(f => {
                  const estadoObj = getEstadoOperacional(f);
+                 
+                 // CTO FIX: Adicionar os pontos para injeção no Mapa
+                 const origemGPS = (f.origem?.lat && f.origem?.lng) ? { lat: Number(f.origem.lat), lng: Number(f.origem.lng) } : (f.origemLat ? { lat: Number(f.origemLat), lng: Number(f.origemLng) } : null);
+                 const destinoGPS = (f.destino?.lat && f.destino?.lng) ? { lat: Number(f.destino.lat), lng: Number(f.destino.lng) } : (f.destinoLat ? { lat: Number(f.destinoLat), lng: Number(f.destinoLng) } : null);
+                 const motoristaGPS = (f.motoristaLat && f.motoristaLng) ? { lat: Number(f.motoristaLat), lng: Number(f.motoristaLng) } : null;
+                 const paradasGPS = f.paradas ? f.paradas.map((p:any) => ({ lat: Number(p.lat), lng: Number(p.lng) })) : [];
 
                  return (
                  <div key={f.id} className="bg-slate-900/80 border rounded-[2.5rem] p-6 transition-all relative border-white/5 shadow-2xl overflow-hidden">
@@ -444,7 +451,8 @@ export default function Admin() {
                              <div className="border-r border-white/5"><p className="text-[8px] text-slate-500 uppercase font-black mb-1">Distância</p><p className="text-xs font-bold text-cyan-400">{f.distanciaTotalKm?.toFixed(1) || f.distancia?.toFixed(1) || '--'} km</p></div>
                              <div className="border-r border-white/5"><p className="text-[8px] text-slate-500 uppercase font-black mb-1">Carga</p><p className="text-xs font-bold text-slate-300">{f.pesoKg || f.peso || '--'}kg</p></div>
                              <div className="border-r border-white/5"><p className="text-[8px] text-slate-500 uppercase font-black mb-1">Veículo Real</p><p className="text-xs font-bold text-amber-400">{formatCategory(f.veiculo || f.categoria)}</p></div>
-                             <div><p className="text-[8px] text-slate-500 uppercase font-black mb-1">Motorista</p><p className="text-xs font-bold text-white truncate max-w-[100px]">{f.motoristaNome || 'Aguardando'}</p></div>
+                             {/* CTO FIX: Visibilidade da Placa de Operação injetada */}
+                             <div><p className="text-[8px] text-slate-500 uppercase font-black mb-1">Motorista / Placa</p><p className="text-xs font-bold text-white truncate max-w-[120px]">{f.motoristaNome || 'Aguardando'} {f.motoristaPlaca ? `- ${f.motoristaPlaca}` : ''}</p></div>
                           </div>
 
                           {/* PINS & FOTOS COMPROBATIVAS */}
@@ -523,6 +531,23 @@ export default function Admin() {
                                })}
                              </div>
                           </div>
+
+                          {/* MAPA OPERACIONAL NA TORRE (Injeção GPS Live) */}
+                          {origemGPS && destinoGPS && (
+                            <div className="h-64 w-full mt-4 rounded-[1.5rem] overflow-hidden border border-white/10 relative shadow-inner">
+                               <MapaCliente
+                                  origem={origemGPS}
+                                  destino={destinoGPS}
+                                  motoristaId={f.motoristaId}
+                                  motoristaPos={motoristaGPS}
+                                  paradasExtras={paradasGPS}
+                                  vehicleType={f.veiculo || f.categoria}
+                                  paradaAtualIndex={f.paradaAtualIndex}
+                                  operationalMessage={`Torre - ID: ${f.id.slice(0,8)}`}
+                               />
+                            </div>
+                          )}
+
                        </div>
 
                        {/* BLOCO FINANCEIRO */}
@@ -570,7 +595,6 @@ export default function Admin() {
         {/* === OUTRAS ABAS MANTIDAS (Dashboard e Motoristas) === */}
         {tab === 'dashboard' && (
            <div className="animate-in fade-in duration-500">
-             {/* Componentes do Dashboard original mantidos */}
              <div className="flex justify-between items-center mb-6">
                 <button onClick={handleNuclearReset} disabled={isCleaning} className="bg-red-500/10 text-red-500 border border-red-500/30 px-4 py-2 rounded-xl text-[10px] font-black uppercase flex gap-2"><Trash2 size={14}/> Zerar QA</button>
                 <div className="bg-slate-900/50 border border-white/5 rounded-xl p-1 flex gap-1">
