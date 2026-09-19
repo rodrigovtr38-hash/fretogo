@@ -1,3 +1,4 @@
+// ARQUIVO: src/pages/Cliente.tsx
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, Timestamp, updateDoc, getDoc } from 'firebase/firestore'; 
@@ -153,6 +154,9 @@ export default function Cliente() {
   const [orderData, setOrderData] = useState<OrderData | null>(null);
   const [distanciaReal, setDistanciaReal] = useState(0);
   
+  const [cotacaoToken, setCotacaoToken] = useState<string | null>(null);
+  const [cotacaoPayload, setCotacaoPayload] = useState<any>(null);
+
   const [simViews, setSimViews] = useState(0);
   const [liveEta, setLiveEta] = useState<number | null>(null);
   
@@ -165,6 +169,7 @@ export default function Cliente() {
   const [realDriversCount, setRealDriversCount] = useState(0); 
 
   const coordsCache = useRef<Record<string, Coords>>({});
+  const rotaCache = useRef<Record<string, { distanciaKm: number, payload: any, token: string }>>({});
   const isProcessingPayment = useRef(false);
 
   const { createFreight, cancelFreight } = useClientFreight();
@@ -486,36 +491,6 @@ export default function Cliente() {
     }
   };
 
-  const getValidCoords = async (addressStr: string, cepHint?: string): Promise<Coords> => {
-    if (coordsCache.current[addressStr]) return coordsCache.current[addressStr];
-    let enriched = addressStr;
-    const cepDigits = (cepHint || '').replace(/\D/g, '');
-    if (cepDigits.length === 8) {
-      try {
-        const via = await locationService.buscarEnderecoPorCEP(cepDigits);
-        if (via && !(via as any).erro) {
-          const base = addressStr.replace(/,\s*Brasil$/i, '').trim();
-          enriched = [base, via.localidade, via.uf, 'Brasil'].filter(Boolean).join(', ');
-        }
-      } catch (_) {}
-    }
-    try {
-      const coords = await callWithRetryAndTimeout<Coords>('getCoords', { address: enriched });
-      if (coords && typeof coords.lat === 'number') {
-        coordsCache.current[addressStr] = coords;
-        coordsCache.current[enriched] = coords;
-        return coords;
-      }
-      throw new Error('A API retornou coordenadas vazias.');
-    } catch (error: any) {
-      const serverMsg = String(error?.message || error?.code || error?.details || '');
-      if (/indisponível|REQUEST_DENIED|failed-precondition|API key|chave|maps/i.test(serverMsg)) {
-        throw new Error('Serviço de mapas indisponível no servidor.');
-      }
-      throw new Error(`Endereço não localizado pelo servidor: ${enriched}`);
-    }
-  };
-
   const handlePlaceSelected = (place: any, isColeta: boolean, index?: number) => {
     const lat = place.geometry.location.lat();
     const lng = place.geometry.location.lng();
@@ -564,32 +539,39 @@ export default function Cliente() {
     try {
       const origCoords = { lat: coleta.lat, lng: coleta.lng };
       setOrigemGPS(origCoords);
+      const pGPS: Coords[] = entregas.map(stop => ({ lat: stop.lat!, lng: stop.lng! }));
+      
+      const cacheKey = JSON.stringify({ origem: origCoords, entregas: pGPS });
 
-      const pGPS: Coords[] = [];
-      let totalKm = 0;
-      let lastCoords = origCoords;
-
-      for (const stop of entregas) {
-        const destCoords = { lat: stop.lat, lng: stop.lng };
-        pGPS.push(destCoords);
-
-        const distanceResult = await callWithRetryAndTimeout<number>('getDistance', { 
-           origin: `${lastCoords.lat},${lastCoords.lng}`, 
-           destination: `${destCoords.lat},${destCoords.lng}` 
-        });
-        const km = Number(distanceResult);
-        
-        if (Number.isNaN(km) || km <= 0) {
-           throw new Error(`Rota impossível entre os pontos selecionados.`);
-        }
-
-        totalKm += km;
-        lastCoords = destCoords;
+      if (rotaCache.current[cacheKey]) {
+        const cached = rotaCache.current[cacheKey];
+        setDistanciaReal(cached.distanciaKm);
+        setCotacaoPayload(cached.payload);
+        setCotacaoToken(cached.token);
+        setParadasGPS(pGPS);
+        setDestinoGPS(pGPS[pGPS.length - 1]);
+        setStep('preview');
+        setLoadingRoute(false);
+        return;
       }
+
+      const result = await callWithRetryAndTimeout<any>('calcularRotaB2B', { 
+        origem: origCoords, 
+        entregas: pGPS 
+      }, 2, 10000);
+
+      rotaCache.current[cacheKey] = {
+        distanciaKm: result.distanciaKm,
+        payload: result.cotacaoPayload,
+        token: result.cotacaoToken
+      };
+
+      setDistanciaReal(result.distanciaKm);
+      setCotacaoPayload(result.cotacaoPayload);
+      setCotacaoToken(result.cotacaoToken);
       
       setParadasGPS(pGPS);
       setDestinoGPS(pGPS[pGPS.length - 1]);
-      setDistanciaReal(totalKm);
       
       setStep('preview');
     } catch (error: any) {
@@ -610,6 +592,11 @@ export default function Cliente() {
 
     if (isOfertaAbaixoDoPiso) {
       showToast("A oferta está abaixo do limite permitido para esta operação. Ajuste o valor para continuar.", "warning");
+      return;
+    }
+
+    if (!cotacaoPayload || !cotacaoToken) {
+      showToast("A assinatura de cotação da rota está inválida. Por favor, volte e recalcule a rota.", "error");
       return;
     }
 
@@ -683,10 +670,6 @@ export default function Cliente() {
         clienteNome: nome || 'Empresa Embarcadora', 
         clienteZap: whatsapp, 
         clienteDocumento: documentoLimpo,
-        distancia: validDistancia <= 15 ? 15 : validDistancia, 
-        distanciaRealKm: validDistancia, 
-        distanciaTotalKm: validDistancia, 
-        distanciaTarifada: validDistancia <= 15 ? 15 : validDistancia, 
         veiculo: vehicle, 
         peso: peso ? parseInt(peso.replace(/\D/g, ''), 10) || 0 : 0, 
         tipoMaterial: tipoMaterial,
@@ -712,6 +695,8 @@ export default function Cliente() {
         visualizacoes: 0,
         motoristasNotificados: 0,
         interessados: 0, 
+        cotacaoPayload: cotacaoPayload,
+        cotacaoToken: cotacaoToken,
       };
 
       if (requiresNewDocument) {
