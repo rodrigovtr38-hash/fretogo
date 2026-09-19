@@ -135,7 +135,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       || 'Destino da rota';
 
   const pinEntregasArray = Array.isArray(frete.pinEntregas) ? frete.pinEntregas : (frete.pinEntregas ? [frete.pinEntregas as string] : []);
-  const totalParadas = pinEntregasArray.length > 0 ? pinEntregasArray.length : (paradas.length + 1);
+  const totalParadas = pinEntregasArray.length > 0 ? pinEntregasArray.length : (paradas.length > 0 ? paradas.length + 1 : 1);
 
   const etapasRoteiro = ['COLETA', ...Array.from({length: totalParadas}).map((_, i) => `ENTREGA ${i+1}/${totalParadas}`)];
   let etapaAtualIndex = 0;
@@ -404,8 +404,9 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
            </div>
         </div>
 
-        <div className="mb-6 py-2 px-1">
-          <div className="flex items-center justify-between relative">
+        {/* CTO FIX: Proteção visual da Timeline para escalabilidade Multi-Drop. Container ajustado para rolagem X e gap para itens infinitos */}
+        <div className="mb-6 py-4 overflow-x-auto pb-10">
+          <div className="flex items-center justify-between relative min-w-[max-content] gap-12 px-6">
             <div className="absolute top-1/2 left-0 w-full h-1 bg-slate-800 -translate-y-1/2 z-0"></div>
             {etapasRoteiro.map((stepNome, idx) => {
               const isCompleted = idx < etapaAtualIndex;
@@ -419,7 +420,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
                   }`}>
                     {isCompleted ? <Check size={10} strokeWidth={4} /> : <div className="w-1.5 h-1.5 rounded-full bg-current"></div>}
                   </div>
-                  <span className={`text-[8px] font-black uppercase tracking-widest whitespace-nowrap absolute -bottom-4 transition-colors ${
+                  <span className={`text-[8px] font-black uppercase tracking-widest whitespace-nowrap absolute -bottom-5 transition-colors ${
                     isCompleted ? 'text-emerald-500' : isActive ? 'text-blue-400' : 'text-slate-600'
                   }`}>
                     {stepNome}
@@ -544,7 +545,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
             </button>
           )}
 
-          {/* FLUXO NOVO E CORRETO: Avançar para Em Transporte diretamente da Coleta */}
           {frete.status === AppTripState.COLETANDO && !frete.pinColeta && (
             <button onClick={() => handleStatusUpdate(AppTripState.EM_TRANSPORTE)} disabled={actionLoading} className="w-full flex flex-col items-center justify-center py-4 px-2 font-black uppercase tracking-widest rounded-xl text-slate-900 disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(16,185,129,0.4)] bg-emerald-500 hover:bg-emerald-400">
               {actionLoading ? <Loader2 className="animate-spin" size={24}/> : (
@@ -556,14 +556,12 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
             </button>
           )}
 
-          {/* CONTINGÊNCIA LEGADA: Se um motorista estiver preso num frete antigo com pinColeta já gravado no servidor */}
           {frete.status === AppTripState.COLETANDO && frete.pinColeta && (
             <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full flex items-center justify-center h-16 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.4)] bg-cyan-500 hover:bg-cyan-400">
               {actionLoading ? <Loader2 className="animate-spin" size={24}/> : 'Registrar Evidência de Coleta (Legado)'}
             </button>
           )}
 
-          {/* FLUXO DE ENTREGA DEFINITIVO: Trava Criptográfica OBRIGATÓRIA nas entregas */}
           {frete.status === AppTripState.EM_TRANSPORTE && (
             <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full flex flex-col items-center justify-center py-4 px-2 font-black uppercase tracking-widest rounded-xl text-slate-900 disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.4)] bg-cyan-500 hover:bg-cyan-400">
               {actionLoading ? <Loader2 className="animate-spin" size={24}/> : (
