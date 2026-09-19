@@ -2,11 +2,15 @@
 // NOME DO ARQUIVO: src/hooks/useDriverRealtime.ts
 // CTO-Log: Injeção de Permissões e GPS Blindado
 // EXECUÇÃO BLOCO 2: Prevenção de GPS Kill em Unmount e adição de contexto freteId.
+// EXECUÇÃO BLOCO 3: Prevenção de Zombie GPS via Grace Period nativo e Unload Protection.
 // EXECUÇÃO BLOCO 5: Anti-vazamento de contexto (freteId condition fix) na Telemetria.
 // =========================================================
 
 import { useEffect, useRef } from 'react';
 import { locationRealtimeService } from '../services/locationRealtimeService';
+
+// 🔥 CTO FIX [Bloco 3]: Controle de persistência contra transições de tela sem vazar memória.
+let gpsGraceTimeout: NodeJS.Timeout | null = null;
 
 export const useDriverRealtime = (
   driverId?: string,
@@ -17,7 +21,7 @@ export const useDriverRealtime = (
   const activeDriverRef = useRef<string | undefined>();
   const activeFreteIdRef = useRef<string | undefined>(); // 🔥 CTO FIX [Bloco 5]: Controle de estado do frete para telemetria
 
-  // Solicitação de permissão de notificação no carregamento.
+  // Solicitação de permissão de notificação e eventos de ciclo de vida nativo no carregamento.
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       if (Notification.permission === 'default') {
@@ -26,11 +30,34 @@ export const useDriverRealtime = (
         });
       }
     }
+
+    // 🔥 CTO FIX [Bloco 3]: Proteção contra interrupções letais do OS/Navegador (Ex: fechar aba)
+    const handleFatalUnload = () => {
+      locationRealtimeService.stop();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', handleFatalUnload);
+      window.addEventListener('pagehide', handleFatalUnload);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('beforeunload', handleFatalUnload);
+        window.removeEventListener('pagehide', handleFatalUnload);
+      }
+    };
   }, []);
 
   useEffect(() => {
     if (!driverId) {
       return;
+    }
+
+    // 🔥 CTO FIX [Bloco 3]: Se remontou em outra tela durante a viagem, cancelamos a sentença de morte.
+    if (gpsGraceTimeout) {
+      clearTimeout(gpsGraceTimeout);
+      gpsGraceTimeout = null;
     }
 
     /*
@@ -57,12 +84,17 @@ export const useDriverRealtime = (
 
     return () => {
       /*
-       * 🔥 CTO FIX: REMOVIDO locationRealtimeService.stop() do unmount incondicional.
-       * A troca entre telas (Ex: Dashboard <-> ActiveTrip) causava a morte da telemetria.
-       * O rastreamento agora persiste na memória e só é parado se 'isOnline' vier como falso.
+       * 🔥 CTO FIX [Bloco 3]: O unmount agora injeta um "Grace Period" de 10s. 
+       * Se o hook não for reativado (ex: o usuário foi para o menu ou fechou o layout base), 
+       * nós trucidamos a thread fantasma impedindo o leak de bateria e banco.
        */
       if (activeDriverRef.current === driverId) {
         initializedRef.current = false;
+        
+        gpsGraceTimeout = setTimeout(() => {
+          console.log('🛑 Timeout de Transição Excedido - Encerrando Telemetria Zombie');
+          locationRealtimeService.stop();
+        }, 10000);
       }
     };
   }, [driverId, isOnline, freteId]);
