@@ -1,3 +1,13 @@
+// =========================================================================
+// ARQUIVO: src/hooks/useFreightSecurity.ts
+// CTO-Log: [PURGADO] - DEPRECATED HOOK (ZERO TRUST ENFORCED)
+// A validação local do Frontend foi eliminada permanentemente.
+// A validação de PIN e Evidência (POD) agora acontece 100% no Backend (Cloud Functions).
+// Este arquivo foi mantido apensas como Stub Vazio para evitar a quebra (Build Error)
+// de possíveis componentes legados que ainda mantenham a linha de import.
+// Pode (e deve) ser deletado fisicamente em futuras limpezas de repositório.
+// =========================================================================
+
 import { useState } from "react";
 
 interface SecurityHook {
@@ -11,35 +21,22 @@ interface SecurityHook {
 export default function useFreightSecurity(): SecurityHook {
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Valida o PIN de Coleta diretamente com o que está salvo no Banco de Dados
+  // Validação local inativada (Força retorno 'false' se usado indevidamente)
   const validatePickupCode = (inputCode: string, realCode: string) => {
-    if (!inputCode || !realCode) return false;
-    return inputCode.trim() === realCode.trim();
-  };
-
-  // Valida o PIN de Entrega sabendo exatamente em qual das 5 paradas o motorista está
-  const validateDeliveryCode = (inputCode: string, realCodes: string[] | string, stopIndex: number) => {
-    if (!inputCode || !realCodes) return false;
-
-    // Se for apenas uma entrega (string legada), valida direto
-    if (typeof realCodes === 'string') {
-      return inputCode.trim() === realCodes.trim();
-    }
-
-    // Se for múltiplas entregas (Array), valida o PIN da parada atual
-    if (Array.isArray(realCodes)) {
-      const targetCode = realCodes[stopIndex] || realCodes[realCodes.length - 1];
-      return inputCode.trim() === targetCode.trim();
-    }
-
+    console.warn("[CTO-Log] ALERTA DE ARQUITETURA: Função deprecada acionada. Utilize TripLifecycleService.");
     return false;
   };
 
-  // Trava operacional: O PIN só pode ser processado se a foto existir
+  // Validação local inativada (Força retorno 'false' se usado indevidamente)
+  const validateDeliveryCode = (inputCode: string, realCodes: string[] | string, stopIndex: number) => {
+    console.warn("[CTO-Log] ALERTA DE ARQUITETURA: Função deprecada acionada. Utilize TripLifecycleService.");
+    return false;
+  };
+
+  // Trava de upload movida para DriverActiveTrip + Cloud Function
   const enforcePhotoBeforePin = (photoFile: File | string | null) => {
-    if (!photoFile) return false;
-    if (typeof photoFile === 'string' && photoFile.trim() === '') return false;
-    return true;
+    console.warn("[CTO-Log] ALERTA DE ARQUITETURA: Função deprecada acionada.");
+    return false;
   };
 
   return {
