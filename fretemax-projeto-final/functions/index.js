@@ -1,5 +1,5 @@
 // ARQUIVO: functions/index.js
-const functions = require('firebase-functions');
+const functions = require('firebase-functions/v1');
 const admin = require('firebase-admin');
 const { FieldValue, Timestamp } = require('firebase-admin/firestore');
 const axios = require('axios');
