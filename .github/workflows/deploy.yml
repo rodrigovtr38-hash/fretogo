@@ -14,15 +14,16 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Install Firebase CLI Nativo
+        run: npm install -g firebase-tools
+
       - name: Install Dependencies
         run: npm install
         working-directory: ./fretemax-projeto-final/functions
 
-      - name: Deploy to Firebase
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy --only functions
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          PROJECT_ID: fretemax-4b257
-          PROJECT_PATH: ./fretemax-projeto-final
+      - name: Autenticar e Fazer Deploy
+        run: |
+          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > /tmp/gcp_key.json
+          export GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp_key.json
+          firebase deploy --only functions --project fretemax-4b257 --force
+        working-directory: ./fretemax-projeto-final
