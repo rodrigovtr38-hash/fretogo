@@ -340,8 +340,7 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
         </div>
 
         {/* =======================================================
-            COFRE ZERO TRUST: Revelação Baseada em Evidência
-            = Proteção contra 25 entregas infinitas via Scroll-Y
+            COFRE ZERO TRUST: Revelação Baseada em Evidência (Simplificado e Focado)
             ======================================================= */}
         {(pinColeta || entregasArray.length > 0) && (
           <div className="rounded-[1.5rem] border border-cyan-500/30 bg-cyan-950/30 p-5 mt-6 relative overflow-hidden shadow-inner">
@@ -352,16 +351,16 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
             
             <div className="flex flex-col gap-3">
               
-              {/* BLOCO: COLETA */}
-              {pinColeta && (
-                <div className={`p-4 rounded-2xl border flex flex-col shadow-lg transition-all ${isColetaActive ? 'bg-slate-900 border-cyan-500/50' : isColetaCompleted ? 'bg-slate-900/50 border-emerald-500/20' : 'bg-slate-900/30 border-white/5 opacity-50'}`}>
+              {/* STATUS COLETA */}
+              {isColetaActive ? (
+                <div className="p-4 rounded-2xl border flex flex-col shadow-lg bg-slate-900 border-cyan-500/50 transition-all">
                     <div className="flex items-center justify-between mb-3">
                         <div>
-                           <span className={`text-[10px] uppercase font-black tracking-widest block ${isColetaActive ? 'text-cyan-400' : isColetaCompleted ? 'text-emerald-500' : 'text-slate-500'}`}>
+                           <span className="text-[10px] uppercase font-black tracking-widest block text-cyan-400">
                                Passo 1: Coleta
                            </span>
                         </div>
-                        {isColetaCompleted ? <CheckCircle2 size={20} className="text-emerald-500" /> : isColetaActive ? <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" /> : <Lock size={16} className="text-slate-600" />}
+                        <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
                     </div>
                     
                     {!motoristaNome ? (
@@ -370,115 +369,84 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Aguardando Motorista</p>
                             <p className="text-[9px] text-slate-500 text-center max-w-[200px]">O PIN será protegido até que o motorista registre a foto da carga.</p>
                         </div>
-                    ) : isColetaCompleted ? (
-                       <div className="flex items-center gap-3">
-                           {fotoColeta && <img src={fotoColeta} alt="Coleta Concluída" className="w-12 h-12 rounded object-cover border border-emerald-500/30" />}
-                           <div>
-                               <span className="text-[10px] uppercase font-bold text-slate-400">Status</span>
-                               <p className="text-xs font-black text-emerald-400 uppercase tracking-widest">Concluída</p>
-                           </div>
-                       </div>
-                    ) : isColetaActive ? (
-                       fotoColeta ? (
-                           <div className="flex flex-col gap-3">
-                               <div className="flex items-center gap-3 bg-emerald-500/10 p-2 rounded-xl border border-emerald-500/20">
-                                   <img src={fotoColeta} alt="Evidência Recebida" className="w-12 h-12 rounded object-cover border border-emerald-500/50" />
-                                   <div>
-                                       <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Evidência Recebida</p>
-                                       <p className="text-[10px] text-emerald-100/70 font-medium">Repasse o PIN ao motorista para liberar a coleta.</p>
-                                   </div>
-                               </div>
-                               <div className="bg-slate-950 p-3 rounded-xl border border-white/10 text-center">
-                                   <p className="text-[9px] uppercase text-slate-500 font-bold mb-1">PIN DE LIBERAÇÃO</p>
-                                   <p className="text-2xl font-mono font-black text-white tracking-[0.2em]">{pinColeta}</p>
-                               </div>
-                           </div>
-                       ) : (
-                           <div className="flex flex-col items-center justify-center gap-2 bg-slate-950/50 p-4 rounded-xl border border-white/5 border-dashed">
-                               <Camera size={20} className="text-amber-500 animate-pulse" />
-                               <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Aguardando Evidência</p>
-                               <p className="text-[9px] text-slate-400 text-center max-w-[200px]">O motorista precisa enviar a foto da carga para liberar o PIN.</p>
-                           </div>
-                       )
+                    ) : fotoColeta ? (
+                        <div className="flex flex-col gap-3">
+                            <div className="flex items-center gap-3 bg-emerald-500/10 p-2 rounded-xl border border-emerald-500/20">
+                                <img src={fotoColeta} alt="Evidência Recebida" className="w-12 h-12 rounded object-cover border border-emerald-500/50" />
+                                <div>
+                                    <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Evidência Recebida</p>
+                                    <p className="text-[10px] text-emerald-100/70 font-medium">Repasse o PIN ao motorista para liberar a coleta.</p>
+                                </div>
+                            </div>
+                            <div className="bg-slate-950 p-3 rounded-xl border border-white/10 text-center">
+                                <p className="text-[9px] uppercase text-slate-500 font-bold mb-1">PIN DE LIBERAÇÃO</p>
+                                <p className="text-2xl font-mono font-black text-white tracking-[0.2em]">{pinColeta}</p>
+                            </div>
+                        </div>
                     ) : (
-                       <div className="bg-slate-950/30 p-3 rounded-xl border border-white/5 text-center flex flex-col items-center gap-1">
-                           <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest flex items-center gap-1"><Lock size={10}/> Oculto</p>
-                       </div>
+                        <div className="flex flex-col items-center justify-center gap-2 bg-slate-950/50 p-4 rounded-xl border border-white/5 border-dashed">
+                            <Camera size={20} className="text-amber-500 animate-pulse" />
+                            <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Aguardando Evidência</p>
+                            <p className="text-[9px] text-slate-400 text-center max-w-[200px]">O motorista precisa enviar a foto da carga para liberar o PIN.</p>
+                        </div>
                     )}
                 </div>
+              ) : motoristaNome && !['finalizando', 'entregue', 'finalizado'].includes(status) && paradaAtualIndex < totalEntregas ? (
+                /* STATUS DA PARADA/ENTREGA ATUAL EM FOCO */
+                <div className="p-4 rounded-2xl border flex flex-col shadow-lg bg-slate-900 border-cyan-500/50 transition-all">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                           <span className="text-[10px] uppercase font-black tracking-widest block text-cyan-400">
+                               {paradaAtualIndex === totalEntregas - 1 ? 'Última Entrega / Finalização' : `Entrega Atual: ${paradaAtualIndex + 1}/${totalEntregas}`}
+                           </span>
+                        </div>
+                        <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                    </div>
+                    
+                    {(() => {
+                        const activePin = entregasArray[paradaAtualIndex];
+                        const activeFoto = orderData?.fotosPod?.[`parada_${paradaAtualIndex}`];
+                        
+                        return activeFoto ? (
+                            <div className="flex flex-col gap-3">
+                                <div className="flex items-center gap-3 bg-emerald-500/10 p-2 rounded-xl border border-emerald-500/20">
+                                    <img src={activeFoto} alt={`Evidência Entrega ${paradaAtualIndex + 1}`} className="w-12 h-12 rounded object-cover border border-emerald-500/50" />
+                                    <div>
+                                        <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Evidência Recebida</p>
+                                        <p className="text-[10px] text-emerald-100/70 font-medium">Repasse o PIN para {paradaAtualIndex === totalEntregas - 1 ? 'finalizar a viagem' : 'liberar esta etapa'}.</p>
+                                    </div>
+                                </div>
+                                <div className="bg-slate-950 p-3 rounded-xl border border-white/10 text-center">
+                                    <p className="text-[9px] uppercase text-slate-500 font-bold mb-1">PIN DE LIBERAÇÃO</p>
+                                    <p className="text-2xl font-mono font-black text-white tracking-[0.2em]">{activePin}</p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center gap-2 bg-slate-950/50 p-4 rounded-xl border border-white/5 border-dashed">
+                                <Camera size={20} className="text-amber-500 animate-pulse" />
+                                <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Aguardando Evidência</p>
+                                <p className="text-[9px] text-slate-400 text-center max-w-[200px]">O motorista precisa enviar a foto no local para liberar o PIN da entrega.</p>
+                            </div>
+                        );
+                    })()}
+                </div>
+              ) : ['finalizando', 'entregue', 'finalizado'].includes(status) ? (
+                /* STATUS GERAL DE CONCLUSÃO */
+                <div className="p-4 rounded-2xl border flex flex-col items-center justify-center shadow-lg bg-slate-900/50 border-emerald-500/20 transition-all text-center">
+                    <CheckCircle2 size={32} className="text-emerald-500 mb-2" />
+                    <span className="text-[10px] uppercase font-black tracking-widest block text-emerald-500">
+                        Todas as entregas concluídas
+                    </span>
+                    <p className="text-xs font-bold text-slate-400 mt-1">Nenhum PIN pendente de liberação.</p>
+                </div>
+              ) : (
+                <div className="p-4 rounded-2xl border flex flex-col items-center justify-center shadow-lg bg-slate-950/50 border-white/5 border-dashed text-center">
+                    <Lock size={20} className="text-slate-500 mb-2" />
+                    <span className="text-[10px] uppercase font-black tracking-widest block text-slate-400">
+                        Aguardando Motorista
+                    </span>
+                </div>
               )}
-
-              {/* BLOCO: ENTREGAS MULTI-STOP COM SCROLL Y */}
-              <div className="max-h-[400px] overflow-y-auto pr-2 space-y-3">
-                {entregasArray.map((pin: string, index: number) => {
-                   const isLast = index === entregasArray.length - 1;
-                   let dropState = 'future';
-                   
-                   if (['finalizando', 'entregue', 'finalizado'].includes(status)) {
-                      dropState = 'completed';
-                   } else if (motoristaNome && ['em_transporte', 'parado_operacional', 'chegou_entrega', 'entregando'].includes(status)) {
-                      if (index < paradaAtualIndex) dropState = 'completed';
-                      else if (index === paradaAtualIndex) dropState = 'active';
-                   }
-                   
-                   const fotoDrop = orderData?.fotosPod?.[`parada_${index}`] || orderData?.fotosPod?.[`entrega_${index}`];
-
-                   return (
-                       <div key={index} className={`p-4 rounded-2xl border flex flex-col shadow-lg transition-all ${dropState === 'active' ? 'bg-slate-900 border-cyan-500/50' : dropState === 'completed' ? 'bg-slate-900/50 border-emerald-500/20' : 'bg-slate-900/30 border-white/5 opacity-50'}`}>
-                           <div className="flex items-center justify-between mb-3">
-                               <div className="flex items-center gap-2">
-                                  <span className={`text-[10px] uppercase font-black tracking-widest block ${dropState === 'active' ? 'text-cyan-400' : dropState === 'completed' ? 'text-emerald-500' : 'text-slate-500'}`}>
-                                      {isLast ? 'Última Entrega / Finalização' : `Entrega ${index + 1}`}
-                                  </span>
-                               </div>
-                               {dropState === 'completed' ? <CheckCircle2 size={20} className="text-emerald-500" /> : dropState === 'active' ? <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" /> : <Lock size={16} className="text-slate-600" />}
-                           </div>
-                           
-                           {!motoristaNome ? (
-                               <div className="bg-slate-950/30 p-3 rounded-xl border border-white/5 text-center flex flex-col items-center gap-1">
-                                   <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1"><Lock size={10}/> Bloqueada</p>
-                                   <p className="text-[8px] text-slate-600 uppercase font-bold">Aguardando motorista</p>
-                               </div>
-                           ) : dropState === 'completed' ? (
-                              <div className="flex items-center gap-3">
-                                  {fotoDrop && <img src={fotoDrop} alt={`Entrega ${index + 1} Concluída`} className="w-12 h-12 rounded object-cover border border-emerald-500/30" />}
-                                  <div>
-                                      <span className="text-[10px] uppercase font-bold text-slate-400">Status</span>
-                                      <p className="text-xs font-black text-emerald-400 uppercase tracking-widest">Concluída</p>
-                                  </div>
-                              </div>
-                           ) : dropState === 'active' ? (
-                              fotoDrop ? (
-                                  <div className="flex flex-col gap-3">
-                                      <div className="flex items-center gap-3 bg-emerald-500/10 p-2 rounded-xl border border-emerald-500/20">
-                                          <img src={fotoDrop} alt={`Evidência Parada ${index + 1}`} className="w-12 h-12 rounded object-cover border border-emerald-500/50" />
-                                          <div>
-                                              <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Evidência Recebida</p>
-                                              <p className="text-[10px] text-emerald-100/70 font-medium">Repasse o PIN para {isLast ? 'finalizar' : 'liberar'} a etapa.</p>
-                                          </div>
-                                      </div>
-                                      <div className="bg-slate-950 p-3 rounded-xl border border-white/10 text-center">
-                                          <p className="text-[9px] uppercase text-slate-500 font-bold mb-1">PIN DE LIBERAÇÃO</p>
-                                          <p className="text-2xl font-mono font-black text-white tracking-[0.2em]">{pin}</p>
-                                      </div>
-                                  </div>
-                              ) : (
-                                  <div className="flex flex-col items-center justify-center gap-2 bg-slate-950/50 p-4 rounded-xl border border-white/5 border-dashed">
-                                      <Camera size={20} className="text-amber-500 animate-pulse" />
-                                      <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Aguardando Evidência</p>
-                                      <p className="text-[9px] text-slate-400 text-center max-w-[200px]">O motorista precisa enviar a foto no local para liberar o PIN.</p>
-                                  </div>
-                              )
-                           ) : (
-                              <div className="bg-slate-950/30 p-3 rounded-xl border border-white/5 text-center flex flex-col items-center gap-1">
-                                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1"><Lock size={10}/> Bloqueada</p>
-                                  <p className="text-[8px] text-slate-600 uppercase font-bold">Aguardando etapa anterior</p>
-                              </div>
-                           )}
-                       </div>
-                   );
-                })}
-              </div>
             </div>
           </div>
         )}
