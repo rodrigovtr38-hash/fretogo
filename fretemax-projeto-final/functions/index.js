@@ -103,7 +103,6 @@ function getGoogleMapsKey() {
   return key;
 }
 
-// 🔥 CTO FIX: Tratamento resiliente para strings numéricas do Frontend ("1,00" -> 1.00)
 function toFiniteNumber(value, fieldName) {
   if (value === null || value === undefined || value === '') {
     throw new functions.https.HttpsError('invalid-argument', `${fieldName} ausente.`);
@@ -153,7 +152,6 @@ function parseTimestampMillis(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-// 🔥 CTO FIX: Resiliência contra payload estrutural quebrado do Frontend
 function sanitizeAddress(value, fallbackCoordinates, label) {
   const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {};
 
@@ -181,13 +179,12 @@ function sanitizeFreightPayload(payload, uid) {
     throw new functions.https.HttpsError('invalid-argument', 'Categoria de veículo inválida.');
   }
 
-  // 🔥 CTO FIX: Escudo Backend contra Frontend. Filtra e destrói silenciosamente qualquer parada fantasma
   const paradasInput = Array.isArray(payload.paradas) 
     ? payload.paradas.filter(p => p && typeof p === 'object' && !Array.isArray(p) && p.lat !== undefined && p.lng !== undefined)
     : [];
 
-  if (paradasInput.length > 5) {
-    throw new functions.https.HttpsError('invalid-argument', 'O frete não pode possuir mais de 5 paradas adicionais.');
+  if (paradasInput.length > 24) {
+    throw new functions.https.HttpsError('invalid-argument', 'O frete não pode possuir mais de 24 paradas adicionais.');
   }
 
   const origem = sanitizeAddress(
@@ -233,7 +230,6 @@ function sanitizeFreightPayload(payload, uid) {
   clean.cidadeDestino = sanitizeText(clean.entrega.cidade || payload.cidadeDestino, 120) || '';
   clean.multiplasEntregas = paradas.length > 0;
 
-  // 🔥 CTO FIX: Tratamento resiliente de peso
   let pesoRaw = payload.pesoKg ?? payload.peso;
   let pesoNum = pesoRaw;
   if (typeof pesoNum === 'string') {
@@ -250,7 +246,6 @@ function sanitizeFreightPayload(payload, uid) {
   clean.peso = String(pesoNum);
   clean.pesoKg = pesoNum;
 
-  // 🔥 CTO FIX: Tratamento resiliente de volumes
   const qtdRaw = payload.qtdVolumes;
   let qtdVolumes = Number(qtdRaw);
   if (!Number.isFinite(qtdVolumes) || qtdVolumes < 1 || qtdVolumes > 100000) {
