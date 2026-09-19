@@ -471,7 +471,6 @@ export default function Cliente() {
     return () => unsubscribe();
   }, [currentOrderId]);
 
-  // Função mantida para compatibilidade estática interna (não utilizada no fluxo de geocodificação)
   const enriquecerEnderecoPorCep = async (cep: string, apply: (patch: Partial<AddressData>) => void) => {
     const digits = cep.replace(/\D/g, '');
     if (digits.length !== 8) return;
@@ -489,7 +488,6 @@ export default function Cliente() {
     }
   };
 
-  // Mantido para fallback local caso necessário externamente
   const getValidCoords = async (addressStr: string, cepHint?: string): Promise<Coords> => {
     if (coordsCache.current[addressStr]) return coordsCache.current[addressStr];
     let enriched = addressStr;
@@ -882,8 +880,8 @@ export default function Cliente() {
   };
 
   const handleAddEntrega = () => {
-    if (entregas.length < 5) setEntregas([...entregas, { cep: '', bairro: '', rua: '', num: '' }]);
-    else showToast('Limite máximo de 5 paradas.', 'warning');
+    if (entregas.length < 24) setEntregas([...entregas, { cep: '', bairro: '', rua: '', num: '' }]);
+    else showToast('Limite máximo de 24 paradas intermediárias (25 entregas no total).', 'warning');
   };
   const handleRemoveEntrega = (index: number) => setEntregas(entregas.filter((_, i) => i !== index));
   
@@ -1104,7 +1102,7 @@ export default function Cliente() {
                         </div>
                       </div>
                     ))}
-                    {entregas.length < 5 && (
+                    {entregas.length < 24 && (
                       <button onClick={handleAddEntrega} className="w-full py-3 border-2 border-dashed border-blue-300 text-blue-600 font-bold rounded-2xl hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 text-sm">
                         <Plus size={18}/> Adicionar Parada Extra
                       </button>
