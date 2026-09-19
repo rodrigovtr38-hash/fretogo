@@ -1,7 +1,9 @@
+// ARQUIVO: functions/index.js
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const { FieldValue, Timestamp } = require('firebase-admin/firestore');
 const axios = require('axios');
+const crypto = require('crypto');
 admin.initializeApp();
 
 const db = admin.firestore();
@@ -45,6 +47,17 @@ const VEHICLE_FINANCE_CONFIG = {
   carreta: { baseRate: 1200, perKm: 10.50, isHeavy: true },
   bitrem: { baseRate: 1800, perKm: 12.50, isHeavy: true }
 };
+
+const ROUTE_SECRET = process.env.APP_SECRET || 'freto-go-route-secure-key-2026';
+
+function signQuote(quoteData) {
+  const dataStr = JSON.stringify(quoteData);
+  return crypto.createHmac('sha256', ROUTE_SECRET).update(dataStr).digest('hex');
+}
+
+function verifyQuote(quoteData, signature) {
+  return signQuote(quoteData) === signature;
+}
 
 function calcularReferenciaFretoGo(distancia, categoria, numParadasAdicionais, isMopp) {
   const cat = categoria?.toLowerCase() || 'utilitarios';
@@ -386,7 +399,7 @@ exports.getCoords = functions.runWith(runtimeOpts).https.onCall(async (data, con
 });
 
 // ========================================================
-// 1.1. DISTANCE MATRIX
+// 1.1. DISTANCE MATRIX (MANTIDO PARA COMPATIBILIDADE LEGADA)
 // ========================================================
 exports.getDistance = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -438,6 +451,70 @@ exports.getDistance = functions.runWith(runtimeOpts).https.onCall(async (data, c
     throw new functions.https.HttpsError('internal', 'Falha de comunicação com o serviço de mapas.');
   }
 });
+
+// ========================================================
+// 1.2. ROTA UNIFICADA B2B (NOVO - ÚNICA CHAMADA)
+// ========================================================
+exports.calcularRotaB2B = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Usuário não autenticado.');
+  }
+  
+  const { origem, entregas } = data;
+  if (!origem || !entregas || !Array.isArray(entregas) || entregas.length === 0) {
+    throw new functions.https.HttpsError('invalid-argument', 'Origem e entregas são obrigatórias.');
+  }
+
+  const key = getGoogleMapsKey();
+  const originStr = `${origem.lat},${origem.lng}`;
+  const destStr = `${entregas[entregas.length - 1].lat},${entregas[entregas.length - 1].lng}`;
+  
+  let waypoints = '';
+  if (entregas.length > 1) {
+    const wpArray = entregas.slice(0, -1).map(wp => `${wp.lat},${wp.lng}`);
+    waypoints = wpArray.join('|');
+  }
+  
+  let url = `https://maps.googleapis.com/maps/api/directions/json?origin=${originStr}&destination=${destStr}&key=${key}`;
+  if (waypoints) {
+    url += `&waypoints=${waypoints}`;
+  }
+
+  try {
+    const res = await axios.get(url, { timeout: 10000 });
+    const routes = res.data?.routes;
+    if (!routes || routes.length === 0) {
+      throw new functions.https.HttpsError('failed-precondition', 'Não foi possível traçar uma rota rodoviária para os pontos selecionados.');
+    }
+    
+    const route = routes[0];
+    let distanceMeters = 0;
+    route.legs.forEach(leg => {
+      distanceMeters += leg.distance.value;
+    });
+    
+    const distanceKm = distanceMeters / 1000;
+    
+    const quotePayload = {
+      origem: { lat: origem.lat, lng: origem.lng },
+      entregas: entregas.map(e => ({ lat: e.lat, lng: e.lng })),
+      distanciaKm: distanceKm,
+      expiraEm: Date.now() + 30 * 60 * 1000
+    };
+    
+    const signature = signQuote(quotePayload);
+    
+    return {
+      distanciaKm: distanceKm,
+      cotacaoPayload: quotePayload,
+      cotacaoToken: signature
+    };
+  } catch (error) {
+    console.error('[CALCULAR ROTA B2B] Falha na integração Google Routes:', error.message);
+    throw new functions.https.HttpsError('internal', 'Serviço de rotas temporariamente indisponível.');
+  }
+});
+
 
 // ========================================================
 // 2. O DESPERTADOR (CRON JOB DE FRETE AGENDADO PARA WHATSAPP)
@@ -1587,7 +1664,7 @@ exports.liquidarViagemMotorista = functions.runWith(runtimeOpts).https.onCall(as
 });
 
 // ========================================================
-// 13. CRIAR FRETE ZERO TRUST (COM BLINDAGEM FINANCEIRA)
+// 13. CRIAR FRETE ZERO TRUST (COM BLINDAGEM FINANCEIRA E COTAÇÃO)
 // ========================================================
 exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -1603,8 +1680,43 @@ exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data,
   const uid = context.auth.uid;
   const cleanPayload = sanitizeFreightPayload(payload, uid);
 
-  // 🛡️ INÍCIO DA BLINDAGEM FINANCEIRA ZERO TRUST
-  const distanciaNum = safeExtractDistancia(payload);
+  // 🛡️ INÍCIO DA BLINDAGEM ZERO TRUST DA ROTA E ASSINATURA
+  const cotacaoPayload = payload.cotacaoPayload;
+  const cotacaoToken = payload.cotacaoToken;
+
+  if (!cotacaoPayload || !cotacaoToken) {
+    throw new functions.https.HttpsError('invalid-argument', 'Cotação de rota ausente. Recalcule a rota para continuar.');
+  }
+
+  if (!verifyQuote(cotacaoPayload, cotacaoToken)) {
+    throw new functions.https.HttpsError('permission-denied', 'Assinatura da cotação inválida ou corrompida.');
+  }
+
+  if (Date.now() > cotacaoPayload.expiraEm) {
+    throw new functions.https.HttpsError('failed-precondition', 'Cotação de rota expirada. Calcule a rota novamente.');
+  }
+
+  const eps = 0.0001;
+  const sameCoord = (c1, c2) => Math.abs(c1.lat - c2.lat) < eps && Math.abs(c1.lng - c2.lng) < eps;
+  
+  if (!sameCoord(cotacaoPayload.origem, { lat: cleanPayload.origemLat, lng: cleanPayload.origemLng })) {
+    throw new functions.https.HttpsError('invalid-argument', 'Origem adulterada em relação à cotação validada.');
+  }
+  
+  const allEntregas = cleanPayload.todasEntregas;
+  if (!allEntregas || allEntregas.length !== cotacaoPayload.entregas.length) {
+    throw new functions.https.HttpsError('invalid-argument', 'Quantidade de entregas difere da cotação original.');
+  }
+  
+  for (let i = 0; i < allEntregas.length; i++) {
+    if (!sameCoord(cotacaoPayload.entregas[i], { lat: allEntregas[i].lat, lng: allEntregas[i].lng })) {
+      throw new functions.https.HttpsError('invalid-argument', `O ponto de entrega ${i+1} foi adulterado.`);
+    }
+  }
+
+  // A distância financeira oficial agora vem exclusivamente do payload assinado
+  const distanciaNum = cotacaoPayload.distanciaKm;
+  
   const tipoMaterial = cleanPayload.tipoMaterial || payload.tipoMaterial || '';
   const isMopp = tipoMaterial.toLowerCase().includes('mopp') || tipoMaterial.toLowerCase().includes('perigos') || tipoMaterial.toLowerCase().includes('químic');
   const numParadas = cleanPayload.paradas ? cleanPayload.paradas.length : 0;
@@ -1687,6 +1799,10 @@ exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data,
     const dataExpiracao = Date.now() + 15 * 60 * 1000;
     const freteData = {
       ...cleanPayload,
+      distanciaRealKm: distanciaNum,
+      distanciaTotalKm: distanciaNum,
+      distanciaTarifada: distanciaNum <= 15 ? 15 : distanciaNum,
+      distancia: distanciaNum <= 15 ? 15 : distanciaNum,
       cidadeDestinoFormatada,
       status: 'aguardando_pagamento',
       pagamentoStatus: 'pendente',
@@ -1723,7 +1839,7 @@ exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data,
 });
 
 // ========================================================
-// 13.1 ATUALIZAR FRETE B2B (ZERO TRUST COM BLINDAGEM)
+// 13.1 ATUALIZAR FRETE B2B (ZERO TRUST COM BLINDAGEM E COTAÇÃO)
 // ========================================================
 exports.atualizarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -1762,9 +1878,43 @@ exports.atualizarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (d
 
     const cleanPayload = sanitizeFreightPayload(freightData, uid);
 
-    // 🛡️ INÍCIO DA BLINDAGEM FINANCEIRA ZERO TRUST NO RECALCULO
-    const distExtraida = safeExtractDistancia(freightData);
-    const distanciaNum = distExtraida !== 15 ? distExtraida : safeExtractDistancia(frete);
+    // 🛡️ INÍCIO DA BLINDAGEM ZERO TRUST DA ROTA E ASSINATURA
+    const cotacaoPayload = freightData.cotacaoPayload;
+    const cotacaoToken = freightData.cotacaoToken;
+
+    if (!cotacaoPayload || !cotacaoToken) {
+      throw new functions.https.HttpsError('invalid-argument', 'Cotação de rota ausente. Recalcule a rota para continuar.');
+    }
+
+    if (!verifyQuote(cotacaoPayload, cotacaoToken)) {
+      throw new functions.https.HttpsError('permission-denied', 'Assinatura da cotação inválida ou corrompida.');
+    }
+
+    if (Date.now() > cotacaoPayload.expiraEm) {
+      throw new functions.https.HttpsError('failed-precondition', 'Cotação de rota expirada. Calcule a rota novamente.');
+    }
+
+    const eps = 0.0001;
+    const sameCoord = (c1, c2) => Math.abs(c1.lat - c2.lat) < eps && Math.abs(c1.lng - c2.lng) < eps;
+    
+    if (!sameCoord(cotacaoPayload.origem, { lat: cleanPayload.origemLat, lng: cleanPayload.origemLng })) {
+      throw new functions.https.HttpsError('invalid-argument', 'Origem adulterada em relação à cotação validada.');
+    }
+    
+    const allEntregas = cleanPayload.todasEntregas;
+    if (!allEntregas || allEntregas.length !== cotacaoPayload.entregas.length) {
+      throw new functions.https.HttpsError('invalid-argument', 'Quantidade de entregas difere da cotação original.');
+    }
+    
+    for (let i = 0; i < allEntregas.length; i++) {
+      if (!sameCoord(cotacaoPayload.entregas[i], { lat: allEntregas[i].lat, lng: allEntregas[i].lng })) {
+        throw new functions.https.HttpsError('invalid-argument', `O ponto de entrega ${i+1} foi adulterado.`);
+      }
+    }
+
+    // A distância financeira oficial agora vem exclusivamente do payload assinado
+    const distanciaNum = cotacaoPayload.distanciaKm;
+    
     const tipoMaterial = cleanPayload.tipoMaterial || freightData.tipoMaterial || frete.tipoMaterial || '';
     const isMopp = tipoMaterial.toLowerCase().includes('mopp') || tipoMaterial.toLowerCase().includes('perigos') || tipoMaterial.toLowerCase().includes('químic');
     const numParadas = cleanPayload.paradas ? cleanPayload.paradas.length : (frete.paradas ? frete.paradas.length : 0);
@@ -1818,6 +1968,10 @@ exports.atualizarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (d
 
     const updatePayload = {
       ...cleanPayload,
+      distanciaRealKm: distanciaNum,
+      distanciaTotalKm: distanciaNum,
+      distanciaTarifada: distanciaNum <= 15 ? 15 : distanciaNum,
+      distancia: distanciaNum <= 15 ? 15 : distanciaNum,
       cidadeDestinoFormatada,
       pinColeta: null, 
       pinEntregas: pinEntregas,
