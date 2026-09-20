@@ -2,11 +2,10 @@
 // NOME DO ARQUIVO: src/services/paymentService.ts
 // CTO-Log: Fase 3 - Homologação Operacional Distribuída.
 // Evolução: ownership, validação monetária, resposta segura e webhook autoritativo.
+// Bypass de QA Sandbox Removido (Zero Trust - Front não altera status financeiro).
 // =========================================================
 
-import {
-  doc, getDoc, runTransaction, serverTimestamp,
-} from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { eventBusService, AppEvents } from './eventBusService';
 
@@ -30,11 +29,6 @@ type CheckoutResponse = {
   id?: unknown;
   error?: unknown;
 };
-
-const AUTHORIZED_SANDBOX_ACCOUNTS = new Set([
-  'contato@fretogo.com.br',
-  'rodrigovtr38@gmail.com',
-]);
 
 const ADMIN_UID = 'uV1yeZoGfhZTRWDVL1CnMW6b6NY2';
 const ELIGIBLE_PAYMENT_STATUSES = new Set(['aguardando_pagamento']);
@@ -133,41 +127,8 @@ class PaymentService {
         return { success: false, error: 'VALOR_DIVERGENTE' };
       }
 
-      const currentUserEmail = currentUser.email?.trim().toLowerCase() || '';
-      const isSandboxMode = currentUser.emailVerified && AUTHORIZED_SANDBOX_ACCOUNTS.has(currentUserEmail);
-
-      if (isSandboxMode) {
-        const txId = `QA_BYPASS_${freteId}`;
-
-        await runTransaction(db, async transaction => {
-          const latestSnap = await transaction.get(freteRef);
-          if (!latestSnap.exists()) throw new Error('FRETE_NAO_ENCONTRADO');
-
-          const latest = latestSnap.data();
-          if (latest.clienteId !== currentUser.uid) throw new Error('USUARIO_NAO_AUTORIZADO');
-
-          if (latest.pagamentoStatus === 'aprovado') return;
-          if (!ELIGIBLE_PAYMENT_STATUSES.has(String(latest.status || ''))) {
-            throw new Error('STATUS_NAO_PERMITE_PAGAMENTO');
-          }
-
-          const isAgendado = latest.tipoFrete === 'agendado' || latest.agendado === true;
-
-          transaction.update(freteRef, {
-            pagamentoStatus: 'aprovado',
-            status: isAgendado ? 'agendado' : 'disponivel',
-            dispatchStatus: isAgendado ? 'retido_agendamento' : 'mural_aberto',
-            pagamentoId: txId,
-            transactionId: txId,
-            pagoEm: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-            atualizadoEm: serverTimestamp(),
-          });
-        });
-
-        console.log('[CTO-Log] Modo de homologação autorizado concluído para o frete:', freteId);
-        return { success: true, transactionId: txId, url: `/cliente?order=${encodeURIComponent(freteId)}` };
-      }
+      // Bypass QA removido. O frontend passa a ser exclusivamente um "Dumb Client"
+      // que solicita o pagamento via API. A autoridade financeira está restrita ao backend.
 
       const idToken = await currentUser.getIdToken();
       const finalPayload = {
