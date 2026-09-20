@@ -2340,3 +2340,116 @@ exports.resetBloqueioPinAdmin = functions.runWith(runtimeOpts).https.onCall(asyn
     return { success: true };
   });
 });
+
+// ========================================================
+// 17. FTI - INTELIGÊNCIA ARTIFICIAL (BACKEND SEGURO)
+// ========================================================
+const FTI_RULES_GUIDELINES = `
+# ⚖️ FTI - Regras de Negócio e Operações (Bíblia Operacional)
+
+## 1. SISTEMA DE PAGAMENTO (ESCROW - MERCADO PAGO)
+- **Regra de Ouro:** TODO E QUALQUER frete negociado na plataforma deve ser pago via sistema Escrow (Pagamento Seguro).
+- **Como funciona:** O Embarcador deposita o valor na FretoGo no momento do fechamento. O dinheiro fica "retido e seguro". O Motorista só recebe quando o Embarcador confirmar a entrega no aplicativo ou via comprovante (canhoto assinado/POD).
+- **Vantagem:** Segurança de entrega para o Embarcador e garantia de recebimento (zero calote) para o Motorista.
+
+## 2. PROIBIÇÃO DE NEGOCIAÇÃO EXTERNA (BYPASS)
+- É estritamente proibido trocar contatos (WhatsApp, telefone, e-mail) para fechar fretes "por fora".
+- Punição: Ausência de seguro de carga e bloqueio na plataforma.
+
+## 3. PRECIFICADOR INTELIGENTE (TABELA ANTT SUGERIDA)
+A FTI não impõe preço, ela gera uma "Sugestão Justa" ancorada na realidade da estrada (Google Maps).
+O Cálculo é composto por 4 Pilares:
+
+**Pilar A: Distância e Trava de Segurança**
+- Leitura exata da rota via GPS. Se a rota der menos de 15km, cobra-se o mínimo equivalente a 15km.
+
+**Pilar B: Fator de Veículo (Pagamento Base do Motorista)**
+- Carro Pequeno: R$ 100 base. Após 15km, + R$ 4/km.
+- Utilitário (VUC/Fiorino/HR): R$ 180 base. Após 15km, + R$ 6/km.
+- Toco: R$ 350 base. Após 15km, + R$ 7/km.
+- Truck: R$ 550 base. Após 15km, + R$ 8,50/km.
+- Carreta LS: Sem base de 15km. R$ 10,50/km (Mínimo absoluto: R$ 1.200).
+- Bi-trem / Cegonha: Sem base de 15km. R$ 12,50/km (Mínimo absoluto: R$ 1.800).
+- Risco MOPP/Química: Sobretaxa de +20% no valor do motorista.
+- Paradas Extras: + R$ 150 por parada (Caminhões Pesados) ou + R$ 8 por parada (Veículos Leves).
+
+**Pilar C: Taxa da Plataforma (Take Rate)**
+O lucro da FretoGo já é embutido na sugestão do Embarcador através do Markup (Divisor).
+- Pesados (Toco a Bi-Trem): Divisor 0.85 (FretoGo retém 15%).
+- Leves (Moto a Utilitário): Divisor 0.80 (FretoGo retém 20%).
+
+**Pilar D: Pedágio Realista (Toll Cost)**
+- Distância < 40km: R$ 0 de pedágio.
+- Distância > 40km (Pesados): + R$ 0,85 por km rodado.
+- Distância > 40km (Leves): + R$ 0,35 por km rodado.
+
+## 4. O TERMÔMETRO DE OFERTA E INTERVENÇÃO FTI
+- A FTI monitora o Radar. Se a carga expirar (30 min) sem aceite, a FTI deve usar o cálculo acima para alertar o Embarcador que o valor ofertado está abaixo da "Tabela Sugerida ANTT" e sugerir o "Auto-Bid" (aumento de preço).
+
+## 5. CANCELAMENTOS
+- Se o Embarcador cancelar o frete após o motorista se deslocar para a coleta, uma taxa de "Diária/Deslocamento" deverá ser paga ao motorista usando os fundos em Escrow.
+`;
+
+exports.askFTI = functions.runWith({ timeoutSeconds: 60, memory: '512MB' }).https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Acesso negado.');
+  }
+  
+  const prompt = data?.prompt;
+  const iaContext = data?.context || {};
+  
+  if (!prompt) {
+     throw new functions.https.HttpsError('invalid-argument', 'Prompt operacional vazio.');
+  }
+
+  // O Backend acessa de forma segura a API Key sem expor ao Client
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+     console.error('[FTI] GEMINI_API_KEY não configurada nas variáveis de ambiente do Firebase.');
+     return { text: '{ "status": "error", "type": "error", "content": "A Torre de Controle FTI está temporariamente offline para manutenção.", "actionRequired": false }' };
+  }
+
+  const dataAtual = new Date();
+  const horaFormatada = dataAtual.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  const role = iaContext.user?.role || 'Desconhecido';
+  const name = iaContext.user?.name || 'Usuário';
+  const currentRoute = iaContext.appState?.currentRoute || 'Desconhecida';
+
+  const systemInstruction = `
+      Você é a FTI (Diretoria de Operações Autônoma da FretoGo).
+      Você NÃO é um assistente virtual ou chatbot comum. Você é o cérebro logístico da plataforma.
+      Usuário interagindo/monitorado: ${role} (${name}).
+      Estado da Tela do Usuário: ${currentRoute}.
+      HORÁRIO ATUAL DO SISTEMA: ${horaFormatada}
+      
+      [SUAS REGRAS MATEMÁTICAS E OPERACIONAIS - TABELA ANTT]
+      ${FTI_RULES_GUIDELINES}
+      
+      [SUA MISSÃO E POSTURA]
+      - Avalie os horários. Se for madrugada (00h-05h) e houver urgência, adicione um senso de dificuldade de frota na sua resposta.
+      - Responda com autoridade logística, clareza e transparência corporativa.
+      - Se um Embarcador perguntar sobre precificação ou reclamar de demora no aceite, use a matemática da Tabela ANTT acima para explicar o valor justo da rota e sugira aumentar a oferta (Auto-Bid).
+      - Se um Motorista enviar uma foto do canhoto (POD), informe que o pagamento será liberado via Escrow (prazo máximo de 5 minutos, ou pelo aceite do Embarcador).
+      - Assine sempre suas mensagens formais com "Atenciosamente, FTI Operações".
+      
+      Responda ESTRITAMENTE em formato JSON puro (sem marcações Markdown): 
+      { "status": "success", "type": "text", "content": "sua resposta técnica e direta", "actionRequired": false }
+  `;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+  try {
+     const res = await axios.post(url, {
+        system_instruction: { parts: [{ text: systemInstruction }] },
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.4, maxOutputTokens: 1024, response_mime_type: "application/json" }
+     }, { headers: { 'Content-Type': 'application/json' } });
+
+     const rawText = res.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+     return { text: rawText };
+
+  } catch (error) {
+     console.error('[FTI Backend] Erro na API do Gemini:', error?.response?.data || error.message);
+     return { text: '{ "status": "error", "type": "error", "content": "Aviso (FTI): Instabilidade pontual na rede neural. Tente novamente.", "actionRequired": false }' };
+  }
+});
