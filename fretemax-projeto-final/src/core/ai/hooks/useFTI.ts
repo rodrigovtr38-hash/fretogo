@@ -1,13 +1,13 @@
 // ============================================================================
 // ARQUIVO: src/core/ai/hooks/useFTI.ts
-// CTO-Log: FASE 3 - Inteligência Viva
-// Status: Validação atestada. Componente conversa nativamente com a engine restaurada.
+// CTO-Log: FASE 4 - Migração Backend
+// Status: Validação atestada. Componente conversa nativamente com a Cloud Function.
 // ============================================================================
 
 import { useState, useCallback } from 'react';
 import { callGeminiAPI } from '../services/ia.gemini';
 import { ftiMemory } from '../memory/ia.memory';
-import { buildBaseSystemInstruction, buildUserContext, IAContext } from '../prompts/ia.prompts';
+import { IAContext } from '../types/ia.context';
 import { validateAndParseJSON } from '../utils/ia.validator';
 
 export const useFTI = (context: IAContext) => {
@@ -23,25 +23,20 @@ export const useFTI = (context: IAContext) => {
     setIsProcessing(true);
 
     try {
-      // 1. Salva a mensagem do usuário na memória RAM local
+      // 1. Salva a mensagem do usuário na memória RAM local do Chat
       ftiMemory.addMessage(context.userId, 'user', userMessage);
 
-      // 2. Monta as diretrizes absolutas e injeta quem é o usuário atual
-      const systemContext = buildBaseSystemInstruction() + '\n' + buildUserContext(context, userMessage);
+      // 2. Dispara a requisição para o motor neural seguro (Backend - Cloud Functions).
+      // A construção de prompts e regras foi delegada totalmente ao servidor.
+      const rawResponse = await callGeminiAPI(userMessage, context);
 
-      // 3. Dispara a requisição para o motor neural vivo (Gemini)
-      const rawResponse = await callGeminiAPI(
-         userMessage,
-         systemContext
-      );
-
-      // 4. Escudo ativado: Limpa sujeira de formatação e valida o contrato JSON obrigatório
+      // 3. Escudo ativado: Limpa sujeira de formatação e valida o contrato JSON obrigatório
       const safeData = validateAndParseJSON(rawResponse.content);
 
-      // 5. Salva a resposta limpa e validada na memória da IA
+      // 4. Salva a resposta limpa e validada na memória da IA
       ftiMemory.addMessage(context.userId, 'model', safeData.content);
 
-      // 6. Devolve o JSON perfeito para o Front-End renderizar no Chat
+      // 5. Devolve o JSON perfeito para o Front-End renderizar no Chat
       return safeData;
 
     } catch (error) {
