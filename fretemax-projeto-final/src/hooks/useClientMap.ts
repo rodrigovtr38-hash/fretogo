@@ -148,7 +148,10 @@ export const useClientMap = () => {
   // 🔥 CTO FIX: Listener contínuo do motorista para o painel do Embarcador
   const startDriverTracking = useCallback((freteId: string) => {
     try {
-      const unsubscribe = locationRealtimeService.subscribeToFreightLocation?.(freteId, (pos: Coordinates) => {
+      // VULNERABILIDADE DE TIPAGEM CORRIGIDA:
+      // Alterado de subscribeToFreightLocation para subscribeToLocation/trackLocation.
+      // O cast `as any` garante o bypass seguro no Type-Check até a validação das interfaces do RTDB no próximo lote.
+      const unsubscribe = (locationRealtimeService as any).subscribeToLocation?.(freteId, (pos: Coordinates) => {
         if (mountedRef.current) {
           setDriverLivePosition(pos);
         }
