@@ -1,7 +1,7 @@
 // ============================================================================
 // ARQUIVO: src/core/ai/hooks/useFTI.ts
 // CTO-Log: FASE 4 - Migração Backend
-// Status: Validação atestada. Componente conversa nativamente com a Cloud Function.
+// Status: Validado e Seguro. Atua apenas como ponte.
 // ============================================================================
 
 import { useState, useCallback } from 'react';
@@ -27,16 +27,16 @@ export const useFTI = (context: IAContext) => {
       ftiMemory.addMessage(context.userId, 'user', userMessage);
 
       // 2. Dispara a requisição para o motor neural seguro (Backend - Cloud Functions).
-      // A construção de prompts e regras foi delegada totalmente ao servidor.
+      // A persistência da resposta sistêmica ocorre lá no servidor.
       const rawResponse = await callGeminiAPI(userMessage, context);
 
       // 3. Escudo ativado: Limpa sujeira de formatação e valida o contrato JSON obrigatório
       const safeData = validateAndParseJSON(rawResponse.content);
 
-      // 4. Salva a resposta limpa e validada na memória da IA
+      // 4. Salva a resposta limpa na memória RAM (para o chat flutuante, não banco de dados)
       ftiMemory.addMessage(context.userId, 'model', safeData.content);
 
-      // 5. Devolve o JSON perfeito para o Front-End renderizar no Chat
+      // 5. Devolve o JSON perfeito para o Front-End
       return safeData;
 
     } catch (error) {
