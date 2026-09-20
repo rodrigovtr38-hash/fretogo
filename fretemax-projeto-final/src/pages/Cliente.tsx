@@ -89,7 +89,7 @@ const callWithRetryAndTimeout = async <T,>(callableName: string, payload: unknow
   throw new Error('MAX_RETRIES_EXCEEDED');
 };
 
-const EnderecoAutocomplete = ({ mapsReady, value, placeholder, className, onPlaceSelected, onChangeText }: any) => {
+const EnderecoAutocomplete = ({ mapsReady, value, placeholder, className, onPlaceSelected, onChangeText, onBlur }: any) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<any>(null);
 
@@ -114,6 +114,7 @@ const EnderecoAutocomplete = ({ mapsReady, value, placeholder, className, onPlac
       placeholder={placeholder}
       value={value}
       onChange={(e) => onChangeText(e.target.value)}
+      onBlur={onBlur}
     />
   );
 };
@@ -515,6 +516,27 @@ export default function Cliente() {
          next[index] = { ...next[index], ...newData };
          return next;
       });
+    }
+  };
+
+  const handleAddressBlurFallback = (text: string, isColeta: boolean, index?: number) => {
+    if (!mapsReady || !text || text.trim() === '') return;
+    
+    if (isColeta) {
+      if (coleta.lat !== undefined && coleta.formatted_address === text) return;
+    } else if (index !== undefined) {
+      if (entregas[index].lat !== undefined && entregas[index].formatted_address === text) return;
+    }
+
+    try {
+      const geocoder = new (window as any).google.maps.Geocoder();
+      geocoder.geocode({ address: text + ', Brasil' }, (results: any, status: any) => {
+        if (status === 'OK' && results && results[0]) {
+          handlePlaceSelected(results[0], isColeta, index);
+        }
+      });
+    } catch (err) {
+      console.error("Erro no Geocoder fallback:", err);
     }
   };
 
@@ -1003,7 +1025,7 @@ export default function Cliente() {
               <p className="mt-4 text-slate-500 font-medium max-w-2xl text-lg">Insira os dados da operação e a rota. O cálculo financeiro e sua oferta serão analisados na próxima etapa.</p>
             </div>
 
-            <div className="space-y-8">
+            <div className="space-y-6 lg:space-y-8">
               <div className="bg-slate-50 p-6 md:p-8 rounded-3xl border border-slate-100">
                 <div className="flex items-center justify-between mb-6">
                    <h2 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
@@ -1022,77 +1044,30 @@ export default function Cliente() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                <div className="bg-slate-50 p-6 md:p-8 rounded-3xl border border-slate-100">
-                  <h2 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
-                    <MapPin className="h-5 w-5 text-blue-500" /> Endereço de Coleta
-                  </h2>
-                  <div className="space-y-4">
-                    <EnderecoAutocomplete
-                      mapsReady={mapsReady}
-                      value={coleta.formatted_address || ''}
-                      onChangeText={(text: string) => {
-                        setColeta({...coleta, formatted_address: text, lat: undefined, lng: undefined});
-                      }}
-                      placeholder="🔍 Pesquise o endereço da coleta..."
-                      className={inputClass}
-                      onPlaceSelected={(place: any) => handlePlaceSelected(place, true)}
-                    />
-                    {coleta.lat ? (
-                      <div className="grid grid-cols-3 gap-4 animate-in fade-in">
-                         <input className={`col-span-2 ${smallInputClass} bg-slate-200 text-slate-500 cursor-not-allowed`} value={`${coleta.rua || ''}${coleta.bairro ? ` - ${coleta.bairro}` : ''}`} readOnly disabled placeholder="Endereço Selecionado" />
-                         <input className={`col-span-1 ${smallInputClass}`} placeholder="Nº (Obrigatório)" value={coleta.num} onChange={e => setColeta({...coleta, num: e.target.value})} />
-                      </div>
-                    ) : (
-                      <p className="text-[10px] text-amber-500 font-bold uppercase tracking-widest px-2">Selecione uma opção da busca do Google</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="bg-blue-50/50 p-6 md:p-8 rounded-3xl border border-blue-100">
-                  <h2 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-blue-600">
-                    <Truck className="h-5 w-5 text-blue-600" /> Destino(s)
-                  </h2>
-                  <div className="space-y-4">
-                    {entregas.map((entrega, index) => (
-                      <div key={index} className="bg-white p-4 rounded-2xl border border-blue-100 shadow-sm relative">
-                        {index > 0 && (
-                          <button onClick={() => handleRemoveEntrega(index)} className="absolute right-4 top-4 text-red-400 hover:text-red-600 transition-colors">
-                            <Trash2 size={16} />
-                          </button>
-                        )}
-                        <p className="text-[10px] font-black uppercase text-blue-400 mb-2">Parada {index + 1}</p>
-                        <div className="space-y-3">
-                          <EnderecoAutocomplete
-                            mapsReady={mapsReady}
-                            value={entrega.formatted_address || ''}
-                            onChangeText={(text: string) => {
-                              const newEntregas = [...entregas];
-                              newEntregas[index] = { ...newEntregas[index], formatted_address: text, lat: undefined, lng: undefined };
-                              setEntregas(newEntregas);
-                            }}
-                            placeholder="🔍 Pesquise o endereço de destino..."
-                            className={smallInputClass}
-                            onPlaceSelected={(place: any) => handlePlaceSelected(place, false, index)}
-                          />
-                          {entrega.lat ? (
-                             <div className="grid grid-cols-3 gap-3 animate-in fade-in">
-                               <input className={`col-span-2 ${smallInputClass} bg-slate-100 text-slate-500 cursor-not-allowed`} value={`${entrega.rua || ''}${entrega.bairro ? ` - ${entrega.bairro}` : ''}`} readOnly disabled placeholder="Endereço Selecionado" />
-                               <input className={`col-span-1 ${smallInputClass}`} placeholder="Nº (Obrigatório)" value={entrega.num} onChange={e => updateEntrega(index, 'num', e.target.value)} />
-                             </div>
-                          ) : (
-                             <p className="text-[10px] text-amber-500 font-bold uppercase tracking-widest px-2">Selecione uma opção da busca</p>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                    {/* CTO FIX: Apenas mostrar botão de adicionar se estivermos abaixo do teto de 25 entregas globais */}
-                    {entregas.length < 25 && (
-                      <button onClick={handleAddEntrega} className="w-full py-3 border-2 border-dashed border-blue-300 text-blue-600 font-bold rounded-2xl hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 text-sm">
-                        <Plus size={18}/> Adicionar Parada Extra
-                      </button>
-                    )}
-                  </div>
+              <div className="bg-slate-50 p-6 md:p-8 rounded-3xl border border-slate-100">
+                <h2 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
+                  <MapPin className="h-5 w-5 text-blue-500" /> Endereço de Coleta
+                </h2>
+                <div className="space-y-4">
+                  <EnderecoAutocomplete
+                    mapsReady={mapsReady}
+                    value={coleta.formatted_address || ''}
+                    onChangeText={(text: string) => {
+                      setColeta({...coleta, formatted_address: text, lat: undefined, lng: undefined});
+                    }}
+                    onBlur={() => handleAddressBlurFallback(coleta.formatted_address || '', true)}
+                    placeholder="🔍 Pesquise o endereço da coleta..."
+                    className={inputClass}
+                    onPlaceSelected={(place: any) => handlePlaceSelected(place, true)}
+                  />
+                  {coleta.lat ? (
+                    <div className="grid grid-cols-3 gap-4 animate-in fade-in">
+                       <input className={`col-span-2 ${smallInputClass} bg-slate-200 text-slate-500 cursor-not-allowed`} value={`${coleta.rua || ''}${coleta.bairro ? ` - ${coleta.bairro}` : ''}`} readOnly disabled placeholder="Endereço Selecionado" />
+                       <input className={`col-span-1 ${smallInputClass}`} placeholder="Nº (Obrigatório)" value={coleta.num} onChange={e => setColeta({...coleta, num: e.target.value})} />
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-amber-500 font-bold uppercase tracking-widest px-2">Selecione uma opção da busca do Google</p>
+                  )}
                 </div>
               </div>
 
@@ -1138,6 +1113,53 @@ export default function Cliente() {
                     <button onClick={() => setTipoFrete('agendado')} className={`flex-1 rounded-xl py-4 text-sm font-black uppercase tracking-wider transition-all ${tipoFrete === 'agendado' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-200'}`}>Agendar Data</button>
                   </div>
                   {tipoFrete === 'agendado' && <input type="datetime-local" className={`mt-4 max-w-md ${inputClass}`} value={dataAgendada} onChange={(e) => setDataAgendada(e.target.value)} />}
+                </div>
+              </div>
+
+              <div className="bg-blue-50/50 p-6 md:p-8 rounded-3xl border border-blue-100">
+                <h2 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-blue-600">
+                  <Truck className="h-5 w-5 text-blue-600" /> Destino(s)
+                </h2>
+                <div className="space-y-4">
+                  {entregas.map((entrega, index) => (
+                    <div key={index} className="bg-white p-4 rounded-2xl border border-blue-100 shadow-sm relative">
+                      {index > 0 && (
+                        <button onClick={() => handleRemoveEntrega(index)} className="absolute right-4 top-4 text-red-400 hover:text-red-600 transition-colors">
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                      <p className="text-[10px] font-black uppercase text-blue-400 mb-2">Parada {index + 1}</p>
+                      <div className="space-y-3">
+                        <EnderecoAutocomplete
+                          mapsReady={mapsReady}
+                          value={entrega.formatted_address || ''}
+                          onChangeText={(text: string) => {
+                            const newEntregas = [...entregas];
+                            newEntregas[index] = { ...newEntregas[index], formatted_address: text, lat: undefined, lng: undefined };
+                            setEntregas(newEntregas);
+                          }}
+                          onBlur={() => handleAddressBlurFallback(entrega.formatted_address || '', false, index)}
+                          placeholder="🔍 Pesquise o endereço de destino..."
+                          className={smallInputClass}
+                          onPlaceSelected={(place: any) => handlePlaceSelected(place, false, index)}
+                        />
+                        {entrega.lat ? (
+                           <div className="grid grid-cols-3 gap-3 animate-in fade-in">
+                             <input className={`col-span-2 ${smallInputClass} bg-slate-100 text-slate-500 cursor-not-allowed`} value={`${entrega.rua || ''}${entrega.bairro ? ` - ${entrega.bairro}` : ''}`} readOnly disabled placeholder="Endereço Selecionado" />
+                             <input className={`col-span-1 ${smallInputClass}`} placeholder="Nº (Obrigatório)" value={entrega.num} onChange={e => updateEntrega(index, 'num', e.target.value)} />
+                           </div>
+                        ) : (
+                           <p className="text-[10px] text-amber-500 font-bold uppercase tracking-widest px-2">Selecione uma opção da busca</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {/* CTO FIX: Apenas mostrar botão de adicionar se estivermos abaixo do teto de 25 entregas globais */}
+                  {entregas.length < 25 && (
+                    <button onClick={handleAddEntrega} className="w-full py-3 border-2 border-dashed border-blue-300 text-blue-600 font-bold rounded-2xl hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 text-sm">
+                      <Plus size={18}/> Adicionar Parada Extra
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
