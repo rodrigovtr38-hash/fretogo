@@ -2446,6 +2446,31 @@ exports.askFTI = functions.runWith({ timeoutSeconds: 60, memory: '512MB' }).http
      }, { headers: { 'Content-Type': 'application/json' } });
 
      const rawText = res.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+     
+     // 🚀 CTO FIX: PERSISTÊNCIA ZERO-TRUST (BACKEND-DRIVEN)
+     // Apenas salva a mensagem se for uma comunicação dentro de um Frete Ativo (Chat Operacional)
+     if (rawText && currentRoute === 'ChatOperacional' && iaContext.userId) {
+       try {
+         const cleanString = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+         const parsed = JSON.parse(cleanString);
+
+         if (parsed.content) {
+           await admin.firestore()
+             .collection('fretes')
+             .doc(iaContext.userId) // O hook usa freteId como userId nesse contexto
+             .collection('chat')
+             .add({
+               texto: parsed.content,
+               nome: 'Torre de Controle (IA)',
+               tipoUsuario: 'admin',
+               createdAt: FieldValue.serverTimestamp()
+             });
+         }
+       } catch (parseError) {
+         console.error('[FTI Backend] Falha ao parsear JSON para persistir no banco de dados:', parseError);
+       }
+     }
+
      return { text: rawText };
 
   } catch (error) {
