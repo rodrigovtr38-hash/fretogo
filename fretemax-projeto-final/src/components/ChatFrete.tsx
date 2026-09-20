@@ -1,15 +1,13 @@
 // =========================================================
 // NOME DO ARQUIVO: src/components/ChatFrete.tsx
-// CTO-Log: Auditoria Concluída (Bloco 2 - Vida Visual).
-// Status: A Inteligência Artificial Gemini foi plugada e agora "escuta e responde" às mensagens do usuário em tempo real.
-// Correção: Destaque visual "Amarelo/Cyan" para as mensagens do sistema (Torre Operacional)
+// CTO-Log: Lote 06 - Remoção de Spoofing de Admin.
+// Status: Frontend agora apenas lê mensagens sistêmicas. Autoridade revogada.
 // =========================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { addDoc, collection, limit, onSnapshot, orderBy, query, serverTimestamp, DocumentData } from 'firebase/firestore';
 import { Loader2, Send, ShieldAlert, Zap, Radio } from 'lucide-react';
 import { db } from '../firebase';
-// 🔥 CTO FIX: Cérebro da Inteligência importado e plugado.
 import { useFTI } from '../core/ai/hooks/useFTI';
 
 interface ChatFreteProps {
@@ -33,7 +31,6 @@ export default function ChatFrete({ freteId, nome, tipoUsuario }: ChatFreteProps
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  // 🔥 CTO FIX: Acordando a IA para ouvir o contexto do Frete atual
   const { interactWithAI, isProcessing } = useFTI({
     userId: freteId,
     user: { uid: nome, role: tipoUsuario, name: nome },
@@ -83,7 +80,7 @@ export default function ChatFrete({ freteId, nome, tipoUsuario }: ChatFreteProps
       setSending(true);
       const textoUsuario = mensagem.trim();
 
-      // 1. Grava a mensagem humana no banco
+      // 1. Grava APENAS a mensagem humana legítima no banco (com o tipoUsuario real do app)
       await addDoc(collection(db, 'fretes', freteId, 'chat'), {
         texto: textoUsuario,
         nome,
@@ -93,19 +90,11 @@ export default function ChatFrete({ freteId, nome, tipoUsuario }: ChatFreteProps
       
       setMensagem('');
 
-      // 2. 🔥 CTO FIX: Envia a mensagem para a IA processar e responder
+      // 2. Dispara a requisição para a IA no backend.
+      // A gravação da resposta da IA no Firestore agora é responsabilidade EXCLUSIVA da Cloud Function.
+      // O app não forja mais mensagens com tipoUsuario: 'admin'.
       if (interactWithAI) {
-        const aiResponse = await interactWithAI(textoUsuario);
-        
-        // 3. Se a IA gerar uma resposta, injeta no chat na mesma hora
-        if (aiResponse && aiResponse.content) {
-          await addDoc(collection(db, 'fretes', freteId, 'chat'), {
-            texto: aiResponse.content,
-            nome: 'Torre de Controle (IA)',
-            tipoUsuario: 'admin',
-            createdAt: serverTimestamp(),
-          });
-        }
+        await interactWithAI(textoUsuario);
       }
 
     } catch (error) {
@@ -148,7 +137,6 @@ export default function ChatFrete({ freteId, nome, tipoUsuario }: ChatFreteProps
           <div className="space-y-4">
             {messages.map((message) => {
               
-              // 🔥 CTO FIX: Tratamento especial para as Mensagens do Sistema / Torre
               if (message.tipoUsuario === 'admin' || message.nome.includes('Torre')) {
                  return (
                    <div key={message.id} className="flex justify-center my-3 animate-in fade-in zoom-in duration-300">
