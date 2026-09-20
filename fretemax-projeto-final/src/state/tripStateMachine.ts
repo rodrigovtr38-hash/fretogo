@@ -1,5 +1,6 @@
 // =========================================================
 // NOME DO ARQUIVO: src/state/tripStateMachine.ts
+// CTO-Log: Dicionário Limpo - Estados Fantasmas (CHEGOU_ENTREGA / ENTREGANDO) removidos.
 // =========================================================
 
 export enum AppTripState {
@@ -33,8 +34,6 @@ export enum AppTripState {
   /* ===================================================== TRANSPORTE */
   EM_TRANSPORTE = 'em_transporte',
   PARADO_OPERACIONAL = 'parado_operacional',
-  CHEGOU_ENTREGA = 'chegou_entrega',
-  ENTREGANDO = 'entregando',
 
   /* ===================================================== FINALIZAÇÃO */
   FINALIZANDO = 'finalizando',
@@ -53,6 +52,7 @@ export enum AppTripState {
 export { AppTripState as TripState };
 
 // 🔥 CTO FIX: REMOÇÃO TOTAL DE RESERVADO_AGUARDANDO_PAGAMENTO DAS TRANSIÇÕES OPERACIONAIS (CLEAN FLOW)
+// E limpeza de estados mortos no pipeline de transporte.
 export const VALID_TRANSITIONS: Record<string, string[]> = {
   [AppTripState.AGUARDANDO_PAGAMENTO]: [AppTripState.PAGAMENTO_APROVADO, AppTripState.ERRO_PAGAMENTO, AppTripState.CANCELADO],
   [AppTripState.PAGAMENTO_APROVADO]: [AppTripState.DISPONIVEL, AppTripState.AGENDADO],
@@ -82,9 +82,7 @@ export const VALID_TRANSITIONS: Record<string, string[]> = {
   [AppTripState.CHEGOU_COLETA]: [AppTripState.COLETANDO, AppTripState.CANCELADO, AppTripState.REDISPATCH, AppTripState.DISPONIVEL],
   [AppTripState.COLETANDO]: [AppTripState.EM_TRANSPORTE, AppTripState.CANCELADO, AppTripState.REDISPATCH, AppTripState.DISPONIVEL],
   
-  [AppTripState.EM_TRANSPORTE]: [AppTripState.CHEGOU_ENTREGA, AppTripState.PARADO_OPERACIONAL, AppTripState.FINALIZANDO, AppTripState.ENTREGUE, AppTripState.ERRO, AppTripState.REDISPATCH, AppTripState.DISPONIVEL],
-  [AppTripState.CHEGOU_ENTREGA]: [AppTripState.ENTREGANDO, AppTripState.CANCELADO, AppTripState.REDISPATCH, AppTripState.DISPONIVEL],
-  [AppTripState.ENTREGANDO]: [AppTripState.FINALIZANDO, AppTripState.ENTREGUE, AppTripState.EM_TRANSPORTE, AppTripState.CANCELADO, AppTripState.REDISPATCH, AppTripState.DISPONIVEL],
+  [AppTripState.EM_TRANSPORTE]: [AppTripState.PARADO_OPERACIONAL, AppTripState.FINALIZANDO, AppTripState.ENTREGUE, AppTripState.ERRO, AppTripState.REDISPATCH, AppTripState.DISPONIVEL],
   [AppTripState.PARADO_OPERACIONAL]: [AppTripState.EM_TRANSPORTE, AppTripState.ERRO],
   
   [AppTripState.FINALIZANDO]: [AppTripState.VALIDANDO_COMPROVANTE, AppTripState.ENTREGUE, AppTripState.ERRO],
@@ -108,9 +106,9 @@ export const isFinalState = (status: string): boolean => {
 
 export const isActiveState = (status: string): boolean => {
   // A RESERVA_AGUARDANDO_PAGAMENTO continua aqui apenas para não quebrar a UI de fretes legados, mas cargas novas não entrarão nela.
-  return [AppTripState.BUSCANDO_MOTORISTA, AppTripState.EXPANDINDO_BUSCA, AppTripState.OFERTANDO, AppTripState.AGUARDANDO_ACEITE, AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.CHEGOU_COLETA, AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE, AppTripState.CHEGOU_ENTREGA, AppTripState.ENTREGANDO, AppTripState.PARADO_OPERACIONAL, AppTripState.FINALIZANDO, AppTripState.VALIDANDO_COMPROVANTE].includes(status as AppTripState);
+  return [AppTripState.BUSCANDO_MOTORISTA, AppTripState.EXPANDINDO_BUSCA, AppTripState.OFERTANDO, AppTripState.AGUARDANDO_ACEITE, AppTripState.RESERVADO_AGUARDANDO_PAGAMENTO, AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.CHEGOU_COLETA, AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE, AppTripState.PARADO_OPERACIONAL, AppTripState.FINALIZANDO, AppTripState.VALIDANDO_COMPROVANTE].includes(status as AppTripState);
 };
 
 export const isOperationalState = (status: string): boolean => {
-  return [AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.CHEGOU_COLETA, AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE, AppTripState.CHEGOU_ENTREGA, AppTripState.ENTREGANDO, AppTripState.PARADO_OPERACIONAL, AppTripState.FINALIZANDO].includes(status as AppTripState);
+  return [AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.CHEGOU_COLETA, AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE, AppTripState.PARADO_OPERACIONAL, AppTripState.FINALIZANDO].includes(status as AppTripState);
 };
