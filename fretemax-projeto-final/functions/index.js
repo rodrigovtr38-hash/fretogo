@@ -482,6 +482,26 @@ exports.calcularRotaB2B = functions.runWith(runtimeOpts).https.onCall(async (dat
 
   try {
     const res = await axios.get(url, { timeout: 10000 });
+    
+    // --- INÍCIO DA INJEÇÃO DIAGNÓSTICA DE SUCESSO FALSO ---
+    const googleStatus = res.data?.status ?? null;
+    const googleErrorMessage = res.data?.error_message ?? null;
+    const routesLength = Array.isArray(res.data?.routes) ? res.data.routes.length : 0;
+
+    if (googleStatus !== 'OK' || routesLength === 0) {
+      const safeDiagnostic = {
+        httpStatus: res.status,
+        googleStatus: googleStatus,
+        googleErrorMessage: googleErrorMessage,
+        routesLength: routesLength,
+        geocodedWaypoints: res.data?.geocoded_waypoints ? res.data.geocoded_waypoints.map(wp => wp.geocoder_status) : null,
+        availableTravelModes: res.data?.available_travel_modes ?? null,
+        timestamp: new Date().toISOString()
+      };
+      console.error('[DIAGNÓSTICO CALCULAR ROTA B2B] Anomalia detectada na resposta real do Google Directions API:', JSON.stringify(safeDiagnostic));
+    }
+    // --- FIM DA INJEÇÃO DIAGNÓSTICA ---
+
     const routes = res.data?.routes;
     if (!routes || routes.length === 0) {
       throw new functions.https.HttpsError('failed-precondition', 'Não foi possível traçar uma rota rodoviária para os pontos selecionados.');
