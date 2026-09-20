@@ -2,13 +2,11 @@
 // ARQUIVO: src/core/ai/events/ia.events.ts
 // CTO-Log: FASE 3 - Homologação de Integração (BLOCO 6 DA ARQUITETURA O.N.E.)
 // Status: "Ouvido FTI" 100% calibrado. O Sistema Nervoso da IA escuta todos os eventos 
-// Correção Bloco 6: O Despertador do PIN ativado na recepção da Foto.
+// Correção: Fechamento da VULN-CHAT-IMPERSONATION. O Frontend perde autoridade de injeção sistêmica.
 // ============================================================================
 
 import { NotificationService } from '../../../services/notificationService';
 import { eventBusService, AppEvents } from '../../../services/eventBusService';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import { db } from '../../../firebase';
 
 export type FTIEventType = 
   | 'FREIGHT_POSTED'     
@@ -151,19 +149,10 @@ export class FTIEventDispatcher {
        NotificationService.notificarClienteFotoRecebida(freight.clienteZap, freight.clienteNome, freight.freteId);
     }
 
-    // 2. Injeta uma mensagem automática no Chat Operacional do Motorista para tranquilizá-lo
-    if (freight.freteId) {
-      try {
-         await addDoc(collection(db, 'fretes', freight.freteId, 'chat'), {
-            texto: "📸 [Sistema]: Foto da mercadoria recebida na central. Já enviamos um alerta para o Embarcador solicitando a liberação do seu PIN.",
-            nome: 'Torre de Controle (IA)',
-            tipoUsuario: 'admin',
-            createdAt: serverTimestamp(),
-         });
-      } catch (e) {
-         console.warn("Falha ao injetar mensagem da IA no chat:", e);
-      }
-    }
+    // 2. VULN-CHAT-IMPERSONATION CORRIGIDA:
+    // A tentativa indevida do frontend de criar a mensagem sistêmica via addDoc({tipoUsuario: 'admin'})
+    // foi EXCLUÍDA. A responsabilidade de registrar que a foto foi recebida no log operacional 
+    // deve ser movida para a Cloud Function de processamento do upload do Storage.
   }
 
   private handleCheckUrgency(event: FTIEventPayload): void {
