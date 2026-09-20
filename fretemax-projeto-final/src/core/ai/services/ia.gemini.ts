@@ -1,8 +1,8 @@
 // ============================================================================
 // ARQUIVO: src/core/ai/services/ia.gemini.ts
-// CTO-Log: FASE 4 - Inteligência Segura
-// Status: Zero-Trust ativado. O Frontend perdeu acesso direto à API do Google 
-// e à API Key. Toda a conversa passa pela Cloud Function 'askFTI'.
+// CTO-Log: Lote 08 - Inteligência Segura (Zero-Trust)
+// Status: O Frontend atua apenas como ponte. A API Key e a composição 
+// do prompt foram transferidas 100% para a Cloud Function 'askFTI'.
 // ============================================================================
 
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -22,7 +22,8 @@ export const callGeminiAPI = async (
     const functions = getFunctions();
     const askFTI = httpsCallable(functions, 'askFTI');
     
-    // O envio das informações puras para o Backend construir o prompt de sistema
+    // Envio estrito do contexto limpo para o Backend. 
+    // O Backend construirá o System Prompt injetando as regras secretas.
     const result = await askFTI({ prompt, context: contextData });
     const data = result.data as any;
     
