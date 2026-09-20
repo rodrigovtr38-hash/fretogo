@@ -510,7 +510,18 @@ exports.calcularRotaB2B = functions.runWith(runtimeOpts).https.onCall(async (dat
       cotacaoToken: signature
     };
   } catch (error) {
-    console.error('[CALCULAR ROTA B2B] Falha na integração Google Routes:', error.message);
+    if (error instanceof functions.https.HttpsError) throw error;
+
+    const safeDiagnostic = {
+      message: error.message,
+      httpStatus: error.response?.status || null,
+      googleStatus: error.response?.data?.status || null,
+      googleErrorMessage: error.response?.data?.error_message || null,
+      axiosCode: error.code || null,
+      isTimeout: error.code === 'ECONNABORTED'
+    };
+
+    console.error('[CALCULAR ROTA B2B] Falha real na integração Google Routes:', safeDiagnostic);
     throw new functions.https.HttpsError('internal', 'Serviço de rotas temporariamente indisponível.');
   }
 });
