@@ -21,6 +21,50 @@ jobs:
         run: npm install
         working-directory: ./fretemax-projeto-final/functions
 
+      - name: Diagnóstico Firebase Functions
+        working-directory: ./fretemax-projeto-final/functions
+        run: |
+          echo "===== DIRETORIO ====="
+          pwd
+          
+          echo "===== PACKAGE.JSON ====="
+          cat package.json
+          
+          echo "===== PACKAGE-LOCK ====="
+          if [ -f package-lock.json ]; then
+            echo "package-lock.json EXISTE"
+            node -e "const p=require('./package-lock.json'); console.log('lockVersion:', p.lockfileVersion)"
+          else
+            echo "package-lock.json NÃO EXISTE"
+          fi
+          
+          echo "===== VERSAO DECLARADA ====="
+          node -p "require('./package.json').dependencies['firebase-functions']"
+          
+          echo "===== VERSAO REAL INSTALADA ====="
+          node -p "require('./node_modules/firebase-functions/package.json').version" || echo "Firebase-functions não encontrado no node_modules"
+          
+          echo "===== CAMINHO FIREBASE-FUNCTIONS ====="
+          node -p "require.resolve('firebase-functions')" || echo "Falha ao resolver firebase-functions"
+          
+          echo "===== CAMINHO FIREBASE-FUNCTIONS/V1 ====="
+          node -p "require.resolve('firebase-functions/v1')" || echo "Falha ao resolver firebase-functions/v1"
+          
+          echo "===== TESTE RUNWITH V1 ====="
+          node -e "const f=require('firebase-functions/v1'); console.log('typeof functions.runWith =', typeof f.runWith)" || echo "Falha ao testar runWith"
+          
+          echo "===== TESTE COMPLETO DO OBJETO V1 ====="
+          node -e "const f=require('firebase-functions/v1'); console.log(Object.keys(f).sort())" || echo "Falha ao listar chaves"
+          
+          echo "===== NPM LS ====="
+          npm ls firebase-functions --all || echo "NPM LS falhou"
+          
+          echo "===== NPM DEBUG ====="
+          npm list firebase-functions --depth=10 || echo "NPM LIST falhou"
+          
+          echo "===== FIREBASE PACKAGE ====="
+          node -p "require('./node_modules/firebase-functions/package.json').name" || echo "Falha ao ler nome do pacote"
+
       - name: Autenticar e Fazer Deploy
         run: |
           echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > /tmp/gcp_key.json
