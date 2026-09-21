@@ -1026,6 +1026,8 @@ export default function Cliente() {
             </div>
 
             <div className="space-y-6 lg:space-y-8">
+              
+              {/* 1. DADOS DA EMPRESA */}
               <div className="bg-slate-50 p-6 md:p-8 rounded-3xl border border-slate-100">
                 <div className="flex items-center justify-between mb-6">
                    <h2 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
@@ -1044,36 +1046,111 @@ export default function Cliente() {
                 </div>
               </div>
 
-              <div className="bg-slate-50 p-6 md:p-8 rounded-3xl border border-slate-100">
-                <h2 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
-                  <MapPin className="h-5 w-5 text-blue-500" /> Endereço de Coleta
+              {/* 2. ROTA DA CARGA */}
+              <div className="bg-blue-50/30 p-6 md:p-8 rounded-3xl border border-blue-100">
+                <h2 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-blue-600">
+                  <MapPin className="h-5 w-5 text-blue-600" /> Rota da Carga
                 </h2>
-                <div className="space-y-4">
-                  <EnderecoAutocomplete
-                    mapsReady={mapsReady}
-                    value={coleta.formatted_address || ''}
-                    onChangeText={(text: string) => {
-                      setColeta({...coleta, formatted_address: text, lat: undefined, lng: undefined});
-                    }}
-                    onBlur={() => handleAddressBlurFallback(coleta.formatted_address || '', true)}
-                    placeholder="🔍 Pesquise o endereço da coleta..."
-                    className={inputClass}
-                    onPlaceSelected={(place: any) => handlePlaceSelected(place, true)}
-                  />
-                  {coleta.lat ? (
-                    <div className="grid grid-cols-3 gap-4 animate-in fade-in">
-                       <input className={`col-span-2 ${smallInputClass} bg-slate-200 text-slate-500 cursor-not-allowed`} value={`${coleta.rua || ''}${coleta.bairro ? ` - ${coleta.bairro}` : ''}`} readOnly disabled placeholder="Endereço Selecionado" />
-                       <input className={`col-span-1 ${smallInputClass}`} placeholder="Nº (Obrigatório)" value={coleta.num} onChange={e => setColeta({...coleta, num: e.target.value})} />
+
+                <div className="space-y-6">
+                  {/* COLETA */}
+                  <div className="relative">
+                    <div className="absolute left-[15px] top-8 bottom-[-24px] w-0.5 bg-blue-200 border-dashed border-l-2 border-blue-300 z-0 hidden md:block"></div>
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-3 flex items-center gap-2 relative z-10">
+                       <div className="h-8 w-8 rounded-full bg-blue-100 border-2 border-blue-500 flex items-center justify-center text-blue-600"><MapPin size={14}/></div>
+                       Coleta
+                    </h3>
+                    <div className="pl-0 md:pl-12 relative z-10">
+                        {coleta.lat ? (
+                          <div className="p-5 bg-white rounded-2xl border border-blue-100 shadow-sm relative animate-in fade-in">
+                            <button onClick={() => setColeta({ cep: '', bairro: '', rua: '', num: '', formatted_address: '' })} className="absolute right-4 top-4 text-blue-500 hover:text-blue-700 text-[10px] font-black uppercase tracking-widest">Alterar</button>
+                            <p className="font-bold text-slate-800 pr-16">{coleta.formatted_address}</p>
+                            <div className="mt-4 grid grid-cols-1 md:grid-cols-2">
+                              <input className={smallInputClass} placeholder="Número / Complemento (Obrigatório)" value={coleta.num} onChange={e => setColeta({...coleta, num: e.target.value})} />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                              <EnderecoAutocomplete
+                                mapsReady={mapsReady}
+                                value={coleta.formatted_address || ''}
+                                onChangeText={(text: string) => setColeta({...coleta, formatted_address: text, lat: undefined, lng: undefined})}
+                                onBlur={() => handleAddressBlurFallback(coleta.formatted_address || '', true)}
+                                placeholder="🔍 Pesquise o endereço da coleta..."
+                                className={inputClass}
+                                onPlaceSelected={(place: any) => handlePlaceSelected(place, true)}
+                              />
+                              <p className="text-[10px] text-amber-500 font-bold uppercase tracking-widest px-2">Selecione uma opção da busca do Google</p>
+                          </div>
+                        )}
                     </div>
-                  ) : (
-                    <p className="text-[10px] text-amber-500 font-bold uppercase tracking-widest px-2">Selecione uma opção da busca do Google</p>
+                  </div>
+
+                  {/* ENTREGAS */}
+                  {entregas.map((entrega, index) => (
+                    <div key={index} className="relative">
+                      {index < entregas.length - 1 && <div className="absolute left-[15px] top-8 bottom-[-24px] w-0.5 bg-blue-200 border-dashed border-l-2 border-blue-300 z-0 hidden md:block"></div>}
+                      <h3 className="text-[10px] font-black uppercase tracking-widest text-emerald-600 mb-3 flex items-center gap-2 relative z-10">
+                         <div className="h-8 w-8 rounded-full bg-emerald-100 border-2 border-emerald-500 flex items-center justify-center text-emerald-600"><MapPin size={14}/></div>
+                         Entrega {index + 1}
+                      </h3>
+                      <div className="pl-0 md:pl-12 relative z-10">
+                          {entrega.lat ? (
+                            <div className="p-5 bg-white rounded-2xl border border-emerald-100 shadow-sm relative animate-in fade-in">
+                              <div className="absolute right-4 top-4 flex gap-4">
+                                  <button onClick={() => {
+                                     const newE = [...entregas];
+                                     newE[index] = { cep: '', bairro: '', rua: '', num: '', formatted_address: '' };
+                                     setEntregas(newE);
+                                  }} className="text-emerald-500 hover:text-emerald-700 text-[10px] font-black uppercase tracking-widest">Alterar</button>
+                                  {index > 0 && (
+                                     <button onClick={() => handleRemoveEntrega(index)} className="text-red-400 hover:text-red-600 text-[10px] font-black uppercase tracking-widest">Remover</button>
+                                  )}
+                              </div>
+                              <p className="font-bold text-slate-800 pr-32">{entrega.formatted_address}</p>
+                              <div className="mt-4 grid grid-cols-1 md:grid-cols-2">
+                                <input className={smallInputClass} placeholder="Número / Complemento (Obrigatório)" value={entrega.num} onChange={e => updateEntrega(index, 'num', e.target.value)} />
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                                <EnderecoAutocomplete
+                                  mapsReady={mapsReady}
+                                  value={entrega.formatted_address || ''}
+                                  onChangeText={(text: string) => {
+                                    const newE = [...entregas];
+                                    newE[index] = { ...newE[index], formatted_address: text, lat: undefined, lng: undefined };
+                                    setEntregas(newE);
+                                  }}
+                                  onBlur={() => handleAddressBlurFallback(entrega.formatted_address || '', false, index)}
+                                  placeholder="🔍 Pesquise o endereço de destino..."
+                                  className={inputClass}
+                                  onPlaceSelected={(place: any) => handlePlaceSelected(place, false, index)}
+                                />
+                                <p className="text-[10px] text-amber-500 font-bold uppercase tracking-widest px-2">Selecione uma opção da busca</p>
+                                {index > 0 && (
+                                     <button onClick={() => handleRemoveEntrega(index)} className="mt-2 text-red-400 hover:text-red-600 text-[10px] font-black uppercase tracking-widest ml-2">Remover Parada</button>
+                                )}
+                            </div>
+                          )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {entregas.length < 25 && (
+                    <div className="pl-0 md:pl-12 pt-4">
+                        <button onClick={handleAddEntrega} className="w-full py-4 border-2 border-dashed border-blue-300 text-blue-600 font-bold rounded-2xl hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 text-sm uppercase tracking-wider">
+                          <Plus size={18}/> Adicionar Parada Extra
+                        </button>
+                    </div>
                   )}
                 </div>
               </div>
 
+              {/* 3. DETALHES DA CARGA */}
               <div className="bg-slate-50 p-6 md:p-8 rounded-3xl border border-slate-100">
                 <h2 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
-                  <FileText className="h-5 w-5 text-slate-400" /> Detalhes da Mercadoria
+                  <FileText className="h-5 w-5 text-slate-400" /> Detalhes da Carga
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                    <select className={`${inputClass} cursor-pointer`} value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)}>
@@ -1092,6 +1169,7 @@ export default function Cliente() {
                 </div>
               </div>
 
+              {/* 4. VEÍCULO E HORÁRIO */}
               <div className="bg-slate-50 p-6 md:p-8 rounded-3xl border border-slate-100">
                 <h2 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
                   <Package className="h-5 w-5 text-amber-500" /> Especificações do Veículo
@@ -1113,53 +1191,6 @@ export default function Cliente() {
                     <button onClick={() => setTipoFrete('agendado')} className={`flex-1 rounded-xl py-4 text-sm font-black uppercase tracking-wider transition-all ${tipoFrete === 'agendado' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-200'}`}>Agendar Data</button>
                   </div>
                   {tipoFrete === 'agendado' && <input type="datetime-local" className={`mt-4 max-w-md ${inputClass}`} value={dataAgendada} onChange={(e) => setDataAgendada(e.target.value)} />}
-                </div>
-              </div>
-
-              <div className="bg-blue-50/50 p-6 md:p-8 rounded-3xl border border-blue-100">
-                <h2 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-blue-600">
-                  <Truck className="h-5 w-5 text-blue-600" /> Destino(s)
-                </h2>
-                <div className="space-y-4">
-                  {entregas.map((entrega, index) => (
-                    <div key={index} className="bg-white p-4 rounded-2xl border border-blue-100 shadow-sm relative">
-                      {index > 0 && (
-                        <button onClick={() => handleRemoveEntrega(index)} className="absolute right-4 top-4 text-red-400 hover:text-red-600 transition-colors">
-                          <Trash2 size={16} />
-                        </button>
-                      )}
-                      <p className="text-[10px] font-black uppercase text-blue-400 mb-2">Parada {index + 1}</p>
-                      <div className="space-y-3">
-                        <EnderecoAutocomplete
-                          mapsReady={mapsReady}
-                          value={entrega.formatted_address || ''}
-                          onChangeText={(text: string) => {
-                            const newEntregas = [...entregas];
-                            newEntregas[index] = { ...newEntregas[index], formatted_address: text, lat: undefined, lng: undefined };
-                            setEntregas(newEntregas);
-                          }}
-                          onBlur={() => handleAddressBlurFallback(entrega.formatted_address || '', false, index)}
-                          placeholder="🔍 Pesquise o endereço de destino..."
-                          className={smallInputClass}
-                          onPlaceSelected={(place: any) => handlePlaceSelected(place, false, index)}
-                        />
-                        {entrega.lat ? (
-                           <div className="grid grid-cols-3 gap-3 animate-in fade-in">
-                             <input className={`col-span-2 ${smallInputClass} bg-slate-100 text-slate-500 cursor-not-allowed`} value={`${entrega.rua || ''}${entrega.bairro ? ` - ${entrega.bairro}` : ''}`} readOnly disabled placeholder="Endereço Selecionado" />
-                             <input className={`col-span-1 ${smallInputClass}`} placeholder="Nº (Obrigatório)" value={entrega.num} onChange={e => updateEntrega(index, 'num', e.target.value)} />
-                           </div>
-                        ) : (
-                           <p className="text-[10px] text-amber-500 font-bold uppercase tracking-widest px-2">Selecione uma opção da busca</p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {/* CTO FIX: Apenas mostrar botão de adicionar se estivermos abaixo do teto de 25 entregas globais */}
-                  {entregas.length < 25 && (
-                    <button onClick={handleAddEntrega} className="w-full py-3 border-2 border-dashed border-blue-300 text-blue-600 font-bold rounded-2xl hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 text-sm">
-                      <Plus size={18}/> Adicionar Parada Extra
-                    </button>
-                  )}
                 </div>
               </div>
             </div>
@@ -1212,7 +1243,7 @@ export default function Cliente() {
                     <p className="text-[9px] font-black uppercase tracking-widest text-amber-500">Paradas/Km</p>
                     <p className="text-sm font-bold text-white mt-1">
                       {distanciaReal.toFixed(1)} km 
-                      {entregas.length > 1 && <span className="text-cyan-400 ml-1">({entregas.length} un)</span>}
+                      {entregas.length > 1 && <span className="text-cyan-400 ml-1">({entregas.length} entregas)</span>}
                     </p>
                  </div>
               </div>
@@ -1220,12 +1251,16 @@ export default function Cliente() {
               <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="rounded-3xl border border-slate-100 bg-slate-50 p-6">
                   <p className="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-2">Origem</p>
-                  <p className="text-lg font-bold text-slate-900">{coleta.rua}, {coleta.num}</p>
+                  <p className="text-lg font-bold text-slate-900">
+                    {coleta.rua ? `${coleta.rua}, ${coleta.num}` : (coleta.formatted_address?.split(',')[0] || coleta.cidade || "Origem")}
+                  </p>
                   <p className="text-sm text-slate-500">{coleta.bairro}</p>
                 </div>
                 <div className="rounded-3xl border border-slate-100 bg-slate-50 p-6">
                   <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500 mb-2">Destino Final</p>
-                  <p className="text-lg font-bold text-slate-900">{entregas[entregas.length - 1].rua}, {entregas[entregas.length - 1].num}</p>
+                  <p className="text-lg font-bold text-slate-900">
+                    {entregas[entregas.length - 1].rua ? `${entregas[entregas.length - 1].rua}, ${entregas[entregas.length - 1].num}` : (entregas[entregas.length - 1].formatted_address?.split(',')[0] || entregas[entregas.length - 1].cidade || "Destino")}
+                  </p>
                   <p className="text-sm text-slate-500">{entregas.length > 1 ? `+ ${entregas.length - 1} paradas no trajeto` : entregas[0].bairro}</p>
                 </div>
               </div>
@@ -1361,7 +1396,7 @@ export default function Cliente() {
 
                      <div className="relative">
                         <p className="text-xs font-black uppercase tracking-widest text-slate-600 mb-3 ml-2 flex items-center gap-2">
-                          <DollarSign className="w-4 h-4 text-emerald-600"/> Sua Oferta Oficial
+                          <DollarSign className="w-4 h-4 text-emerald-600"/> Sua Oferta
                         </p>
                         <span className="absolute left-6 top-[38px] text-2xl font-black text-emerald-600">R$</span>
                         <input 
@@ -1391,16 +1426,18 @@ export default function Cliente() {
                   <h3 className="text-lg font-black uppercase tracking-widest text-emerald-400 mb-6 flex items-center gap-2"><DollarSign size={20}/> Resumo Financeiro</h3>
                   <div className="space-y-4 mb-8">
                     <div className="flex justify-between items-center border-b border-white/10 pb-4">
-                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Sua Oferta Base</span>
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Sua Oferta</span>
                       <span className="text-sm font-black">R$ {valorOfertaNum.toFixed(2).replace('.', ',')}</span>
                     </div>
                     <div className="flex justify-between items-center border-b border-white/10 pb-4">
                       <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Pedágio Estimado</span>
-                      <span className="text-sm font-black text-slate-500">Incluso</span>
+                      <span className="text-sm font-black text-slate-500">
+                        {calculoFinanceiro.tollCost > 0 ? `R$ ${calculoFinanceiro.tollCost.toFixed(2).replace('.', ',')}` : 'Sem pedágio estimado'}
+                      </span>
                     </div>
                   </div>
                   <div className="bg-slate-950 rounded-2xl p-6 border border-emerald-500/20 mb-6">
-                    <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">Custo Total Oficial</p>
+                    <p className="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">Total a Pagar</p>
                     <p className="text-3xl font-black text-emerald-400">R$ {(valorOfertaNum).toFixed(2).replace('.', ',')}</p>
                     <p className="text-[10px] text-slate-500 mt-3 font-medium leading-relaxed">
                       Seu pagamento fica protegido até a conclusão do serviço, conforme as regras da plataforma.
