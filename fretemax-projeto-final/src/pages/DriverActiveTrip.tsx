@@ -135,17 +135,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       || 'Destino da rota';
 
   const pinEntregasArray = Array.isArray(frete.pinEntregas) ? frete.pinEntregas : (frete.pinEntregas ? [frete.pinEntregas as string] : []);
-  const totalParadas = pinEntregasArray.length > 0 ? pinEntregasArray.length : (paradas.length > 0 ? paradas.length + 1 : 1);
-
-  const etapasRoteiro = ['COLETA', ...Array.from({length: totalParadas}).map((_, i) => `ENTREGA ${i+1}/${totalParadas}`)];
-  let etapaAtualIndex = 0;
-  
-  if (!isFaseColeta) {
-     etapaAtualIndex = paradaAtualIndex + 1;
-     if ([AppTripState.FINALIZANDO, AppTripState.ENTREGUE, 'finalizado'].includes(String(frete.status) as AppTripState)) {
-       etapaAtualIndex = etapasRoteiro.length;
-     }
-  }
+  const totalParadas = pinEntregasArray.length > 0 ? pinEntregasArray.length : (paradas.length > 0 ? paradas.length : 1);
 
   const etapaAtualKey = frete.status === AppTripState.COLETANDO ? 'coleta' : `parada_${paradaAtualIndex}`;
   const isFotoConfirmada = !!frete.fotosPod?.[etapaAtualKey];
@@ -258,7 +248,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     }
   };
 
-  // CTO FIX: Execução Cloud Function do Fluxo Exceção Sem PIN (Zero Trust)
   const handleExcecaoSemPin = async () => {
     if (frete.bloqueioPin || actionLoading) return;
     setActionLoading(true);
@@ -331,6 +320,35 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     const msg = `Olá, sou o motorista parceiro da FretoGo. Estou a caminho para a corrida #${frete.id.slice(0,8).toUpperCase()}.`;
     openExternalLink(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`);
   };
+
+  // CTO: Construção da Rota Operacional Vertical sem recalcular ordens
+  const paradasParaRender = paradas.length > 0 ? paradas : (frete.entrega ? [frete.entrega] : []);
+  const roteiroOperacional = [
+    {
+      tipo: 'COLETA',
+      endereco: frete.enderecoColetaTexto || 'Endereço de coleta',
+      isCompleted: !isFaseColeta,
+      isActive: isFaseColeta
+    },
+    ...paradasParaRender.map((p, idx) => {
+      let isCompleted = false;
+      let isActive = false;
+      if (!isFaseColeta) {
+        if ([AppTripState.FINALIZANDO, AppTripState.ENTREGUE, 'finalizando', 'finalizado', 'entregue'].includes(String(frete.status))) {
+          isCompleted = true;
+        } else {
+          isCompleted = idx < paradaAtualIndex;
+          isActive = idx === paradaAtualIndex;
+        }
+      }
+      return {
+        tipo: `ENTREGA ${idx + 1}/${paradasParaRender.length}`,
+        endereco: p.enderecoTexto || (p.rua ? `${p.rua}, ${p.num || 's/n'} - ${p.bairro || ''}` : 'Endereço não detalhado'),
+        isCompleted,
+        isActive
+      };
+    })
+  ];
 
   if (frete.status === AppTripState.CANCELADO || String(frete.status) === 'cancelado') {
     return (
@@ -429,29 +447,39 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
            </div>
         </div>
 
-        <div className="mb-6 py-4 overflow-x-auto pb-10">
-          <div className="flex items-center justify-between relative min-w-[max-content] gap-12 px-6">
-            <div className="absolute top-1/2 left-0 w-full h-1 bg-slate-800 -translate-y-1/2 z-0"></div>
-            {etapasRoteiro.map((stepNome, idx) => {
-              const isCompleted = idx < etapaAtualIndex;
-              const isActive = idx === etapaAtualIndex;
-              return (
-                <div key={idx} className="relative z-10 flex flex-col items-center gap-1.5 group">
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all duration-500 ${
-                    isCompleted ? 'bg-emerald-500 border-emerald-400 text-slate-900' :
-                    isActive ? 'bg-blue-600 border-blue-400 text-white shadow-[0_0_15px_rgba(59,130,246,0.5)] animate-pulse' :
-                    'bg-slate-900 border-slate-700 text-slate-600'
-                  }`}>
-                    {isCompleted ? <Check size={10} strokeWidth={4} /> : <div className="w-1.5 h-1.5 rounded-full bg-current"></div>}
-                  </div>
-                  <span className={`text-[8px] font-black uppercase tracking-widest whitespace-nowrap absolute -bottom-5 transition-colors ${
-                    isCompleted ? 'text-emerald-500' : isActive ? 'text-blue-400' : 'text-slate-600'
-                  }`}>
-                    {stepNome}
-                  </span>
+        {/* CTO: NOVO COMPONENTE VERTICAL DE ROTA OPERACIONAL */}
+        <div className="mb-6 bg-slate-950 border border-white/5 rounded-2xl p-5 shadow-inner max-h-[350px] overflow-y-auto">
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-5 flex items-center gap-2 sticky top-0 bg-slate-950/90 backdrop-blur-sm py-1 z-20">
+            <MapPinned size={14} className="text-cyan-400" /> Rota Operacional
+          </h3>
+          <div className="flex flex-col gap-0 relative">
+             {roteiroOperacional.map((step, idx) => (
+                <div key={idx} className="flex gap-4 relative">
+                   {idx < roteiroOperacional.length - 1 && (
+                      <div className={`absolute left-[11px] top-6 bottom-[-16px] w-[2px] ${step.isCompleted ? 'bg-emerald-500/50' : 'bg-slate-800'}`}></div>
+                   )}
+                   <div className="relative z-10 flex-shrink-0 mt-1">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
+                         step.isCompleted ? 'bg-emerald-500 border-emerald-400 text-slate-950' :
+                         step.isActive ? 'bg-blue-600 border-blue-400 text-white shadow-[0_0_15px_rgba(59,130,246,0.5)] animate-pulse' :
+                         'bg-slate-900 border-slate-700 text-slate-600'
+                      }`}>
+                         {step.isCompleted ? <Check size={12} strokeWidth={4} /> : <div className="w-1.5 h-1.5 rounded-full bg-current"></div>}
+                      </div>
+                   </div>
+                   <div className={`pb-6 ${step.isActive ? 'opacity-100' : 'opacity-60'} w-full`}>
+                      <p className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${
+                         step.isCompleted ? 'text-emerald-500' : step.isActive ? 'text-blue-400' : 'text-slate-500'
+                      }`}>
+                         {step.tipo}
+                         {step.isActive && <span className="text-[8px] bg-blue-600/20 border border-blue-500/50 text-blue-400 px-2 py-0.5 rounded-full normal-case tracking-normal">Etapa Atual</span>}
+                      </p>
+                      <p className={`text-xs mt-1 font-bold ${step.isActive ? 'text-white' : 'text-slate-400'} leading-relaxed pr-2`}>
+                         {step.endereco}
+                      </p>
+                   </div>
                 </div>
-              );
-            })}
+             ))}
           </div>
         </div>
 
