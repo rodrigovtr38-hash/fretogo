@@ -170,7 +170,7 @@ export default function Cliente() {
   const [realDriversCount, setRealDriversCount] = useState(0); 
 
   const coordsCache = useRef<Record<string, Coords>>({});
-  const rotaCache = useRef<Record<string, { distanciaKm: number, payload: any, token: string }>>({});
+  const rotaCache = useRef<Record<string, { distanciaKm: number, payload: any, token: string, waypointOrder?: number[] }>>({});
   const isProcessingPayment = useRef(false);
 
   const { createFreight, cancelFreight } = useClientFreight();
@@ -461,7 +461,6 @@ export default function Cliente() {
       }
 
       if (data.status === 'finalizado') {
-        // CTO FIX: A experiência final deve manter o usuário visualizando o sucesso, sem reset abrupto
         showToast('Entrega Finalizada! Agradecemos pela parceria.', 'success');
       }
 
@@ -567,11 +566,23 @@ export default function Cliente() {
 
       if (rotaCache.current[cacheKey]) {
         const cached = rotaCache.current[cacheKey];
+
+        let finalEntregas = [...entregas];
+        if (cached.waypointOrder && cached.waypointOrder.length > 0) {
+            const wps = finalEntregas.slice(0, -1);
+            const dest = finalEntregas[finalEntregas.length - 1];
+            finalEntregas = cached.waypointOrder.map(idx => wps[idx]);
+            finalEntregas.push(dest);
+            setEntregas(finalEntregas);
+        }
+
+        const newPGPS = finalEntregas.map(stop => ({ lat: stop.lat!, lng: stop.lng! }));
+
         setDistanciaReal(cached.distanciaKm);
         setCotacaoPayload(cached.payload);
         setCotacaoToken(cached.token);
-        setParadasGPS(pGPS);
-        setDestinoGPS(pGPS[pGPS.length - 1]);
+        setParadasGPS(newPGPS);
+        setDestinoGPS(newPGPS[newPGPS.length - 1]);
         setStep('preview');
         setLoadingRoute(false);
         return;
@@ -582,18 +593,34 @@ export default function Cliente() {
         entregas: pGPS 
       }, 2, 10000);
 
-      rotaCache.current[cacheKey] = {
+      let finalEntregas = [...entregas];
+      if (result.waypointOrder && result.waypointOrder.length > 0) {
+          const wps = finalEntregas.slice(0, -1);
+          const dest = finalEntregas[finalEntregas.length - 1];
+          finalEntregas = result.waypointOrder.map((idx: number) => wps[idx]);
+          finalEntregas.push(dest);
+          setEntregas(finalEntregas);
+      }
+
+      const newPGPS = finalEntregas.map(stop => ({ lat: stop.lat!, lng: stop.lng! }));
+      const newCacheKey = JSON.stringify({ origem: origCoords, entregas: newPGPS });
+
+      const cacheData = {
         distanciaKm: result.distanciaKm,
         payload: result.cotacaoPayload,
-        token: result.cotacaoToken
+        token: result.cotacaoToken,
+        waypointOrder: result.waypointOrder
       };
+
+      rotaCache.current[cacheKey] = cacheData;
+      rotaCache.current[newCacheKey] = cacheData;
 
       setDistanciaReal(result.distanciaKm);
       setCotacaoPayload(result.cotacaoPayload);
       setCotacaoToken(result.cotacaoToken);
       
-      setParadasGPS(pGPS);
-      setDestinoGPS(pGPS[pGPS.length - 1]);
+      setParadasGPS(newPGPS);
+      setDestinoGPS(newPGPS[newPGPS.length - 1]);
       
       setStep('preview');
     } catch (error: any) {
