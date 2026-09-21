@@ -472,7 +472,7 @@ exports.calcularRotaB2B = functions.runWith(runtimeOpts).https.onCall(async (dat
   let waypoints = '';
   if (entregas.length > 1) {
     const wpArray = entregas.slice(0, -1).map(wp => `${wp.lat},${wp.lng}`);
-    waypoints = wpArray.join('|');
+    waypoints = `optimize:true|` + wpArray.join('|');
   }
   
   let url = `https://maps.googleapis.com/maps/api/directions/json?origin=${originStr}&destination=${destStr}&key=${key}`;
@@ -514,10 +514,22 @@ exports.calcularRotaB2B = functions.runWith(runtimeOpts).https.onCall(async (dat
     });
     
     const distanceKm = distanceMeters / 1000;
+
+    const waypointOrder = route.waypoint_order || [];
+    let optimizedEntregas = [];
+
+    if (entregas.length > 1 && waypointOrder.length > 0) {
+        const waypointsToOptimize = entregas.slice(0, -1);
+        const finalDestination = entregas[entregas.length - 1];
+        optimizedEntregas = waypointOrder.map(idx => waypointsToOptimize[idx]);
+        optimizedEntregas.push(finalDestination);
+    } else {
+        optimizedEntregas = [...entregas];
+    }
     
     const quotePayload = {
       origem: { lat: origem.lat, lng: origem.lng },
-      entregas: entregas.map(e => ({ lat: e.lat, lng: e.lng })),
+      entregas: optimizedEntregas.map(e => ({ lat: e.lat, lng: e.lng })),
       distanciaKm: distanceKm,
       expiraEm: Date.now() + 30 * 60 * 1000
     };
@@ -527,7 +539,8 @@ exports.calcularRotaB2B = functions.runWith(runtimeOpts).https.onCall(async (dat
     return {
       distanciaKm: distanceKm,
       cotacaoPayload: quotePayload,
-      cotacaoToken: signature
+      cotacaoToken: signature,
+      waypointOrder: waypointOrder
     };
   } catch (error) {
     if (error instanceof functions.https.HttpsError) throw error;
