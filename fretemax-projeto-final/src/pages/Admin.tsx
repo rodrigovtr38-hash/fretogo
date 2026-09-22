@@ -148,13 +148,13 @@ export default function Admin() {
       if (archivedAlerts.has(f.id)) return false;
       const isBlock = f.bloqueioPin === true;
       const isPixPendente = f.status === 'finalizando' && !(f.chavePixMotorista || f.motoristaPix || f.chavePix);
-      return isBlock || isPixPendente;
+      const isExcecaoPendente = f.excecaoPinPendente === true;
+      return isBlock || isPixPendente || isExcecaoPendente;
     });
   }, [fretes, archivedAlerts]);
 
   const stats = useMemo(() => {
     const period = fretes.filter(f => filterByTime(f, timeFilter));
-    const hoje = new Date(); hoje.setHours(0,0,0,0);
     const valid = [AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE, AppTripState.ENTREGUE, 'finalizado'];
     
     return {
@@ -218,6 +218,21 @@ export default function Admin() {
       alert("✅ Avanço operacional executado com sucesso.");
     } catch (e: any) {
       alert(`Erro na Contingência: ${e.message}`);
+    } finally {
+      setIsProcessingContingency(false);
+    }
+  };
+
+  const handleAprovarExcecao = async (id: string) => {
+    if (!window.confirm("⚠️ Deseja APROVAR a exceção e liberar a etapa sem o PIN?")) return;
+    setIsProcessingContingency(true);
+    try {
+      const functions = getFunctions();
+      const aprovarFunc = httpsCallable(functions, 'aprovarExcecaoPinTorreAdmin');
+      await aprovarFunc({ freteId: id });
+      alert("✅ Exceção aprovada. Motorista liberado.");
+    } catch (e: any) {
+      alert(`Erro na Aprovação: ${e.message}`);
     } finally {
       setIsProcessingContingency(false);
     }
@@ -300,6 +315,9 @@ export default function Admin() {
     if (f.bloqueioPin) {
        badgeType = 'red';
        badgeLabel = '🔴 BLOQUEADO (PIN)';
+    } else if (f.excecaoPinPendente) {
+       badgeType = 'yellow';
+       badgeLabel = '⚠️ EXCEÇÃO PENDENTE (TORRE)';
     } else if (isColeta || isTransporte) {
        if (temFoto) {
           badgeType = 'green';
@@ -376,7 +394,9 @@ export default function Admin() {
                             <div>
                                <p className="text-[10px] font-mono text-slate-400">ID: #{a.id.slice(0,8).toUpperCase()}</p>
                                <p className="text-xs font-bold text-white">
-                                  {a.bloqueioPin ? '🔴 Bloqueio de PIN detectado' : '💰 Aguardando PIX para Liquidação'}
+                                  {a.bloqueioPin ? '🔴 Bloqueio de PIN detectado' : 
+                                   a.excecaoPinPendente ? '⚠️ Exceção de PIN Pendente (Torre)' : 
+                                   '💰 Aguardando PIX para Liquidação'}
                                </p>
                             </div>
                             <div className="flex gap-2">
@@ -410,7 +430,6 @@ export default function Admin() {
                fretesFiltrados.map(f => {
                  const estadoObj = getEstadoOperacional(f);
                  
-                 // CTO FIX: Adicionar os pontos para injeção no Mapa
                  const origemGPS = (f.origem?.lat && f.origem?.lng) ? { lat: Number(f.origem.lat), lng: Number(f.origem.lng) } : (f.origemLat ? { lat: Number(f.origemLat), lng: Number(f.origemLng) } : null);
                  const destinoGPS = (f.destino?.lat && f.destino?.lng) ? { lat: Number(f.destino.lat), lng: Number(f.destino.lng) } : (f.destinoLat ? { lat: Number(f.destinoLat), lng: Number(f.destinoLng) } : null);
                  const motoristaGPS = (f.motoristaLat && f.motoristaLng) ? { lat: Number(f.motoristaLat), lng: Number(f.motoristaLng) } : null;
@@ -462,6 +481,15 @@ export default function Admin() {
                                 
                                 {/* AÇÕES DE CONTINGÊNCIA */}
                                 <div className="flex gap-2">
+                                   {f.excecaoPinPendente && (
+                                     <button 
+                                       disabled={isProcessingContingency} 
+                                       onClick={() => handleAprovarExcecao(f.id)} 
+                                       className="text-[9px] flex items-center gap-1 bg-amber-950 hover:bg-amber-900 border border-amber-500/50 text-amber-400 px-3 py-1.5 rounded-lg font-bold uppercase transition-all"
+                                     >
+                                       <CheckCircle size={10}/> Aprovar Exceção
+                                     </button>
+                                   )}
                                    {(estadoObj.isColeta || estadoObj.isTransporte) && (
                                      <button 
                                        disabled={isProcessingContingency} 
