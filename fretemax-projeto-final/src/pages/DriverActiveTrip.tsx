@@ -1,3 +1,7 @@
+// =========================================================
+// NOME DO ARQUIVO: src/pages/DriverActiveTrip.tsx
+// =========================================================
+
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db, auth, storage } from '../firebase'; 
@@ -41,6 +45,7 @@ interface ActiveFreightData extends DocumentData {
   observacoes?: string;
   tentativasPin?: number;
   bloqueioPin?: boolean;
+  excecaoPinPendente?: boolean;
 }
 
 export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
@@ -262,7 +267,13 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     try {
       const functions = getFunctions(db.app);
       const solicitarExcecaoSemPin = httpsCallable(functions, 'solicitarExcecaoSemPin');
-      await solicitarExcecaoSemPin({ freteId: frete.id });
+      const result: any = await solicitarExcecaoSemPin({ freteId: frete.id });
+      
+      if (result.data?.pending) {
+        alert("ENTREGA EM ANÁLISE\n\nA ocorrência foi encaminhada para a Torre de Controle.");
+      } else {
+        alert("ENTREGA CONFIRMADA\n\nEvidência registrada sem PIN.");
+      }
       
       setIsPinModalOpen(false);
       setPinValue('');
@@ -321,7 +332,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     openExternalLink(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`);
   };
 
-  // CTO: Construção da Rota Operacional Vertical sem recalcular ordens
   const paradasParaRender = paradas.length > 0 ? paradas : (frete.entrega ? [frete.entrega] : []);
   const roteiroOperacional = [
     {
@@ -447,7 +457,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
            </div>
         </div>
 
-        {/* CTO: NOVO COMPONENTE VERTICAL DE ROTA OPERACIONAL */}
         <div className="mb-6 bg-slate-950 border border-white/5 rounded-2xl p-5 shadow-inner max-h-[350px] overflow-y-auto">
           <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-5 flex items-center gap-2 sticky top-0 bg-slate-950/90 backdrop-blur-sm py-1 z-20">
             <MapPinned size={14} className="text-cyan-400" /> Rota Operacional
@@ -687,7 +696,14 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
           <motion.div key="pin-modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/90 backdrop-blur-sm p-4">
             <motion.div key="modal-pin" initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="bg-slate-900 p-8 rounded-[2.5rem] w-full max-w-sm border border-cyan-500/50 shadow-2xl relative overflow-hidden">
               
-              {frete.bloqueioPin ? (
+              {frete.excecaoPinPendente ? (
+                <div className="text-center">
+                  <div className="flex justify-center mb-4"><div className="bg-amber-500/10 p-4 rounded-full border border-amber-500/20"><HelpCircle size={32} className="text-amber-400" /></div></div>
+                  <h3 className="text-amber-400 font-black mb-2 uppercase text-xl tracking-tight">Em Análise</h3>
+                  <p className="text-slate-400 text-xs mb-6 leading-relaxed">A ocorrência foi encaminhada para a Torre de Controle. Aguarde a liberação.</p>
+                  <button onClick={() => setIsPinModalOpen(false)} className="w-full bg-slate-800 py-4 font-black uppercase text-xs rounded-xl text-white hover:bg-slate-700">Entendido</button>
+                </div>
+              ) : frete.bloqueioPin ? (
                 <div className="text-center">
                   <div className="flex justify-center mb-4"><div className="bg-red-500/10 p-4 rounded-full border border-red-500/20"><AlertTriangle size={32} className="text-red-400" /></div></div>
                   <h3 className="text-red-400 font-black mb-2 uppercase text-xl tracking-tight">Sistema Bloqueado</h3>
@@ -729,13 +745,13 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
                     <div className="mt-4">
                       <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 mb-4 flex flex-col items-center">
                         <CheckCircle2 size={24} className="text-emerald-400 mb-1" />
-                        <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest text-center">Foto registrada com sucesso.<br/>A Torre já recebeu a evidência.</span>
+                        <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest text-center">EVIDÊNCIA REGISTRADA ✓<br/>A Torre já recebeu a foto.</span>
                       </div>
                       
                       <p className="text-slate-400 text-xs text-center mb-4 leading-relaxed font-bold">
-                        Peça os 4 dígitos ao responsável no local para finalizar esta etapa.
+                        PIN DA ENTREGA
                       </p>
-                      <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={4} value={pinValue} onChange={(e) => { setPinValue(e.target.value.replace(/\D/g, '')); setPinError(''); }} className="w-full p-5 text-center text-5xl font-black tracking-[0.5em] bg-slate-950 text-cyan-400 border-2 border-cyan-500/30 rounded-2xl mb-4 focus:outline-none focus:border-cyan-400 placeholder:text-slate-800" placeholder="0000" />
+                      <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={4} value={pinValue} onChange={(e) => { setPinValue(e.target.value.replace(/\D/g, '')); setPinError(''); }} className="w-full p-5 text-center text-5xl font-black tracking-[0.5em] bg-slate-950 text-cyan-400 border-2 border-cyan-500/30 rounded-2xl mb-4 focus:outline-none focus:border-cyan-400 placeholder:text-slate-800" placeholder="____" />
                     </div>
                   )}
 
@@ -758,7 +774,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
                           disabled={actionLoading}
                           className="w-full flex items-center justify-center gap-2 bg-amber-500/10 py-3 font-black uppercase text-[10px] tracking-widest rounded-xl text-amber-500 border border-amber-500/30 disabled:opacity-50 hover:bg-amber-500/20 transition-all"
                         >
-                          <HelpCircle size={14} /> Cliente Ausente / Não tenho o PIN
+                          <HelpCircle size={14} /> Continuar Sem PIN (Solicitar Exceção)
                         </button>
                       </div>
                     )}
