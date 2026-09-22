@@ -1,9 +1,9 @@
 // =========================================================
 // NOME DO ARQUIVO: src/pages/Home.tsx
-// CTO-Log: HOME-3.2 — Correção de navegação dos CTAs.
-// Conscientização e caminho = scroll interno (não cadastro).
-// Conversão final e footer = /cliente e /motorista.
-// WhatsApp e grupo preservados.
+// CTO-Log: HOME-4.0 — Elevação de Copy e Funil de Conversão.
+// Comunicação tangível (SaaS, 25 entregas, 7 categorias, PIN, foto).
+// Foco em oportunidade para motoristas. CTAs de conversão ajustados.
+// UX Mobile alinhada com jornada de educação do Desktop.
 // =========================================================
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -174,17 +174,17 @@ function HomeNavbar({ onCompanyPath, onDriverPath, onSupport, onConnection }: Na
             <div className="my-3 h-px bg-slate-800" />
             <button
               type="button"
-              onClick={() => closeAndRun(onCompanyPath)}
-              className="inline-flex min-h-14 items-center justify-center rounded-xl bg-blue-600 px-5 py-3 text-sm font-black uppercase tracking-[0.12em] text-white shadow-lg shadow-blue-950/40 transition hover:bg-blue-500 active:scale-[0.97]"
-            >
-              Ver o lado da empresa
-            </button>
-            <button
-              type="button"
               onClick={() => closeAndRun(onDriverPath)}
               className="inline-flex min-h-14 items-center justify-center rounded-xl border border-slate-700 bg-slate-900 px-5 py-3 text-sm font-black uppercase tracking-[0.12em] text-white transition hover:bg-slate-800 active:scale-[0.97]"
             >
-              Ver o lado do motorista
+              Ver meu lado
+            </button>
+            <button
+              type="button"
+              onClick={() => closeAndRun(onConnection)}
+              className="inline-flex min-h-14 items-center justify-center rounded-xl bg-blue-600 px-5 py-3 text-sm font-black uppercase tracking-[0.12em] text-white shadow-lg shadow-blue-950/40 transition hover:bg-blue-500 active:scale-[0.97]"
+            >
+              Ver como a conexão acontece
             </button>
           </div>
         </div>
@@ -224,7 +224,7 @@ function Hero({ onCompanyPath, onDriverPath }: HeroProps) {
             <span className="text-cyan-300">Conectados.</span>
           </h1>
           <p className="mt-6 max-w-xl text-lg font-medium leading-relaxed text-slate-200 sm:text-xl">
-            Quem precisa transportar precisa de quem possa transportar. A FretoGo aproxima os dois lados para a operação acontecer com mais clareza, segurança e confiança.
+            A FretoGo conecta empresas que precisam transportar a motoristas que buscam oportunidades de frete. Operações organizadas, fretes imediatos ou agendados, e acompanhamento prático até a entrega.
           </p>
           <div className="mt-10 flex flex-col gap-4 sm:flex-row sm:items-center">
             <button
@@ -244,7 +244,7 @@ function Hero({ onCompanyPath, onDriverPath }: HeroProps) {
             </button>
           </div>
           <p className="mt-5 text-sm font-medium text-slate-400">
-            Antes de decidir, veja como cada lado funciona.
+            Antes de decidir, entenda o seu caminho.
           </p>
         </div>
       </div>
@@ -264,10 +264,10 @@ function WhyContinueSection() {
           Todo transporte começa com uma necessidade.
         </h2>
         <p className="mt-6 text-lg font-medium leading-relaxed text-slate-600">
-          Uma empresa precisa levar algo até alguém. Um motorista precisa encontrar uma oportunidade que faça sentido para sua rota. Parece simples. Mas quando os dois lados não se entendem, a operação fica mais difícil para todo mundo.
+          Uma empresa precisa levar algo até alguém. Um motorista precisa encontrar uma oportunidade que faça sentido para sua rota e seu veículo. Quando as informações são claras, a operação acontece com menos imprevistos.
         </p>
         <p className="mt-5 text-lg font-bold leading-relaxed text-slate-800">
-          A FretoGo existe para aproximar essas duas necessidades com mais clareza.
+          A FretoGo existe para aproximar essas duas necessidades organizando e registrando toda a operação.
         </p>
       </div>
     </section>
@@ -291,16 +291,16 @@ function AudienceChoice({ onCompanyPath, onDriverPath }: AudienceProps) {
             Qual lado você conhece melhor?
           </h2>
           <p className="mt-4 text-lg font-medium text-slate-600">
-            Escolha um caminho. Depois veja o outro.
+            Escolha um caminho e entenda as facilidades de cada ponta.
           </p>
         </div>
 
         <div className="mx-auto mt-12 grid max-w-5xl gap-6 md:grid-cols-2">
           <article className="flex flex-col rounded-[1.75rem] border border-slate-200 bg-slate-50 p-7 shadow-sm sm:p-8">
             <p className="text-xs font-black uppercase tracking-[0.15em] text-blue-600">Para empresas</p>
-            <h3 className="mt-3 text-2xl font-black text-slate-950">Muita coisa precisa acontecer antes do caminhão sair.</h3>
+            <h3 className="mt-3 text-2xl font-black text-slate-950">A operação estruturada antes do veículo sair.</h3>
             <p className="mt-4 flex-grow text-base font-medium leading-relaxed text-slate-600">
-              Veja o que acontece do lado de quem precisa fazer uma carga chegar ao destino.
+              Veja o que acontece do lado de quem precisa publicar uma carga, organizar múltiplas paradas e gerenciar as evidências até o destino.
             </p>
             <button
               type="button"
@@ -313,9 +313,9 @@ function AudienceChoice({ onCompanyPath, onDriverPath }: AudienceProps) {
 
           <article className="flex flex-col rounded-[1.75rem] border border-slate-800 bg-slate-900 p-7 text-white shadow-xl sm:p-8">
             <p className="text-xs font-black uppercase tracking-[0.15em] text-cyan-300">Para motoristas</p>
-            <h3 className="mt-3 text-2xl font-black text-white">Rodar também começa por encontrar uma oportunidade que faça sentido.</h3>
+            <h3 className="mt-3 text-2xl font-black text-white">Oportunidades de frete detalhadas para o seu veículo.</h3>
             <p className="mt-4 flex-grow text-base font-medium leading-relaxed text-slate-300">
-              Veja o que acontece do lado de quem coloca o veículo na estrada para fazer uma entrega acontecer.
+              Veja como encontrar fretes, analisar valores e rotas, e comprovar o seu trabalho de maneira simples e digital.
             </p>
             <button
               type="button"
@@ -334,45 +334,41 @@ function AudienceChoice({ onCompanyPath, onDriverPath }: AudienceProps) {
 // =========================================================
 // EMPRESA
 // =========================================================
-interface ActionProps {
-  onAction: () => void;
+interface CompanySectionProps {
+  onClient: () => void;
 }
 
-function CompanySection({ onAction }: ActionProps) {
+function CompanySection({ onClient }: CompanySectionProps) {
   const steps = [
-    { title: 'Publique', desc: 'Informe o que precisa transportar.' },
-    { title: 'Conecte', desc: 'Encontre uma possibilidade compatível.' },
-    { title: 'Acompanhe', desc: 'Tenha mais clareza sobre o andamento.' },
-    { title: 'Confirme', desc: 'Registre a conclusão da operação.' },
+    { title: 'Publique', desc: 'Pesquise o endereço, selecione a sugestão correta e defina até 25 entregas em uma operação.' },
+    { title: 'Conecte', desc: 'Escolha a categoria do veículo (Moto a Bitrem) para fretes imediatos ou agendados.' },
+    { title: 'Acompanhe', desc: 'Tenha visibilidade do status e localização da operação com a nossa Torre de Controle.' },
+    { title: 'Confirme', desc: 'Registre a conclusão com evidência por foto e validação por código PIN.' },
   ];
 
   const benefits = [
-    { title: 'Mais organização', desc: 'As informações da operação ficam reunidas em um só lugar.' },
-    { title: 'Mais clareza', desc: 'A empresa consegue visualizar melhor o que está sendo combinado.' },
-    { title: 'Mais controle', desc: 'Acompanhe as etapas da operação.' },
-    { title: 'Mais conexão', desc: 'Aproxime sua necessidade de quem possui capacidade para transportar.' },
+    { title: 'Operação Centralizada', desc: 'Otimize rotas com múltiplas entregas em uma única publicação.' },
+    { title: 'Menos Incerteza', desc: 'A empresa visualiza o status e as etapas cumpridas pelo motorista na plataforma.' },
+    { title: 'Registro Fotográfico', desc: 'Receba a foto do canhoto ou da carga direto do local da entrega.' },
+    { title: 'Confirmação Segura', desc: 'A etapa só é liberada mediante o código PIN fornecido ao recebedor.' },
   ];
 
   const objections = [
     {
-      q: 'Vou encontrar qualquer motorista?',
-      a: 'A plataforma organiza as informações para facilitar a busca por veículos e oportunidades compatíveis com a operação.',
+      q: 'Quais veículos eu encontro?',
+      a: 'Você escolhe entre 7 categorias: Moto, Carro, Utilitário, Toco, Truck, Carreta e Bitrem.',
     },
     {
-      q: 'Preciso ficar negociando tudo no escuro?',
-      a: 'A proposta é trazer mais informação para que as partes entendam melhor o que está sendo combinado.',
+      q: 'E se eu precisar do frete para agora?',
+      a: 'Você pode solicitar fretes imediatos ou agendados, conforme a demanda de veículos disponível na região.',
     },
     {
-      q: 'E se eu não souber usar?',
-      a: 'O processo foi pensado para ser simples e dividido em etapas claras.',
+      q: 'Vou perder o controle da carga?',
+      a: 'Não. Você acompanha as etapas de entrega, os comprovantes anexados e conta com o suporte da Torre de Controle.',
     },
     {
-      q: 'Vou perder o controle da operação?',
-      a: 'Não. A ideia é justamente dar mais visibilidade para acompanhar o caminho da carga.',
-    },
-    {
-      q: 'E se eu publicar e não aparecer uma opção que faça sentido?',
-      a: 'A disponibilidade depende das operações existentes. A FretoGo organiza as oportunidades disponíveis para que você possa analisar o que faz sentido antes de decidir.',
+      q: 'E se eu publicar e não aparecer uma opção compatível?',
+      a: 'A FretoGo organiza e disponibiliza as oportunidades, mas a disponibilidade final depende dos motoristas ativos no momento.',
     },
   ];
 
@@ -382,23 +378,23 @@ function CompanySection({ onAction }: ActionProps) {
         <div className="max-w-3xl">
           <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">O lado da empresa</p>
           <h2 className="mt-3 text-3xl font-black leading-tight tracking-[-0.035em] text-slate-950 sm:text-5xl">
-            Transportar bem começa antes do caminhão sair.
+            Publique seu frete e acompanhe a operação.
           </h2>
           <p className="mt-5 text-lg font-medium leading-relaxed text-slate-600">
-            Quando uma empresa precisa transportar, não está simplesmente procurando um veículo. Está tentando fazer uma operação acontecer no prazo, com clareza e menos imprevistos.
+            Quando uma empresa precisa transportar, ela precisa de organização. Da coleta ao último destino, a FretoGo estrutura a sua demanda para que os veículos adequados encontrem a sua carga.
           </p>
         </div>
 
         <div className="mt-14 grid gap-10 lg:grid-cols-2 lg:items-start">
           <div>
-            <h3 className="text-2xl font-black text-slate-950">O problema nem sempre é encontrar um motorista.</h3>
+            <h3 className="text-2xl font-black text-slate-950">O desafio é garantir que o combinado seja cumprido até o fim.</h3>
             <p className="mt-4 text-base font-medium leading-relaxed text-slate-600">
-              É encontrar alguém que entenda a operação, aceite as condições combinadas e faça a sua parte até a entrega.
+              Transportar bem exige planejamento. É encontrar um veículo compatível e registrar as entregas sem depender de negociações soltas e informais.
             </p>
           </div>
           <div className="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-7">
             <ol className="space-y-4">
-              {['Carga precisa sair.', 'Veículo precisa chegar.', 'O combinado precisa ser cumprido.'].map((item, i) => (
+              {['Carga precisa sair no veículo certo.', 'Veículo precisa chegar no prazo.', 'A entrega precisa ser comprovada.'].map((item, i) => (
                 <li key={item} className="flex items-start gap-3">
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-black text-white">
                     {i + 1}
@@ -411,19 +407,19 @@ function CompanySection({ onAction }: ActionProps) {
         </div>
 
         <div className="mt-14 rounded-[1.75rem] border border-blue-100 bg-blue-50/60 p-7 sm:p-9">
-          <h3 className="text-2xl font-black text-slate-950">Do outro lado existe alguém esperando.</h3>
+          <h3 className="text-2xl font-black text-slate-950">Mais segurança no processo.</h3>
           <p className="mt-4 max-w-3xl text-base font-medium leading-relaxed text-slate-700">
-            Uma carga parada pode significar atraso para uma loja, uma indústria, um cliente ou para toda uma operação. Por isso, quem publica uma carga também tem uma responsabilidade: informar corretamente, combinar com clareza e respeitar quem vai fazer o transporte.
+            Uma carga parada significa impacto nos negócios. Por isso, quem publica um frete tem a responsabilidade de detalhar endereços, orientações e exigências para que o motorista faça um bom trabalho. Em contrapartida, a plataforma entrega as ferramentas de evidência e confirmação.
           </p>
           <p className="mt-5 text-base font-black text-blue-800">
-            A conexão só funciona quando os dois lados fazem a sua parte.
+            A conexão se consolida através de processos concretos de registro.
           </p>
         </div>
 
         <div className="mt-14">
-          <h3 className="text-2xl font-black text-slate-950 sm:text-3xl">A FretoGo organiza essa conexão.</h3>
+          <h3 className="text-2xl font-black text-slate-950 sm:text-3xl">A FretoGo organiza a jornada.</h3>
           <p className="mt-4 max-w-2xl text-base font-medium leading-relaxed text-slate-600">
-            A FretoGo organiza essa conexão para que as informações da operação fiquem mais claras para quem precisa transportar e para quem vai transportar.
+            As etapas da operação ficam estruturadas para dar previsibilidade antes, durante e no fechamento de cada frete.
           </p>
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {steps.map((s, i) => (
@@ -439,7 +435,7 @@ function CompanySection({ onAction }: ActionProps) {
         </div>
 
         <div className="mt-14">
-          <h3 className="text-2xl font-black text-slate-950">Menos dúvida. Mais clareza.</h3>
+          <h3 className="text-2xl font-black text-slate-950">Controle Operacional.</h3>
           <div className="mt-7 grid gap-4 sm:grid-cols-2">
             {benefits.map((b) => (
               <div key={b.title} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -467,10 +463,10 @@ function CompanySection({ onAction }: ActionProps) {
         <div className="mt-14 text-center">
           <button
             type="button"
-            onClick={onAction}
+            onClick={onClient}
             className="inline-flex min-h-14 items-center justify-center gap-3 rounded-2xl bg-blue-600 px-8 py-4 text-sm font-black uppercase tracking-[0.13em] text-white shadow-xl shadow-blue-950/20 transition hover:bg-blue-500 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
           >
-            Ver o caminho da empresa <ArrowRight size={18} aria-hidden="true" />
+            Quero publicar meu frete <ArrowRight size={18} aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -481,37 +477,37 @@ function CompanySection({ onAction }: ActionProps) {
 // =========================================================
 // MOTORISTA
 // =========================================================
-function DriverSection({ onAction }: ActionProps) {
+interface DriverSectionProps {
+  onDriver: () => void;
+}
+
+function DriverSection({ onDriver }: DriverSectionProps) {
   const steps = [
-    { title: 'Encontre', desc: 'Veja oportunidades disponíveis.' },
-    { title: 'Analise', desc: 'Confira as informações antes de escolher.' },
-    { title: 'Transporte', desc: 'Realize o trabalho conforme o combinado.' },
-    { title: 'Entregue', desc: 'Finalize a operação com registro da entrega.' },
+    { title: 'Encontre', desc: 'Acesse oportunidades de fretes imediatos ou agendados na sua região.' },
+    { title: 'Analise', desc: 'Veja a origem, os destinos e o repasse antes de aceitar.' },
+    { title: 'Transporte', desc: 'Siga a rota detalhada, seja para um destino único ou até 25 entregas.' },
+    { title: 'Receba', desc: 'Conclua a operação com foto e PIN, liberando o fluxo de repasse da plataforma.' },
   ];
 
   const benefits = [
-    { title: 'Veja oportunidades', desc: 'Tenha acesso às oportunidades disponíveis para consulta.' },
-    { title: 'Conheça a operação', desc: 'Analise as informações antes de escolher.' },
-    { title: 'Pense na sua rota', desc: 'Considere cidades e caminhos que façam sentido para você.' },
-    { title: 'Acompanhe a entrega', desc: 'Tenha etapas mais claras durante a operação.' },
+    { title: 'Utilize melhor seu veículo', desc: 'Filtre oportunidades adequadas para a capacidade da sua categoria, de Moto a Bitrem.' },
+    { title: 'Oportunidades de retorno', desc: 'Encontre fretes de retorno quando houver ofertas compatíveis publicadas na sua rota.' },
+    { title: 'Clareza antes do aceite', desc: 'Saiba exatamente o valor do repasse e a complexidade do percurso antes do deslocamento.' },
+    { title: 'Operação Registrada', desc: 'Comprove seu trabalho garantindo a evidência por foto e a assinatura (PIN) do cliente.' },
   ];
 
   const objections = [
     {
-      q: 'E se a rota não compensar?',
-      a: 'A decisão continua sendo sua. O objetivo é oferecer mais informação antes de você escolher.',
-    },
-    {
-      q: 'E se eu perder tempo analisando oportunidades que não servem para minha operação?',
-      a: 'As informações da operação devem ser analisadas antes da escolha, permitindo que você considere rota, veículo e condições antes de aceitar.',
+      q: 'Isso garante que sempre vou encontrar carga?',
+      a: 'Não. A plataforma oferece oportunidades reais criadas pelas empresas conforme a demanda disponível a cada dia.',
     },
     {
       q: 'Preciso aceitar qualquer oportunidade?',
-      a: 'Não. O objetivo é permitir que você avalie as oportunidades e escolha aquelas que fazem sentido para sua operação.',
+      a: 'A decisão é totalmente sua. Você visualiza a rota, distâncias e valores para analisar se faz sentido para o seu veículo.',
     },
     {
-      q: 'Isso garante que sempre vou encontrar uma carga?',
-      a: 'Não. A FretoGo organiza oportunidades e conexões; a disponibilidade depende das operações existentes.',
+      q: 'Como funciona o recebimento?',
+      a: 'O fluxo financeiro é organizado e acompanhado pela plataforma. O repasse é liberado dentro do sistema após a confirmação final da entrega.',
     },
   ];
 
@@ -524,32 +520,32 @@ function DriverSection({ onAction }: ActionProps) {
             Seu veículo parado também tem um custo.
           </h2>
           <p className="mt-5 text-lg font-medium leading-relaxed text-slate-300">
-            Quem vive da estrada sabe: não basta ter um caminhão pronto para rodar. É preciso encontrar uma oportunidade que faça sentido, saber o que está sendo combinado e chegar ao destino sabendo pelo que está trabalhando.
+            A FretoGo ajuda motoristas a encontrarem oportunidades. Você acessa fretes disponíveis, analisa os endereços e valores em detalhes e decide se a carga é vantajosa para o seu dia de trabalho.
           </p>
         </div>
 
         <div className="mt-14 grid gap-10 lg:grid-cols-2 lg:items-start">
           <div>
-            <h3 className="text-2xl font-black text-white">Rodar sem saber também pesa.</h3>
+            <h3 className="text-2xl font-black text-white">Rodar sem informações concretas custa caro.</h3>
             <p className="mt-4 text-base font-medium leading-relaxed text-slate-400">
-              Tempo parado custa. Combinar sem clareza custa. Rodar uma rota que não faz sentido custa. E quando as informações não estão claras, quem está na estrada acaba assumindo uma parte do problema que não deveria assumir sozinho.
+              Aceitar uma carga no escuro muitas vezes gera imprevistos na rota e perdas financeiras. Na FretoGo, a operação fica detalhada no aplicativo antes do aceite, permitindo uma rotina com mais previsibilidade e aproveitamento real do caminhão ou utilitário.
             </p>
           </div>
           <div className="rounded-[1.75rem] border border-slate-800 bg-slate-900 p-7">
-            <h3 className="text-xl font-black text-white">Do outro lado também existe alguém esperando.</h3>
+            <h3 className="text-xl font-black text-white">Você transporta, o sistema valida.</h3>
             <p className="mt-4 text-sm font-medium leading-relaxed text-slate-300">
-              Quando você aceita uma operação, existe uma empresa contando com aquela entrega. Por isso, assim como a empresa precisa fazer a sua parte, o motorista também precisa cumprir o que foi combinado, cuidar da carga e manter a comunicação durante a operação.
+              Ao aceitar um frete e realizar as entregas, você se ampara pela tecnologia do aplicativo. As coordenadas, fotos do canhoto e o código fornecido pelo cliente documentam e protegem a prestação do serviço.
             </p>
             <p className="mt-5 text-sm font-black text-cyan-300">
-              Conexão não é só encontrar uma carga. É fazer o combinado acontecer.
+              Trabalho comprovado é trabalho seguro.
             </p>
           </div>
         </div>
 
         <div className="mt-14">
-          <h3 className="text-2xl font-black text-white sm:text-3xl">Encontre oportunidades com mais contexto.</h3>
+          <h3 className="text-2xl font-black text-white sm:text-3xl">Encontre oportunidades com muito mais contexto.</h3>
           <p className="mt-4 max-w-2xl text-base font-medium leading-relaxed text-slate-400">
-            A FretoGo ajuda o motorista a visualizar oportunidades, analisar informações da operação e considerar o que faz sentido para sua rota e seu veículo. O motorista analisa. O motorista escolhe. O motorista decide o que faz sentido.
+            Você não viaja no escuro. É possível visualizar a origem, a distância e o que é esperado no final do processo, mantendo a autonomia da escolha em suas mãos.
           </p>
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {steps.map((s, i) => (
@@ -565,7 +561,7 @@ function DriverSection({ onAction }: ActionProps) {
         </div>
 
         <div className="mt-14">
-          <h3 className="text-2xl font-black text-white">Mais informação antes de decidir.</h3>
+          <h3 className="text-2xl font-black text-white">Benefícios na rotina do motorista.</h3>
           <div className="mt-7 grid gap-4 sm:grid-cols-2">
             {benefits.map((b) => (
               <div key={b.title} className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
@@ -593,10 +589,10 @@ function DriverSection({ onAction }: ActionProps) {
         <div className="mt-14 text-center">
           <button
             type="button"
-            onClick={onAction}
+            onClick={onDriver}
             className="inline-flex min-h-14 items-center justify-center gap-3 rounded-2xl bg-cyan-400 px-8 py-4 text-sm font-black uppercase tracking-[0.13em] text-slate-950 shadow-xl transition hover:bg-cyan-300 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
           >
-            Ver o caminho do motorista <ArrowRight size={18} aria-hidden="true" />
+            Quero encontrar fretes <ArrowRight size={18} aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -619,7 +615,7 @@ function ConnectionSection() {
             É entender o que está sendo combinado.
           </h2>
           <p className="mt-5 text-lg font-medium leading-relaxed text-slate-600">
-            A FretoGo aproxima carga e veículo com mais contexto para que cada lado consiga tomar uma decisão mais consciente sobre a operação.
+            A FretoGo aproxima carga e veículo com mecanismos tecnológicos, permitindo que a operação inicie de forma consciente e chegue ao final devidamente documentada.
           </p>
         </div>
 
@@ -627,10 +623,10 @@ function ConnectionSection() {
           <article className="rounded-[1.75rem] border border-slate-200 bg-white p-7 shadow-sm">
             <p className="text-xs font-black uppercase tracking-[0.15em] text-blue-600">Empresa</p>
             <ul className="mt-5 space-y-3 text-sm font-bold leading-relaxed text-slate-700">
-              <li>Tem uma necessidade.</li>
-              <li>Precisa transportar.</li>
-              <li>Precisa informar.</li>
-              <li>Precisa acompanhar.</li>
+              <li>Possui uma demanda de transporte.</li>
+              <li>Publica endereços e veículo necessário.</li>
+              <li>Acompanha o painel via Torre de Controle.</li>
+              <li>Valida as entregas via PIN e comprovantes.</li>
             </ul>
           </article>
           <div className="flex flex-col items-center justify-center gap-2 py-4 text-center">
@@ -644,10 +640,10 @@ function ConnectionSection() {
           <article className="rounded-[1.75rem] border border-slate-200 bg-white p-7 shadow-sm">
             <p className="text-xs font-black uppercase tracking-[0.15em] text-cyan-700">Motorista</p>
             <ul className="mt-5 space-y-3 text-sm font-bold leading-relaxed text-slate-700">
-              <li>Tem capacidade de transporte.</li>
-              <li>Precisa encontrar oportunidades.</li>
-              <li>Precisa analisar.</li>
-              <li>Precisa cumprir o combinado.</li>
+              <li>Disponibiliza seu veículo.</li>
+              <li>Analisa previamente rotas e o repasse.</li>
+              <li>Aceita fretes imediatos ou agendados.</li>
+              <li>Confirma a entrega diretamente no aplicativo.</li>
             </ul>
           </article>
         </div>
@@ -655,12 +651,12 @@ function ConnectionSection() {
         <p className="mx-auto mt-10 max-w-2xl text-center text-lg font-black leading-relaxed text-slate-800">
           Uma empresa precisa de um bom transporte.
           <br />
-          Um bom transporte precisa de uma empresa que saiba o que precisa.
+          Um bom transporte precisa de uma empresa que saiba informar.
           <br />
           Um depende do outro.
         </p>
         <p className="mx-auto mt-4 max-w-xl text-center text-base font-medium text-slate-600">
-          Quando existe clareza dos dois lados, o trabalho fica melhor para todos.
+          Quando a plataforma organiza os processos, a operação escala com facilidade.
         </p>
       </div>
     </section>
@@ -678,16 +674,16 @@ function HumanPrincipleSection() {
           No fim, todos nós somos clientes.
         </h2>
         <p className="mt-6 text-lg font-medium leading-relaxed text-slate-300">
-          Hoje você pode estar contratando um transporte. Amanhã pode estar esperando uma entrega. Em outro momento, pode ser quem está levando algo até alguém.
+          Hoje você pode estar enviando uma carga. Amanhã pode estar aguardando uma entrega, ou pode ser você atrás do volante transportando algo até alguém.
         </p>
         <p className="mt-5 text-lg font-medium leading-relaxed text-slate-300">
-          Todos nós dependemos de alguém fazendo bem o seu trabalho.
+          A economia funciona quando a ponta logística é bem estruturada.
         </p>
         <blockquote className="mt-10 border-l-2 border-cyan-300 pl-5 text-left text-xl font-black leading-relaxed text-cyan-100 sm:text-2xl">
-          Por isso, fazer a nossa parte não é só uma obrigação. É respeito pelo trabalho do outro.
+          Por isso, operar utilizando ferramentas de tecnologia não é burocracia. É garantia para o trabalho de todos.
         </blockquote>
         <p className="mt-8 text-lg font-bold text-white">
-          Quando cada pessoa entrega o seu melhor, os problemas diminuem para todos.
+          Quando as duas pontas utilizam a FretoGo, os problemas operacionais diminuem.
         </p>
       </div>
     </section>
@@ -702,13 +698,13 @@ function FutureSection() {
     <section className="border-b border-slate-200 bg-white py-20 sm:py-24">
       <div className="mx-auto max-w-3xl px-4 text-center sm:px-6 lg:px-8">
         <h2 className="text-3xl font-black tracking-[-0.035em] text-slate-950 sm:text-4xl">
-          Uma logística melhor começa com relações melhores.
+          Uma logística melhor conta com processos fortes.
         </h2>
         <p className="mt-5 text-lg font-medium leading-relaxed text-slate-600">
-          Não é sobre empresa contra motorista. Não é sobre motorista contra empresa. É sobre pessoas que precisam umas das outras para fazer a operação acontecer.
+          Empresas e motoristas não estão em lados opostos. Eles compõem a força que resolve o deslocamento de produtos todos os dias em nossa região.
         </p>
         <p className="mt-8 text-xl font-black text-slate-900">
-          Mais clareza. Mais respeito. Mais confiança.
+          Mais previsibilidade. Maior eficiência. Menos estresse na rota.
         </p>
       </div>
     </section>
@@ -733,12 +729,12 @@ function CategoriesSection() {
     <section className="border-b border-slate-200 bg-slate-50 py-20 sm:py-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">Categorias</p>
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">Categorias de Veículos</p>
           <h2 className="mt-3 text-3xl font-black tracking-[-0.035em] text-slate-950 sm:text-4xl">
-            Do pequeno ao pesado
+            Atendemos do pequeno ao pesado
           </h2>
           <p className="mt-4 text-lg font-medium leading-relaxed text-slate-600">
-            Da entrega local ao transporte de maior porte — escolha a categoria adequada para a carga ou o veículo.
+            Da entrega imediata na região ao frete pesado e agendado. Escolha ou dirija a categoria exata para a necessidade da carga.
           </p>
         </div>
         <div className="mt-12 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
@@ -766,23 +762,23 @@ function TrustSection() {
   const points = [
     {
       icon: <CreditCard size={22} aria-hidden="true" />,
-      title: 'Pagamento protegido',
-      description: 'O pagamento acompanha o fluxo definido na plataforma.',
+      title: 'Pagamento integrado',
+      description: 'O pagamento é processado e acompanhado dentro do fluxo da plataforma, organizando os repasses devidos.',
     },
     {
       icon: <Camera size={22} aria-hidden="true" />,
-      title: 'Registro da entrega',
-      description: 'A operação conta com registro para ajudar na confirmação.',
+      title: 'Evidência fotográfica',
+      description: 'A operação exige o registro fotográfico do canhoto ou da carga posicionada no local final da entrega.',
     },
     {
       icon: <LockKeyhole size={22} aria-hidden="true" />,
-      title: 'Confirmação',
-      description: 'A conclusão utiliza os mecanismos definidos no processo.',
+      title: 'Confirmação por PIN',
+      description: 'A entrega é validada exclusivamente por um código de segurança único e intransferível fornecido ao recebedor.',
     },
     {
       icon: <ShieldCheck size={22} aria-hidden="true" />,
-      title: 'Acompanhamento',
-      description: 'As etapas ajudam os dois lados a visualizar o andamento da operação.',
+      title: 'Torre de Controle',
+      description: 'Estrutura que monitora as baixas da operação e os status logísticos, prestando suporte em eventuais exceções de rota.',
     },
   ];
 
@@ -791,17 +787,15 @@ function TrustSection() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="grid items-start gap-10 lg:grid-cols-[0.85fr_1.15fr] lg:gap-16">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-300">Segurança e confiança</p>
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-300">Tecnologia, rastreabilidade e segurança</p>
             <h2 className="mt-3 text-3xl font-black leading-tight tracking-[-0.035em] text-white sm:text-4xl">
-              Confiança não nasce de uma promessa.
-              <br />
-              Nasce quando cada etapa é clara.
+              Confiança através de mecanismos concretos.
             </h2>
             <p className="mt-6 max-w-xl text-lg font-medium leading-relaxed text-slate-300">
-              A FretoGo organiza o caminho da operação para que empresa e motorista saibam melhor o que acontece em cada etapa: informação, combinação, acompanhamento e confirmação.
+              A FretoGo sistematiza o caminho do frete para que empresa e motorista operem respaldados por ferramentas reais de informação, geolocalização e confirmação (fotos e códigos únicos).
             </p>
             <blockquote className="mt-8 border-l-2 border-cyan-300 pl-4 text-base font-bold leading-relaxed text-cyan-100">
-              Existe um processo organizado para reduzir problemas.
+              Operar através de processos verificáveis é reduzir a margem de erros.
             </blockquote>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -830,29 +824,29 @@ function RolesSection() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="text-3xl font-black tracking-[-0.035em] text-slate-950 sm:text-4xl">
-            Cada um tem um papel.
+            Cada pilar desempenha um papel na entrega.
           </h2>
         </div>
         <div className="mx-auto mt-12 grid max-w-5xl gap-5 md:grid-cols-3">
           <article className="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-7">
-            <p className="text-xs font-black uppercase tracking-[0.15em] text-blue-600">Empresa</p>
-            <p className="mt-2 text-sm font-black text-slate-900">Tem uma necessidade.</p>
+            <p className="text-xs font-black uppercase tracking-[0.15em] text-blue-600">Empresa Embarcadora</p>
+            <p className="mt-2 text-sm font-black text-slate-900">Demanda estruturada.</p>
             <p className="mt-3 text-sm font-medium leading-relaxed text-slate-600">
-              Deve informar corretamente, combinar com clareza e respeitar quem fará o transporte.
+              Publica a carga, cadastra os endereços corretos e escolhe qual categoria de veículo faz sentido.
             </p>
           </article>
           <article className="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-7">
-            <p className="text-xs font-black uppercase tracking-[0.15em] text-cyan-700">Motorista</p>
-            <p className="mt-2 text-sm font-black text-slate-900">Tem uma capacidade.</p>
+            <p className="text-xs font-black uppercase tracking-[0.15em] text-cyan-700">Motorista Parceiro</p>
+            <p className="mt-2 text-sm font-black text-slate-900">Força de execução.</p>
             <p className="mt-3 text-sm font-medium leading-relaxed text-slate-600">
-              Deve avaliar a oportunidade, cumprir o combinado e cuidar da operação até a entrega.
+              Filtra oportunidades na sua rota, cumpre o deslocamento físico e registra evidências via app.
             </p>
           </article>
           <article className="rounded-[1.75rem] border border-slate-800 bg-slate-900 p-7 text-white">
-            <p className="text-xs font-black uppercase tracking-[0.15em] text-cyan-300">FretoGo</p>
-            <p className="mt-2 text-sm font-black text-white">Tem uma missão.</p>
+            <p className="text-xs font-black uppercase tracking-[0.15em] text-cyan-300">Plataforma FretoGo</p>
+            <p className="mt-2 text-sm font-black text-white">O elo tecnológico.</p>
             <p className="mt-3 text-sm font-medium leading-relaxed text-slate-300">
-              Organizar a conexão entre os dois lados.
+              Processa o fluxo de publicação, pagamentos, rastreabilidade e ampara todos na Torre de Controle.
             </p>
           </article>
         </div>
@@ -869,10 +863,10 @@ function ClosingConsciousness() {
     <section className="bg-slate-50 py-16 sm:py-20">
       <div className="mx-auto max-w-3xl px-4 text-center sm:px-6 lg:px-8">
         <p className="text-2xl font-black leading-relaxed text-slate-950 sm:text-3xl">
-          Quando cada lado entende o que o outro precisa, a operação fica mais simples.
+          A clareza nas etapas converte viagens avulsas em operações sólidas.
         </p>
         <p className="mt-5 text-base font-medium leading-relaxed text-slate-600">
-          É assim que uma conexão deixa de ser apenas uma oportunidade e começa a construir uma relação melhor.
+          É dessa forma que a oportunidade do presente fomenta a escalabilidade logística do futuro.
         </p>
       </div>
     </section>
@@ -892,10 +886,10 @@ function FinalCta({ onClient, onDriver }: FinalCtaProps) {
     <section id="conversao" className="scroll-mt-24 border-t border-slate-200 bg-white py-20 sm:py-24">
       <div className="mx-auto max-w-3xl px-4 text-center sm:px-6 lg:px-8">
         <h2 className="text-3xl font-black tracking-[-0.035em] text-slate-950 sm:text-5xl">
-          Agora você conhece os dois lados.
+          Agora você conhece os recursos.
         </h2>
         <p className="mx-auto mt-5 max-w-2xl text-lg font-medium leading-relaxed text-slate-600">
-          Agora que você entendeu como a conexão funciona, veja o que faz sentido para a sua operação.
+          Crie seu painel e inicie publicações, ou ative seu perfil e abra o mapa para achar a próxima oportunidade. 
         </p>
         <div className="mt-9 flex flex-col justify-center gap-4 sm:flex-row">
           <button
@@ -903,14 +897,14 @@ function FinalCta({ onClient, onDriver }: FinalCtaProps) {
             onClick={onClient}
             className="inline-flex min-h-14 items-center justify-center gap-3 rounded-2xl bg-blue-600 px-7 py-4 text-sm font-black uppercase tracking-[0.13em] text-white shadow-xl shadow-blue-950/15 transition hover:bg-blue-700 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
           >
-            Ver o caminho da empresa <ArrowRight size={18} aria-hidden="true" />
+            Quero publicar meu frete <ArrowRight size={18} aria-hidden="true" />
           </button>
           <button
             type="button"
             onClick={onDriver}
             className="inline-flex min-h-14 items-center justify-center gap-3 rounded-2xl bg-slate-950 px-7 py-4 text-sm font-black uppercase tracking-[0.13em] text-white shadow-xl shadow-slate-950/15 transition hover:bg-slate-800 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2"
           >
-            Ver o caminho do motorista <ArrowRight size={18} aria-hidden="true" />
+            Quero encontrar fretes <ArrowRight size={18} aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -941,7 +935,7 @@ function DriverGroupSection({ onDriverGroup }: GroupProps) {
                   Quer continuar conectado?
                 </h2>
                 <p className="mt-2 text-base font-medium text-slate-300">
-                  Entre no grupo oficial de motoristas FretoGo e acompanhe as próximas oportunidades e informações da plataforma.
+                  Entre no grupo oficial de motoristas parceiros e receba novidades e informações exclusivas.
                 </p>
               </div>
             </div>
@@ -984,7 +978,7 @@ function HomeFooter({ onClient, onDriver, onSupport, onDriverGroup }: FooterProp
               <img src="/icon-192.png" alt="FretoGo" className="h-10 w-auto rounded-md" />
             </button>
             <p className="mt-5 max-w-xs text-sm font-medium leading-relaxed text-slate-500">
-              Uma plataforma para conectar quem precisa transportar a quem está pronto para levar.
+              A plataforma tecnológica oficial do mercado regional, conectando empresas a motoristas qualificados.
             </p>
           </div>
 
@@ -997,7 +991,7 @@ function HomeFooter({ onClient, onDriver, onSupport, onDriverGroup }: FooterProp
                   onClick={onClient}
                   className="text-sm font-bold transition hover:text-blue-300 focus-visible:outline-none focus-visible:text-blue-300"
                 >
-                  Ver o caminho da empresa
+                  Criar conta de embarcador
                 </button>
               </li>
               <li>
@@ -1006,7 +1000,7 @@ function HomeFooter({ onClient, onDriver, onSupport, onDriverGroup }: FooterProp
                   onClick={() => scrollToId('empresas')}
                   className="text-sm font-bold transition hover:text-blue-300 focus-visible:outline-none focus-visible:text-blue-300"
                 >
-                  Como funciona
+                  Como o envio funciona
                 </button>
               </li>
             </ul>
@@ -1021,7 +1015,7 @@ function HomeFooter({ onClient, onDriver, onSupport, onDriverGroup }: FooterProp
                   onClick={onDriver}
                   className="text-sm font-bold transition hover:text-cyan-300 focus-visible:outline-none focus-visible:text-cyan-300"
                 >
-                  Ver o caminho do motorista
+                  Acessar radar de fretes
                 </button>
               </li>
               <li>
@@ -1030,7 +1024,7 @@ function HomeFooter({ onClient, onDriver, onSupport, onDriverGroup }: FooterProp
                   onClick={onDriverGroup}
                   className="text-sm font-bold transition hover:text-cyan-300 focus-visible:outline-none focus-visible:text-cyan-300"
                 >
-                  Grupo de motoristas
+                  Grupo de motoristas parceiros
                 </button>
               </li>
             </ul>
@@ -1050,7 +1044,7 @@ function HomeFooter({ onClient, onDriver, onSupport, onDriverGroup }: FooterProp
               </li>
               <li>
                 <span className="text-sm font-bold text-slate-600" title="Preparado para uso futuro">
-                  Blog
+                  Blog Corporativo
                 </span>
               </li>
             </ul>
@@ -1096,17 +1090,16 @@ function FloatingWhatsApp({ onSupport }: { onSupport: () => void }) {
 export default function HomePage() {
   const navigate = useNavigate();
 
-  // CONVERSÃO / CADASTRO — somente estes vão para as rotas
+  // CONVERSÃO / CADASTRO — somente estes vão para as rotas e finalizam o funil
   const goToClient = () => navigate('/cliente');
   const goToDriver = () => navigate('/motorista');
   const handleWhatsAppSupport = () => openExternalLink(PLATFORM_LINKS.SUPPORT_WHATSAPP);
   const handleDriverGroup = () => openExternalLink(DRIVER_GROUP_URL);
 
-  // NAVEGAÇÃO INTERNA — conscientização e caminho (NÃO abrem cadastro)
+  // NAVEGAÇÃO INTERNA — conscientização e caminho (NÃO abrem cadastro direto)
   const goToCompanyConsciousness = () => scrollToId('empresas');
   const goToDriverConsciousness = () => scrollToId('motoristas');
   const goToConnection = () => scrollToId('conexao');
-  const goToConversion = () => scrollToId('conversao');
 
   return (
     <div className="min-h-[100dvh] overflow-x-hidden bg-white font-sans text-slate-900 selection:bg-cyan-200 selection:text-slate-950">
@@ -1126,8 +1119,8 @@ export default function HomePage() {
           onCompanyPath={goToCompanyConsciousness}
           onDriverPath={goToDriverConsciousness}
         />
-        <CompanySection onAction={goToConversion} />
-        <DriverSection onAction={goToConversion} />
+        <CompanySection onClient={goToClient} />
+        <DriverSection onDriver={goToDriver} />
         <ConnectionSection />
         <HumanPrincipleSection />
         <FutureSection />
