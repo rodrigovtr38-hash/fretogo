@@ -1640,7 +1640,7 @@ exports.solicitarExcecaoSemPin = functions.runWith(runtimeOpts).https.onCall(asy
     throw new functions.https.HttpsError('unauthenticated', 'Usuário não autenticado.');
   }
 
-  const { freteId } = data;
+  const freteId = data?.freteId;
   if (!freteId) {
     throw new functions.https.HttpsError('invalid-argument', 'FreteId ausente.');
   }
@@ -1649,7 +1649,6 @@ exports.solicitarExcecaoSemPin = functions.runWith(runtimeOpts).https.onCall(asy
   const motoristaRef = db.collection('motoristas_cadastros').doc(context.auth.uid);
   const motoristaOnlineRef = db.collection('motoristas_online').doc(context.auth.uid);
 
-  // 2. Transação Atômica (Evita dupla conclusão / ataques offline)
   return await db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(freteRef);
     if (!snapshot.exists) {
@@ -1658,7 +1657,7 @@ exports.solicitarExcecaoSemPin = functions.runWith(runtimeOpts).https.onCall(asy
 
     const frete = snapshot.data();
 
-    // Validação de Identidade Operacional
+    // 2. Validação de Identidade Operacional
     if (frete.motoristaId !== context.auth.uid) {
       throw new functions.https.HttpsError('permission-denied', 'Não autorizado.');
     }
@@ -1666,13 +1665,13 @@ exports.solicitarExcecaoSemPin = functions.runWith(runtimeOpts).https.onCall(asy
       throw new functions.https.HttpsError('failed-precondition', 'Pagamento do frete não está aprovado.');
     }
 
+    // 3. Identificação da Etapa
     let etapaAtualKey = '';
     let isColeta = false;
     let paradaAtualIndex = frete.paradaAtualIndex || 0;
     const paradas = frete.paradas || [];
     const totalEntregas = paradas.length + 1;
 
-    // Roteamento
     if (frete.status === 'coletando') {
       isColeta = true;
       etapaAtualKey = 'coleta';
@@ -1685,24 +1684,57 @@ exports.solicitarExcecaoSemPin = functions.runWith(runtimeOpts).https.onCall(asy
       throw new functions.https.HttpsError('failed-precondition', 'O status atual não permite solicitação de exceção.');
     }
 
-    // 🛡️ VALIDAÇÃO ESTRITA DE EVIDÊNCIA FÍSICA (ZERO TRUST)
-    // Se a foto não foi subida para a nuvem, a exceção é negada instantaneamente
+    // 6 e 7. VALIDAÇÃO ESTRITA DE EVIDÊNCIA FÍSICA (ZERO TRUST)
     if (!frete.fotosPod || !frete.fotosPod[etapaAtualKey]) {
-      throw new functions.https.HttpsError('failed-precondition', 'EXCEÇÃO NEGADA: O upload da evidência fotográfica (POD) é obrigatório antes de acionar a Torre.');
+      throw new functions.https.HttpsError('failed-precondition', 'EXCEÇÃO NEGADA: O upload da evidência fotográfica (POD) é obrigatório para a etapa atual antes de acionar a Torre.');
     }
 
-    // 3. Aprovação da Exceção (Avanço Administrativo via Torre)
-    const payloadUpdate = { 
+    // 8. Não existe uma exceção pendente duplicada para a mesma etapa
+    if (frete.excecaoPinPendente && frete.excecaoEtapa === etapaAtualKey) {
+        throw new functions.https.HttpsError('already-exists', 'Já existe uma solicitação de exceção em análise para esta etapa.');
+    }
+
+    // AVALIAÇÃO DE CONDIÇÕES OBJETIVAS (RISCO vs SUCESSO)
+    // Regra de Risco: Se o PIN está bloqueado por tentativas excessivas, exige análise da Torre.
+    const riscoDetectado = frete.bloqueioPin === true;
+
+    if (riscoDetectado) {
+        // REGISTRA EXCEÇÃO PENDENTE (NÃO AVANÇA)
+        const pendentePayload = {
+            excecaoPinPendente: true,
+            excecaoEtapa: etapaAtualKey,
+            excecaoMotivo: data.motivo || 'Falhas repetidas de PIN/Bloqueio.',
+            excecaoSolicitadaEm: FieldValue.serverTimestamp(),
+            atualizadoEm: FieldValue.serverTimestamp()
+        };
+
+        transaction.update(freteRef, pendentePayload);
+
+        const messagesRef = freteRef.collection('chat').doc();
+        transaction.set(messagesRef, {
+            texto: `⚠️ [Alerta Torre]: Exceção sem PIN solicitada para a etapa ${etapaAtualKey.toUpperCase()}, mas a operação apresenta bloqueio/risco. Aguardando liberação manual.`,
+            nome: 'Torre de Controle (Segurança)',
+            tipoUsuario: 'admin',
+            createdAt: FieldValue.serverTimestamp()
+        });
+
+        return { success: true, pending: true, message: 'Risco detectado. Exceção registrada para análise da Torre.' };
+    }
+
+    // CONCLUI EXCEPCIONALMENTE A ENTREGA (AVANÇA EXATAMENTE UMA POSIÇÃO)
+    const payloadUpdate = {
       atualizadoEm: FieldValue.serverTimestamp(),
-      tentativasPin: 0 // Limpa possíveis erros do motorista
+      tentativasPin: 0,
+      excecaoPinPendente: false,
+      excecaoEtapa: null
     };
-    
+
     let mensagemLog = '';
 
     if (isColeta) {
       payloadUpdate.status = 'em_transporte';
       payloadUpdate.pinColeta = null; // PIN CONSUMIDO E DESTRUÍDO
-      mensagemLog = "⚠️ [Exceção Operacional]: Coleta finalizada via Torre (Ausência de PIN). Evidência fotográfica validada. Motorista liberado.";
+      mensagemLog = "⚠️ [Exceção Operacional]: Coleta finalizada automaticamente (Ausência de PIN confirmada por evidência). Motorista liberado.";
     } else {
       const pinEntregasAtualizados = [...(frete.pinEntregas || [])];
       pinEntregasAtualizados[paradaAtualIndex] = null; // PIN CONSUMIDO
@@ -1711,10 +1743,10 @@ exports.solicitarExcecaoSemPin = functions.runWith(runtimeOpts).https.onCall(asy
       if (paradaAtualIndex + 1 < totalEntregas) {
         payloadUpdate.paradaAtualIndex = paradaAtualIndex + 1;
         payloadUpdate.status = 'em_transporte';
-        mensagemLog = `⚠️ [Exceção Operacional]: Entrega ${paradaAtualIndex + 1}/${totalEntregas} validada via Torre (Ausência de PIN). Evidência fotográfica confirmada.`;
+        mensagemLog = `⚠️ [Exceção Operacional]: Entrega ${paradaAtualIndex + 1}/${totalEntregas} validada (Ausência de PIN com evidência).`;
       } else {
         payloadUpdate.status = 'finalizando';
-        mensagemLog = "🏁 ⚠️ [Exceção Operacional]: Última entrega validada via Torre (Ausência de PIN). Evidência confirmada. Rota finalizada com sucesso.";
+        mensagemLog = "🏁 ⚠️ [Exceção Operacional]: Última entrega validada sem PIN (evidência confirmada). Rota finalizada com sucesso.";
       }
     }
 
@@ -1741,7 +1773,7 @@ exports.solicitarExcecaoSemPin = functions.runWith(runtimeOpts).https.onCall(asy
       createdAt: FieldValue.serverTimestamp()
     });
 
-    return { success: true, novoStatus: payloadUpdate.status, message: 'Exceção validada e etapa concluída.' };
+    return { success: true, novoStatus: payloadUpdate.status, message: 'Exceção aprovada automaticamente.' };
   });
 });
 
@@ -2336,6 +2368,105 @@ exports.bypassPinEtapaAdmin = functions.runWith(runtimeOpts).https.onCall(async 
     }
 
     // Auditoria Oficial
+    const chatRef = freteRef.collection('chat').doc();
+    transaction.set(chatRef, {
+      texto: logMsg,
+      nome: 'Torre de Controle (Admin)',
+      tipoUsuario: 'admin',
+      administradorId: context.auth.uid,
+      createdAt: FieldValue.serverTimestamp()
+    });
+
+    return { success: true, novoStatus: payloadUpdate.status };
+  });
+});
+
+exports.aprovarExcecaoPinTorreAdmin = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
+  if (!context.auth || context.auth.token.admin !== true) throw new functions.https.HttpsError('permission-denied', 'Acesso negado. Ação restrita à Torre.');
+
+  const freteId = sanitizeText(data?.freteId, 160);
+  if (!freteId) throw new functions.https.HttpsError('invalid-argument', 'Identificador de frete ausente.');
+
+  const freteRef = db.collection('fretes').doc(freteId);
+
+  return await db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(freteRef);
+    if (!snap.exists) throw new functions.https.HttpsError('not-found', 'Frete operacional não encontrado.');
+
+    const frete = snap.data();
+
+    if (frete.excecaoPinPendente !== true) {
+      throw new functions.https.HttpsError('failed-precondition', 'Não há exceção de PIN pendente para este frete.');
+    }
+
+    const etapaAtualKey = frete.excecaoEtapa;
+    if (!etapaAtualKey) {
+      throw new functions.https.HttpsError('failed-precondition', 'Registro de etapa da exceção corrompido.');
+    }
+
+    let isColeta = false;
+    let paradaAtualIndex = frete.paradaAtualIndex || 0;
+    const paradas = frete.paradas || [];
+    const totalEntregas = paradas.length + 1;
+
+    if (frete.status === 'coletando') {
+      if (etapaAtualKey !== 'coleta') throw new functions.https.HttpsError('failed-precondition', 'Inconsistência de etapa: Exceção não pertence à coleta.');
+      isColeta = true;
+    } else if (frete.status === 'em_transporte') {
+      if (etapaAtualKey !== `parada_${paradaAtualIndex}`) throw new functions.https.HttpsError('failed-precondition', 'Inconsistência de etapa: Exceção não pertence à entrega atual.');
+    } else {
+      throw new functions.https.HttpsError('failed-precondition', 'Status incompatível para avanço de etapa.');
+    }
+
+    let payloadUpdate = {
+      excecaoPinPendente: false,
+      excecaoEtapa: null,
+      excecaoMotivo: null,
+      excecaoAprovadaEm: FieldValue.serverTimestamp(),
+      excecaoAprovadaPor: context.auth.uid,
+      tentativasPin: 0,
+      bloqueioPin: false,
+      atualizadoEm: FieldValue.serverTimestamp()
+    };
+
+    let logMsg = '';
+    let nextDriverState = '';
+
+    if (isColeta) {
+      payloadUpdate.status = 'em_transporte';
+      payloadUpdate.pinColeta = null; // PIN consumido
+      nextDriverState = 'em_transporte';
+      logMsg = "✅ [TORRE ADMIN]: Exceção PENDENTE aprovada. Coleta finalizada sem PIN (Evidência validada).";
+    } else {
+      const pinEntregasAtualizados = [...(frete.pinEntregas || [])];
+      pinEntregasAtualizados[paradaAtualIndex] = null; // PIN consumido
+      payloadUpdate.pinEntregas = pinEntregasAtualizados;
+
+      if (paradaAtualIndex + 1 < totalEntregas) {
+        payloadUpdate.paradaAtualIndex = paradaAtualIndex + 1;
+        payloadUpdate.status = 'em_transporte';
+        nextDriverState = 'em_transporte';
+        logMsg = `✅ [TORRE ADMIN]: Exceção PENDENTE aprovada na ENTREGA ${paradaAtualIndex + 1}/${totalEntregas} sem PIN.`;
+      } else {
+        payloadUpdate.status = 'finalizando';
+        nextDriverState = 'finalizando';
+        logMsg = "🏁 ✅ [TORRE ADMIN]: Exceção PENDENTE aprovada na ÚLTIMA ENTREGA. Rota concluída.";
+      }
+    }
+
+    transaction.update(freteRef, payloadUpdate);
+
+    if (frete.motoristaId) {
+      const motoristaRef = db.collection('motoristas_cadastros').doc(frete.motoristaId);
+      const motoristaOnlineRef = db.collection('motoristas_online').doc(frete.motoristaId);
+      const driverSync = {
+        state: nextDriverState,
+        atualizadoEm: FieldValue.serverTimestamp()
+      };
+      transaction.set(motoristaRef, driverSync, { merge: true });
+      transaction.set(motoristaOnlineRef, driverSync, { merge: true });
+    }
+
     const chatRef = freteRef.collection('chat').doc();
     transaction.set(chatRef, {
       texto: logMsg,
