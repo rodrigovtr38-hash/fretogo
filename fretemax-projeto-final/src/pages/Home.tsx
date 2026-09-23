@@ -78,7 +78,7 @@ function HomeNavbar({ onCompanyPath, onDriverPath, onSupport, onConnection }: Na
       }`}
     >
       <nav
-        className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8"
+        className="mx-auto flex w-full max-w-7xl 2xl:max-w-screen-2xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8"
         aria-label="Navegação principal"
       >
         <button
@@ -213,7 +213,7 @@ function Hero({ onCompanyPath, onDriverPath }: HeroProps) {
       <div className="absolute inset-0 -z-10 bg-gradient-to-t from-slate-950/90 via-transparent to-slate-950/20" />
       <div className="pointer-events-none absolute -right-40 top-10 -z-10 h-96 w-96 rounded-full bg-cyan-400/15 blur-3xl" />
 
-      <div className="mx-auto w-full max-w-7xl px-4 py-24 sm:px-6 sm:py-28 lg:px-8 lg:py-32">
+      <div className="mx-auto w-full max-w-7xl 2xl:max-w-screen-2xl px-4 py-24 sm:px-6 sm:py-28 lg:px-8 lg:py-32">
         <div className="max-w-2xl">
           <p className="mb-6 inline-flex items-center gap-2 rounded-full border border-cyan-300/25 bg-slate-950/45 px-4 py-2 text-xs font-black uppercase tracking-[0.16em] text-cyan-100 backdrop-blur-sm">
             <span className="h-1.5 w-1.5 rounded-full bg-cyan-300" aria-hidden="true" />
@@ -267,7 +267,7 @@ function WhyContinueSection() {
           A conta é simples: uma empresa tem uma carga para entregar. Um motorista tem um veículo disponível e precisa de uma operação que faça sentido para o seu dia.
         </p>
         <p className="mt-5 text-lg font-bold leading-relaxed text-slate-800">
-          A FretoGo existe para organizar essas informações e fazer com que os dois lados se encontrem de forma estruturada.
+          A FretoGo é a plataforma de logística que organiza essas informações e conecta as empresas que precisam transportar cargas aos motoristas disponíveis de forma estruturada.
         </p>
       </div>
     </section>
@@ -285,7 +285,7 @@ interface AudienceProps {
 function AudienceChoice({ onCompanyPath, onDriverPath }: AudienceProps) {
   return (
     <section id="escolha" className="scroll-mt-24 border-b border-slate-200 bg-white py-20 sm:py-24">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl 2xl:max-w-screen-2xl px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="text-3xl font-black tracking-[-0.035em] text-slate-950 sm:text-4xl">
             Qual lado você conhece melhor?
@@ -295,7 +295,7 @@ function AudienceChoice({ onCompanyPath, onDriverPath }: AudienceProps) {
           </p>
         </div>
 
-        <div className="mx-auto mt-12 grid max-w-5xl gap-6 md:grid-cols-2">
+        <div className="mx-auto mt-12 grid max-w-5xl 2xl:max-w-6xl gap-6 md:grid-cols-2">
           <article className="flex flex-col rounded-[1.75rem] border border-slate-200 bg-slate-50 p-7 shadow-sm sm:p-8">
             <p className="text-xs font-black uppercase tracking-[0.15em] text-blue-600">Para empresas</p>
             <h3 className="mt-3 text-2xl font-black text-slate-950">Publique sua operação e encontre um veículo compatível.</h3>
@@ -343,7 +343,7 @@ function CompanySection({ onClient }: CompanySectionProps) {
     { title: 'Publique', desc: 'Pesquise os endereços, organize a coleta e até 25 entregas em uma única publicação.' },
     { title: 'Conecte', desc: 'Escolha a categoria de veículo adequada para operações imediatas ou agendadas.' },
     { title: 'Acompanhe', desc: 'Tenha visibilidade do andamento e da localização da operação.' },
-    { title: 'Confirme', desc: 'Registre a entrega com evidência por foto e confirmação por PIN.' },
+    { title: 'Confirme', desc: 'Registre a entrega com evidência por foto e, quando disponível, confirmação por PIN.' },
   ];
 
   const benefits = [
@@ -374,7 +374,7 @@ function CompanySection({ onClient }: CompanySectionProps) {
 
   return (
     <section id="empresas" className="scroll-mt-24 border-b border-slate-200 bg-white py-20 sm:py-24">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl 2xl:max-w-screen-2xl px-4 sm:px-6 lg:px-8">
         <div className="max-w-3xl">
           <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">O lado da empresa</p>
           <h2 className="mt-3 text-3xl font-black leading-tight tracking-[-0.035em] text-slate-950 sm:text-5xl">
@@ -409,7 +409,7 @@ function CompanySection({ onClient }: CompanySectionProps) {
         <div className="mt-14 rounded-[1.75rem] border border-blue-100 bg-blue-50/60 p-7 sm:p-9">
           <h3 className="text-2xl font-black text-slate-950">Mais segurança no processo.</h3>
           <p className="mt-4 max-w-3xl text-base font-medium leading-relaxed text-slate-700">
-            Uma carga parada significa impacto nos negócios. Ao publicar uma operação com endereços claros e instruções precisas, a empresa garante que o motorista tenha o contexto correto. A contrapartida da plataforma são os mecanismos de acompanhamento e confirmação.
+            Uma carga parada significa impacto nos negócios. Ao publicar uma operação com endereços claros e instruções precisas, a empresa fornece as informações necessárias para que o motorista tenha o contexto correto. A contrapartida da plataforma são os mecanismos de acompanhamento e confirmação.
           </p>
           <p className="mt-5 text-base font-black text-blue-800">
             A conexão se consolida através de processos estruturados de registro.
@@ -513,14 +513,14 @@ function DriverSection({ onDriver }: DriverSectionProps) {
 
   return (
     <section id="motoristas" className="scroll-mt-24 border-b border-slate-800 bg-slate-950 py-20 text-white sm:py-24">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl 2xl:max-w-screen-2xl px-4 sm:px-6 lg:px-8">
         <div className="max-w-3xl">
           <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-300">O lado do motorista</p>
           <h2 className="mt-3 text-3xl font-black leading-tight tracking-[-0.035em] text-white sm:text-5xl">
             Encontre uma operação que faça sentido.
           </h2>
           <p className="mt-5 text-lg font-medium leading-relaxed text-slate-300">
-            A FretoGo ajuda motoristas a encontrarem oportunidades. Você acessa fretes disponíveis, analisa a origem, o destino, a distância e o repasse antes de aceitar, garantindo que o transporte seja compatível com a sua necessidade.
+            A FretoGo ajuda motoristas a encontrarem oportunidades. Você acessa fretes disponíveis, analisa a origem, o destino, a distância e o repasse antes de aceitar, para que você avalie se o transporte é compatível com sua operação.
           </p>
         </div>
 
@@ -537,7 +537,7 @@ function DriverSection({ onDriver }: DriverSectionProps) {
               Ao aceitar um frete e realizar as entregas, o motorista utiliza a tecnologia do aplicativo para confirmar as informações. Coordenadas, registro fotográfico e código de confirmação documentam a prestação do serviço.
             </p>
             <p className="mt-5 text-sm font-black text-cyan-300">
-              Trabalho comprovado é trabalho seguro.
+              Trabalho registrado gera mais rastreabilidade para a operação.
             </p>
           </div>
         </div>
@@ -606,7 +606,7 @@ function DriverSection({ onDriver }: DriverSectionProps) {
 function ConnectionSection() {
   return (
     <section id="conexao" className="scroll-mt-24 border-b border-slate-200 bg-slate-50 py-20 sm:py-24">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl 2xl:max-w-screen-2xl px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-3xl text-center">
           <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">Como funciona</p>
           <h2 className="mt-3 text-3xl font-black tracking-[-0.035em] text-slate-950 sm:text-5xl">
@@ -617,7 +617,7 @@ function ConnectionSection() {
           </p>
         </div>
 
-        <div className="mx-auto mt-12 grid max-w-5xl gap-4 md:grid-cols-[1fr_auto_1fr] md:items-stretch">
+        <div className="mx-auto mt-12 grid max-w-5xl 2xl:max-w-7xl gap-4 md:grid-cols-[1fr_auto_1fr] md:items-stretch">
           <article className="rounded-[1.75rem] border border-slate-200 bg-white p-7 shadow-sm">
             <p className="text-xs font-black uppercase tracking-[0.15em] text-blue-600">Empresa</p>
             <ul className="mt-5 space-y-3 text-sm font-bold leading-relaxed text-slate-700">
@@ -676,7 +676,7 @@ function HumanPrincipleSection() {
           A economia funciona quando a ponta logística é bem estruturada.
         </p>
         <blockquote className="mt-10 border-l-2 border-cyan-300 pl-5 text-left text-xl font-black leading-relaxed text-cyan-100 sm:text-2xl">
-          Por isso, operar utilizando ferramentas de tecnologia não é burocracia. É garantia para o trabalho de todos.
+          Por isso, operar com ferramentas de tecnologia não é burocracia. É uma forma de dar mais organização e rastreabilidade ao trabalho de todos.
         </blockquote>
         <p className="mt-8 text-lg font-bold text-white">
           Quando as duas pontas utilizam a FretoGo, os imprevistos operacionais diminuem.
@@ -723,7 +723,7 @@ function CategoriesSection() {
 
   return (
     <section className="border-b border-slate-200 bg-slate-50 py-20 sm:py-24">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl 2xl:max-w-screen-2xl px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
           <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">Categorias de Veículos</p>
           <h2 className="mt-3 text-3xl font-black tracking-[-0.035em] text-slate-950 sm:text-4xl">
@@ -780,7 +780,7 @@ function TrustSection() {
 
   return (
     <section className="bg-slate-950 py-20 text-white sm:py-24">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl 2xl:max-w-screen-2xl px-4 sm:px-6 lg:px-8">
         <div className="grid items-start gap-10 lg:grid-cols-[0.85fr_1.15fr] lg:gap-16">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-300">Tecnologia, rastreabilidade e segurança</p>
@@ -817,13 +817,13 @@ function TrustSection() {
 function RolesSection() {
   return (
     <section className="border-b border-slate-200 bg-white py-20 sm:py-24">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl 2xl:max-w-screen-2xl px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="text-3xl font-black tracking-[-0.035em] text-slate-950 sm:text-4xl">
             Cada pilar desempenha um papel na entrega.
           </h2>
         </div>
-        <div className="mx-auto mt-12 grid max-w-5xl gap-5 md:grid-cols-3">
+        <div className="mx-auto mt-12 grid max-w-5xl 2xl:max-w-7xl gap-5 md:grid-cols-3">
           <article className="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-7">
             <p className="text-xs font-black uppercase tracking-[0.15em] text-blue-600">Empresa Embarcadora</p>
             <p className="mt-2 text-sm font-black text-slate-900">Demanda estruturada.</p>
@@ -859,7 +859,7 @@ function ClosingConsciousness() {
     <section className="bg-slate-50 py-16 sm:py-20">
       <div className="mx-auto max-w-3xl px-4 text-center sm:px-6 lg:px-8">
         <p className="text-2xl font-black leading-relaxed text-slate-950 sm:text-3xl">
-          A organização das informações converte viagens avulsas em operações sólidas.
+          Quando carga, rota, veículo e etapas estão organizados, a operação fica mais clara para todos.
         </p>
         <p className="mt-5 text-base font-medium leading-relaxed text-slate-600">
           É dessa forma que a oportunidade do presente fomenta a escalabilidade logística do futuro.
@@ -925,7 +925,7 @@ interface GroupProps {
 function DriverGroupSection({ onDriverGroup }: GroupProps) {
   return (
     <section className="border-t border-slate-200 bg-white py-16 sm:py-20">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl 2xl:max-w-screen-2xl px-4 sm:px-6 lg:px-8">
         <div className="overflow-hidden rounded-[2rem] border border-slate-800 bg-slate-950 p-7 shadow-2xl shadow-slate-950/15 sm:p-10">
           <div className="grid items-center gap-8 lg:grid-cols-[1fr_auto]">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
@@ -969,7 +969,7 @@ interface FooterProps {
 function HomeFooter({ onClient, onDriver, onSupport, onDriverGroup }: FooterProps) {
   return (
     <footer className="border-t border-slate-900 bg-slate-950 py-14 text-slate-400 sm:py-16">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl 2xl:max-w-screen-2xl px-4 sm:px-6 lg:px-8">
         <div className="grid gap-11 sm:grid-cols-2 lg:grid-cols-4">
           <div className="sm:col-span-2 lg:col-span-1">
             <button
@@ -981,7 +981,7 @@ function HomeFooter({ onClient, onDriver, onSupport, onDriverGroup }: FooterProp
               <img src="/icon-192.png" alt="FretoGo" className="h-10 w-auto rounded-md" />
             </button>
             <p className="mt-5 max-w-xs text-sm font-medium leading-relaxed text-slate-500">
-              A plataforma tecnológica oficial do mercado regional, conectando empresas a motoristas qualificados.
+              Plataforma tecnológica para operações logísticas, conectando empresas a motoristas.
             </p>
           </div>
 
