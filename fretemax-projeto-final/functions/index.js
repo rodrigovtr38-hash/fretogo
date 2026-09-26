@@ -48,14 +48,20 @@ const VEHICLE_FINANCE_CONFIG = {
   bitrem: { baseRate: 1800, perKm: 12.50, isHeavy: true }
 };
 
-const ROUTE_SECRET = process.env.APP_SECRET || 'freto-go-route-secure-key-2026';
+const ROUTE_SECRET = process.env.APP_SECRET;
 
 function signQuote(quoteData) {
+  if (!ROUTE_SECRET) {
+    throw new Error('APP_SECRET não configurado no ambiente. Falha de segurança (Fail Closed).');
+  }
   const dataStr = JSON.stringify(quoteData);
   return crypto.createHmac('sha256', ROUTE_SECRET).update(dataStr).digest('hex');
 }
 
 function verifyQuote(quoteData, signature) {
+  if (!ROUTE_SECRET) {
+    throw new Error('APP_SECRET não configurado no ambiente. Falha de segurança (Fail Closed).');
+  }
   return signQuote(quoteData) === signature;
 }
 
@@ -112,7 +118,10 @@ function safeExtractDistancia(obj) {
 }
 
 function getGoogleMapsKey() {
-  const key = 'AIzaSyCPpkKpbOvbb58eot9-EEW5lFtOpFZVuCU';
+  const key = process.env.GOOGLE_MAPS_API_KEY;
+  if (!key) {
+    throw new Error('GOOGLE_MAPS_API_KEY não configurada no ambiente. Falha de segurança (Fail Closed).');
+  }
   return key;
 }
 
@@ -232,9 +241,7 @@ function sanitizeFreightPayload(payload, uid) {
     ? sanitizeAddress(payload.entrega, destino, 'entrega')
     : destino;
   clean.paradas = paradas;
-  clean.todasEntregas = payload.todasEntregas && Array.isArray(payload.todasEntregas) 
-    ? payload.todasEntregas.map((e, i) => sanitizeAddress(e, null, `todasEntregas[${i}]`)) 
-    : [...paradas, clean.entrega];
+  clean.todasEntregas = [...paradas, clean.entrega];
   clean.origemLat = origem.lat;
   clean.origemLng = origem.lng;
   clean.destinoLat = destino.lat;
@@ -708,6 +715,8 @@ exports.resetContadorRetorno = functions.runWith({ timeoutSeconds: 60, memory: '
             retornosUsadosHoje: 0,
             modoRetorno: false,
             destinoRetorno: FieldValue.delete(),
+            latitudeRetorno: FieldValue.delete(),
+            longitudeRetorno: FieldValue.delete(),
             atualizadoEm: FieldValue.serverTimestamp()
           });
         });
