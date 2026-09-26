@@ -1,4 +1,3 @@
-// ARQUIVO: src/pages/Cliente.tsx
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, Timestamp, updateDoc, getDoc } from 'firebase/firestore'; 
@@ -298,33 +297,57 @@ export default function Cliente() {
                    tipoMaterial.toLowerCase().includes('perigo');
 
     let valorMotoristaBase = 0;
+    let valorBaseCategoria = 0;
+    let valorKmAdicionalBase = 0;
+
     const distanciaFinanceira = validDistancia <= 15 ? 15 : validDistancia;
 
     switch (vehicle) {
-      case 'moto': valorMotoristaBase = distanciaFinanceira <= 15 ? 30 : 30 + (distanciaFinanceira - 15) * 2; break;
-      case 'carro': valorMotoristaBase = distanciaFinanceira <= 15 ? 100 : 100 + (distanciaFinanceira - 15) * 4; break;
-      case 'utilitarios': valorMotoristaBase = distanciaFinanceira <= 15 ? 180 : 180 + (distanciaFinanceira - 15) * 6; break;
-      case 'toco': valorMotoristaBase = distanciaFinanceira <= 15 ? 350 : 350 + (distanciaFinanceira - 15) * 7; break;
-      case 'truck': valorMotoristaBase = distanciaFinanceira <= 15 ? 550 : 550 + (distanciaFinanceira - 15) * 8.5; break;
-      case 'carreta': valorMotoristaBase = distanciaFinanceira <= 15 ? 1200 : 1200 + (distanciaFinanceira - 15) * 10.5; break;
-      case 'bitrem': valorMotoristaBase = distanciaFinanceira <= 15 ? 1800 : 1800 + (distanciaFinanceira - 15) * 12.5; break;
-      default: valorMotoristaBase = 100;
+      case 'moto': valorBaseCategoria = 30; valorKmAdicionalBase = 2; valorMotoristaBase = distanciaFinanceira <= 15 ? 30 : 30 + (distanciaFinanceira - 15) * 2; break;
+      case 'carro': valorBaseCategoria = 100; valorKmAdicionalBase = 4; valorMotoristaBase = distanciaFinanceira <= 15 ? 100 : 100 + (distanciaFinanceira - 15) * 4; break;
+      case 'utilitarios': valorBaseCategoria = 180; valorKmAdicionalBase = 6; valorMotoristaBase = distanciaFinanceira <= 15 ? 180 : 180 + (distanciaFinanceira - 15) * 6; break;
+      case 'toco': valorBaseCategoria = 350; valorKmAdicionalBase = 7; valorMotoristaBase = distanciaFinanceira <= 15 ? 350 : 350 + (distanciaFinanceira - 15) * 7; break;
+      case 'truck': valorBaseCategoria = 550; valorKmAdicionalBase = 8.5; valorMotoristaBase = distanciaFinanceira <= 15 ? 550 : 550 + (distanciaFinanceira - 15) * 8.5; break;
+      case 'carreta': valorBaseCategoria = 1200; valorKmAdicionalBase = 10.5; valorMotoristaBase = distanciaFinanceira <= 15 ? 1200 : 1200 + (distanciaFinanceira - 15) * 10.5; break;
+      case 'bitrem': valorBaseCategoria = 1800; valorKmAdicionalBase = 12.5; valorMotoristaBase = distanciaFinanceira <= 15 ? 1800 : 1800 + (distanciaFinanceira - 15) * 12.5; break;
+      default: valorBaseCategoria = 100; valorKmAdicionalBase = 4; valorMotoristaBase = 100;
     }
+
+    const adicionalKm = valorMotoristaBase - valorBaseCategoria;
 
     const custoParadasExtras = Math.max(0, entregas.length - 1) * (isHeavy ? 150.0 : 8.0);
     let valorLiquidoMotorista = valorMotoristaBase + custoParadasExtras;
 
-    if (isMOPP) valorLiquidoMotorista *= 1.20;
+    let valorAdicionalMopp = 0;
+    if (isMOPP) {
+      const liquidoAntesMopp = valorLiquidoMotorista;
+      valorLiquidoMotorista *= 1.20;
+      valorAdicionalMopp = valorLiquidoMotorista - liquidoAntesMopp;
+    }
 
     const divisorMargem = isHeavy ? 0.85 : 0.80;
+    const percentualComissao = isHeavy ? 0.15 : 0.20;
+
     const precoFinalClienteCalculado = valorLiquidoMotorista / divisorMargem;
+    const valorPlataformaCalculado = precoFinalClienteCalculado - valorLiquidoMotorista;
     
     const precisaPedagio = validDistancia > 40 && ['utilitarios', 'toco', 'truck', 'carreta', 'bitrem'].includes(vehicle);
     const valorPedagioCalculado = precisaPedagio ? validDistancia * (isHeavy ? 0.85 : 0.35) : 0;
 
     return {
       precoFinalCliente: Number(precoFinalClienteCalculado.toFixed(2)),
-      tollCost: Number(valorPedagioCalculado.toFixed(2))
+      tollCost: Number(valorPedagioCalculado.toFixed(2)),
+      // BREAKDOWN FINANCEIRO E TELEMETRIA
+      distanciaKm: Number(validDistancia.toFixed(2)),
+      quantidadeEntregas: entregas.length,
+      valorBase: Number(valorBaseCategoria.toFixed(2)),
+      valorKmAdicional: Number(valorKmAdicionalBase.toFixed(2)),
+      adicionalKm: Number(adicionalKm.toFixed(2)),
+      adicionalParadas: Number(custoParadasExtras.toFixed(2)),
+      adicionalMopp: Number(valorAdicionalMopp.toFixed(2)),
+      percentualComissao: percentualComissao,
+      valorLiquidoMotorista: Number(valorLiquidoMotorista.toFixed(2)),
+      valorPlataforma: Number(valorPlataformaCalculado.toFixed(2))
     };
   }, [validDistancia, vehicle, entregas.length, tipoMaterial]);
 
@@ -726,6 +749,18 @@ export default function Cliente() {
         observacoes: observacoes,
         valorBrutoInput: valorOfertaNum,
         valorTotal: valorOfertaNum, 
+        // --- INJEÇÃO DO BREAKDOWN FINANCEIRO TELEMÉTRICO ---
+        distanciaKm: calculoFinanceiro.distanciaKm,
+        quantidadeEntregas: calculoFinanceiro.quantidadeEntregas,
+        valorBase: calculoFinanceiro.valorBase,
+        valorKmAdicional: calculoFinanceiro.valorKmAdicional,
+        adicionalKm: calculoFinanceiro.adicionalKm,
+        adicionalParadas: calculoFinanceiro.adicionalParadas,
+        adicionalMopp: calculoFinanceiro.adicionalMopp,
+        percentualComissao: calculoFinanceiro.percentualComissao,
+        valorLiquidoMotorista: calculoFinanceiro.valorLiquidoMotorista,
+        valorPlataforma: calculoFinanceiro.valorPlataforma,
+        // ---------------------------------------------------
         cidadeOrigem: coleta.bairro || coleta.cidade, 
         cidadeDestino: destinoFinal.bairro || destinoFinal.cidade,
         enderecoColetaTexto: coleta.formatted_address || `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`, 
@@ -912,7 +947,6 @@ export default function Cliente() {
   };
 
   const handleAddEntrega = () => {
-    // CTO FIX: A validação permite que o array chegue exatamente a 25 destinos de entrega
     if (entregas.length < 25) setEntregas([...entregas, { cep: '', bairro: '', rua: '', num: '' }]);
     else showToast('Limite máximo de 24 paradas intermediárias (25 entregas no total) atingido.', 'warning');
   };
