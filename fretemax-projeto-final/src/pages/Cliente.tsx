@@ -1,3 +1,4 @@
+// ARQUIVO: src/pages/Cliente.tsx
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, Timestamp, updateDoc, getDoc } from 'firebase/firestore'; 
@@ -628,15 +629,21 @@ export default function Cliente() {
       const newPGPS = finalEntregas.map(stop => ({ lat: stop.lat!, lng: stop.lng! }));
       const newCacheKey = JSON.stringify({ origem: origCoords, entregas: newPGPS });
 
-      const cacheData = {
+      rotaCache.current[cacheKey] = {
         distanciaKm: result.distanciaKm,
         payload: result.cotacaoPayload,
         token: result.cotacaoToken,
         waypointOrder: result.waypointOrder
       };
 
-      rotaCache.current[cacheKey] = cacheData;
-      rotaCache.current[newCacheKey] = cacheData;
+      if (cacheKey !== newCacheKey) {
+        rotaCache.current[newCacheKey] = {
+          distanciaKm: result.distanciaKm,
+          payload: result.cotacaoPayload,
+          token: result.cotacaoToken,
+          waypointOrder: []
+        };
+      }
 
       setDistanciaReal(result.distanciaKm);
       setCotacaoPayload(result.cotacaoPayload);
@@ -947,6 +954,7 @@ export default function Cliente() {
   };
 
   const handleAddEntrega = () => {
+    // CTO FIX: A validação permite que o array chegue exatamente a 25 destinos de entrega
     if (entregas.length < 25) setEntregas([...entregas, { cep: '', bairro: '', rua: '', num: '' }]);
     else showToast('Limite máximo de 24 paradas intermediárias (25 entregas no total) atingido.', 'warning');
   };
