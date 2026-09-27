@@ -478,22 +478,22 @@ exports.calcularRotaB2B = functions.runWith(runtimeOpts).https.onCall(async (dat
     throw new functions.https.HttpsError('invalid-argument', 'Origem e entregas são obrigatórias.');
   }
 
-  const key = getGoogleMapsKey();
-  const originStr = `${origem.lat},${origem.lng}`;
-  const destStr = `${entregas[entregas.length - 1].lat},${entregas[entregas.length - 1].lng}`;
-  
-  let waypoints = '';
-  if (entregas.length > 1) {
-    const wpArray = entregas.slice(0, -1).map(wp => `${wp.lat},${wp.lng}`);
-    waypoints = `optimize:true|` + wpArray.join('|');
-  }
-  
-  let url = `https://maps.googleapis.com/maps/api/directions/json?origin=${originStr}&destination=${destStr}&key=${key}`;
-  if (waypoints) {
-    url += `&waypoints=${waypoints}`;
-  }
-
   try {
+    const key = getGoogleMapsKey();
+    const originStr = `${origem.lat},${origem.lng}`;
+    const destStr = `${entregas[entregas.length - 1].lat},${entregas[entregas.length - 1].lng}`;
+    
+    let waypoints = '';
+    if (entregas.length > 1) {
+      const wpArray = entregas.slice(0, -1).map(wp => `${wp.lat},${wp.lng}`);
+      waypoints = `optimize:true|` + wpArray.join('|');
+    }
+    
+    let url = `https://maps.googleapis.com/maps/api/directions/json?origin=${originStr}&destination=${destStr}&key=${key}`;
+    if (waypoints) {
+      url += `&waypoints=${waypoints}`;
+    }
+
     const res = await axios.get(url, { timeout: 10000 });
     
     // --- INÍCIO DA INJEÇÃO DIAGNÓSTICA DE SUCESSO FALSO ---
@@ -557,6 +557,11 @@ exports.calcularRotaB2B = functions.runWith(runtimeOpts).https.onCall(async (dat
     };
   } catch (error) {
     if (error instanceof functions.https.HttpsError) throw error;
+
+    if (error.message && error.message.includes('GOOGLE_MAPS_API_KEY')) {
+      console.error('[CALCULAR ROTA B2B] Falha Crítica de Configuração:', error.message);
+      throw new functions.https.HttpsError('failed-precondition', 'Serviço de rotas indisponível. Erro de configuração no servidor.');
+    }
 
     const safeDiagnostic = {
       message: error.message,
