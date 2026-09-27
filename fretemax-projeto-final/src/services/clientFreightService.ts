@@ -1,3 +1,4 @@
+// ARQUIVO: src/services/clientFreightService.ts
 import { doc, getDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { db } from '../firebase';
@@ -71,6 +72,22 @@ export interface FreightPayload {
   motoristasNotificados?: number;
   interessados?: number;
   interressados?: number;
+  
+  // =======================================================
+  // INJEÇÃO DA TELEMETRIA E CÁLCULO FINANCEIRO
+  // =======================================================
+  distanciaKm?: number;
+  quantidadeEntregas?: number;
+  valorBase?: number;
+  valorKmAdicional?: number;
+  adicionalKm?: number;
+  adicionalParadas?: number;
+  adicionalMopp?: number;
+  percentualComissao?: number;
+  valorPlataforma?: number;
+  cotacaoPayload?: any;
+  cotacaoToken?: string;
+  todasEntregas?: any[];
 }
 
 type PersistedCreateKey = {
