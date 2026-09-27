@@ -24,7 +24,13 @@ const ALLOWED_FREIGHT_SCALAR_FIELDS = [
   'clienteDocumento', 'distancia', 'distanciaRealKm', 'distanciaTotalKm',
   'distanciaTarifada', 'peso', 'pesoKg', 'tipoCarga', 'tipoMaterial',
   'qtdVolumes', 'valorNF', 'observacoes', 'cidadeOrigem', 'cidadeDestino',
-  'enderecoColetaTexto', 'enderecoEntregaTexto'
+  'enderecoColetaTexto', 'enderecoEntregaTexto',
+  // Campos de Breakdown Telemétrico Financeiro
+  'distanciaKm', 'quantidadeEntregas', 'valorBase', 'valorKmAdicional', 
+  'adicionalKm', 'adicionalParadas', 'adicionalMopp', 'percentualComissao', 
+  'valorPlataforma', 'valorPedagio', 'valorBrutoInput', 'valorTotal', 
+  'valorFreteBruto', 'valorMotorista', 'valorLiquidoMotorista', 'lucroPlataforma', 
+  'cotacaoPayload', 'cotacaoToken', 'todasEntregas'
 ];
 
 const VEHICLE_WEIGHT_LIMITS = {
@@ -2272,17 +2278,44 @@ exports.recalcularAutoBid = functions.firestore.document('fretes/{freteId}').onU
 
   const valorBrutoInput = Number(depois.valorTotal);
   const valorPedagioOriginal = Number(depois.valorPedagio || 0);
-  
-  // Proteção simples para recalculo passivo de firestore via AutoBid (teto 30%)
-  const valorPedagio = Math.max(0, Math.min(valorPedagioOriginal, valorBrutoInput * 0.30));
+
+  const categoria = sanitizeText(depois.categoria || depois.veiculo, 40)?.toLowerCase();
+  if (!categoria || !VALID_VEHICLE_CATEGORIES.has(categoria)) return null;
+
+  // --- INÍCIO DA BLINDAGEM DE PISO (CTO FIX) ---
+  const distanciaNum = Number(depois.distanciaRealKm || depois.distanciaTotalKm || depois.distancia || 15);
+  const numParadas = Array.isArray(depois.paradas) ? depois.paradas.length : 0;
+  const tipoMaterial = depois.tipoMaterial || '';
+  const isMopp = tipoMaterial.toLowerCase().includes('mopp') || tipoMaterial.toLowerCase().includes('perigos') || tipoMaterial.toLowerCase().includes('químic');
+
+  const referencia = calcularReferenciaFretoGo(distanciaNum, categoria, numParadas, isMopp);
+  const pisoPermitido = Number((referencia.valorSugeridoCalculado * 0.85).toFixed(2));
+
+  if (valorBrutoInput < (pisoPermitido - 0.01)) {
+    console.error(`[AUTO-BID] Rejeitado: Valor ofertado (R$ ${valorBrutoInput}) está abaixo do piso permitido (R$ ${pisoPermitido}). Revertendo transação.`);
+    await change.after.ref.update({
+      valorTotal: antes.valorTotal,
+      valorBruto: antes.valorBruto,
+      valorFreteBruto: antes.valorFreteBruto,
+      valorPedagio: antes.valorPedagio,
+      taxaFreto: antes.taxaFreto,
+      valorComissao: antes.valorComissao,
+      lucroPlataforma: antes.lucroPlataforma,
+      valorLiquidoMotorista: antes.valorLiquidoMotorista,
+      valorMotorista: antes.valorMotorista
+    });
+    return null;
+  }
+  // --- FIM DA BLINDAGEM ---
+ 
+  // Proteção simples para recalculo passivo de firestore via AutoBid (teto idêntico ao criarFreteB2B)
+  const tetoPedagio = Math.max(referencia.pedagioSugeridoCalculado * 1.5, valorBrutoInput * 0.30);
+  const valorPedagio = Math.max(0, Math.min(valorPedagioOriginal, tetoPedagio));
 
   if (!Number.isFinite(valorBrutoInput) || valorBrutoInput <= 0 || !Number.isFinite(valorPedagio) || valorPedagio < 0 || valorPedagio > valorBrutoInput) {
     console.error('[AUTO-BID] Valores inválidos; margens não recalculadas.');
     return null;
   }
-
-  const categoria = sanitizeText(depois.categoria || depois.veiculo, 40)?.toLowerCase();
-  if (!categoria || !VALID_VEHICLE_CATEGORIES.has(categoria)) return null;
 
   const isHeavy = ['toco', 'truck', 'carreta', 'bitrem'].includes(categoria);
   const taxa = isHeavy ? 0.15 : 0.20;
