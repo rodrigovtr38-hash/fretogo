@@ -1,9 +1,8 @@
 // =========================================================
 // NOME DO ARQUIVO: src/pages/Admin.tsx
 // CTO-Log: Torre de Controle Inteligente (Operacional Definitivo).
-// Status: Senha hardcoded removida. Card Operacional Full-Stack (Cliente, PIX, MP, PINs, Mapa GPS).
-// Correção (Fluxo Motorista): Refatoração de leitura do payload (fotosPod e chavePixMotorista).
-// Melhoria: Badges Dinâmicos, Bypass Seguro, Desbloqueio de PIN, Painel de Ocorrências e Mapa da Operação.
+// Status: Senha hardcoded removida. Card Operacional Full-Stack.
+// Adicionado: Isolamento Financeiro de Fretes QA (Sandbox).
 // =========================================================
 
 import { useState, useEffect, useMemo } from 'react';
@@ -12,7 +11,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { collection, onSnapshot, doc, query, orderBy, runTransaction, where, serverTimestamp, limit, writeBatch, getDocs } from 'firebase/firestore';
 import { AppTripState } from '../state/tripStateMachine'; 
 import { paymentService } from '../services/paymentService';
-import MapaCliente from '../components/MapaCliente'; // Injeção do Mapa
+import MapaCliente from '../components/MapaCliente'; 
 import { 
   Loader2, CheckCircle, XCircle, Search, ShieldAlert, Truck, Users, 
   DollarSign, Activity, Clock, AlertTriangle, Eye, 
@@ -120,7 +119,7 @@ export default function Admin() {
     }
   }, [tab, authUser]);
 
-  // 2. LÓGICA DE CÁLCULO
+  // 2. LÓGICA DE CÁLCULO E FILTRO QA
   const filterByTime = (frete: any, filterType: string) => {
     if (filterType === 'todos') return true;
     if (!frete.createdAt) return false;
@@ -157,17 +156,22 @@ export default function Admin() {
     const period = fretes.filter(f => filterByTime(f, timeFilter));
     const valid = [AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.COLETANDO, AppTripState.EM_TRANSPORTE, AppTripState.ENTREGUE, 'finalizado'];
     
+    // CTO FIX: Filtragem Absoluta de Fretes de Teste (QA Sandbox)
+    const filterQA = (f: any) => !f.isQA && !String(f.transactionId || '').startsWith('QA_BYPASS_');
+    const fretesReais = fretes.filter(filterQA);
+    const periodReal = period.filter(filterQA);
+
     return {
-      faturado: period.filter(f => valid.includes(f.status)).reduce((a, f) => a + (Number(f.valorBruto) || Number(f.valorTotal) || 0), 0),
-      lucro: period.filter(f => valid.includes(f.status)).reduce((a, f) => a + (Number(f.valorComissao) || Number(f.lucroPlataforma) || 0), 0),
-      entregues: period.filter(f => [AppTripState.ENTREGUE, 'finalizado'].includes(f.status)).length,
-      escrowRetido: fretes.filter(f => [...valid, AppTripState.AGUARDANDO_PAGAMENTO, AppTripState.DISPONIVEL, AppTripState.CHEGOU_COLETA].includes(f.status)).reduce((a, f) => a + (Number(f.valorFreteBruto) || Number(f.valorTotal) || 0), 0),
-      aPagarMotoristas: fretes.filter(f => f.status === AppTripState.ENTREGUE && !f.repasseEfetuado).reduce((a, f) => a + (Number(f.valorLiquidoMotorista) || Number(f.valorMotorista) || 0), 0),
-      repasses: fretes.filter(f => f.status === AppTripState.ENTREGUE).length,
-      fretesParados: fretes.filter(f => f.status === AppTripState.DISPONIVEL && (Date.now() - (f.createdAt?.toMillis ? f.createdAt.toMillis() : Date.now())) > 1800000).length,
-      alertas24h: fretes.filter(f => f.status === AppTripState.ENTREGUE && !f.repasseEfetuado && (Date.now() - (f.updatedAt?.toDate ? f.updatedAt.toDate().getTime() : Date.now())) / 3600000 >= 20).length,
-      taxaConversao: period.length > 0 ? ((period.filter(f => [AppTripState.ENTREGUE, 'finalizado'].includes(f.status)).length / period.length) * 100).toFixed(1) : 0,
-      ticketMedio: period.filter(f => [AppTripState.ENTREGUE, 'finalizado'].includes(f.status)).length > 0 ? (period.filter(f => valid.includes(f.status)).reduce((a, f) => a + (Number(f.valorBruto) || 0), 0) / period.filter(f => [AppTripState.ENTREGUE, 'finalizado'].includes(f.status)).length) : 0
+      faturado: periodReal.filter(f => valid.includes(f.status)).reduce((a, f) => a + (Number(f.valorBruto) || Number(f.valorTotal) || 0), 0),
+      lucro: periodReal.filter(f => valid.includes(f.status)).reduce((a, f) => a + (Number(f.valorComissao) || Number(f.lucroPlataforma) || 0), 0),
+      entregues: periodReal.filter(f => [AppTripState.ENTREGUE, 'finalizado'].includes(f.status)).length,
+      escrowRetido: fretesReais.filter(f => [...valid, AppTripState.AGUARDANDO_PAGAMENTO, AppTripState.DISPONIVEL, AppTripState.CHEGOU_COLETA].includes(f.status)).reduce((a, f) => a + (Number(f.valorFreteBruto) || Number(f.valorTotal) || 0), 0),
+      aPagarMotoristas: fretesReais.filter(f => f.status === AppTripState.ENTREGUE && !f.repasseEfetuado).reduce((a, f) => a + (Number(f.valorLiquidoMotorista) || Number(f.valorMotorista) || 0), 0),
+      repasses: fretesReais.filter(f => f.status === AppTripState.ENTREGUE).length,
+      fretesParados: fretesReais.filter(f => f.status === AppTripState.DISPONIVEL && (Date.now() - (f.createdAt?.toMillis ? f.createdAt.toMillis() : Date.now())) > 1800000).length,
+      alertas24h: fretesReais.filter(f => f.status === AppTripState.ENTREGUE && !f.repasseEfetuado && (Date.now() - (f.updatedAt?.toDate ? f.updatedAt.toDate().getTime() : Date.now())) / 3600000 >= 20).length,
+      taxaConversao: periodReal.length > 0 ? ((periodReal.filter(f => [AppTripState.ENTREGUE, 'finalizado'].includes(f.status)).length / periodReal.length) * 100).toFixed(1) : 0,
+      ticketMedio: periodReal.filter(f => [AppTripState.ENTREGUE, 'finalizado'].includes(f.status)).length > 0 ? (periodReal.filter(f => valid.includes(f.status)).reduce((a, f) => a + (Number(f.valorBruto) || 0), 0) / periodReal.filter(f => [AppTripState.ENTREGUE, 'finalizado'].includes(f.status)).length) : 0
     };
   }, [fretes, timeFilter]);
 
@@ -282,7 +286,7 @@ export default function Admin() {
       let count = 0;
       const snap = await getDocs(collection(db, 'fretes'));
       snap.forEach(d => {
-        if (!d.data().transactionId || String(d.data().transactionId).startsWith('QA_BYPASS_')) { batch.delete(d.ref); count++; }
+        if (!d.data().transactionId || String(d.data().transactionId).startsWith('QA_BYPASS_') || d.data().isQA === true) { batch.delete(d.ref); count++; }
       });
       if (count > 0) { await batch.commit(); alert(`💥 ${count} fretes de teste apagados.`); window.location.reload(); }
       else alert('Nenhum frete de teste encontrado.');
@@ -451,6 +455,9 @@ export default function Admin() {
                         </span>
                         <span className="text-[10px] font-black uppercase bg-slate-800 text-slate-300 px-3 py-1 rounded-md">ETAPA: {estadoObj.currentNome}</span>
                         <span className="text-[10px] font-mono text-slate-500 font-bold">ID: #{f.id.slice(0,8).toUpperCase()}</span>
+                        
+                        {/* TAG QA ISOLADA NA TORRE */}
+                        {f.isQA && <span className="text-[10px] font-black uppercase bg-amber-500 text-black px-3 py-1 rounded-md shadow-lg">QA SANDBOX</span>}
                       </div>
                       <span className="text-xs font-black uppercase text-white bg-slate-800 px-4 py-2 rounded-xl border border-white/10 flex items-center gap-2"><Users size={14} className="text-cyan-400"/> CLIENTE: {f.clienteNome || 'Embarcador Não Identificado'}</span>
                     </div>
