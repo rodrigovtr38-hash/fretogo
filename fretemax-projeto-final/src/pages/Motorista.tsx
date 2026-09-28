@@ -2,6 +2,7 @@
 // NOME DO ARQUIVO: src/pages/Motorista.tsx
 // CTO-Log: Auditoria Concluída - FASE 3 (Integração).
 // Status: Sincronização UI Multi-Drop (Até 25 Entregas) Ativa.
+// Adicionado: Filtro de Isolamento de Feed (QA Sandbox).
 // =========================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -41,6 +42,12 @@ interface DriverData {
 
 const ACTIVE_STATUSES = ['aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 'em_transporte', 'parado_operacional', 'chegou_entrega', 'entregando', 'finalizando', 'validando_comprovante'];
 const BLOCKED_DISPATCH_STATUSES = new Set(['retido_pagamento', 'retido_agendamento', 'encerrado', 'encerrado_reembolso', 'encerrado_divergencia_financeira', 'encerrado_aprovacao_tardia']);
+
+// Contas QA que têm autorização para enxergar fretes "fantasmas" (isQA: true) no celular
+const AUTHORIZED_SANDBOX_ACCOUNTS = new Set([
+  'contato@fretogo.com.br',
+  'rodrigovtr38@gmail.com',
+]);
 
 const normalizeSearchText = (value: unknown) => String(value || '')
   .normalize('NFD')
@@ -207,6 +214,7 @@ export default function Motorista() {
       ofertaExpiraEm: data.ofertaExpiraEm,
       cidadeOrigem: data.cidadeOrigem || data.coleta?.cidade || '',
       cidadeDestino: data.cidadeDestino || data.entrega?.cidade || '',
+      isQA: data.isQA || false,
     } as any;
   }, []);
 
@@ -303,6 +311,9 @@ export default function Motorista() {
     
     const unsubscribe = onSnapshot(freightsQuery, snapshot => {
       if (!mountedRef.current) return;
+      
+      // Validação de Identidade QA para isolar o feed
+      const isQADriver = user.email && AUTHORIZED_SANDBOX_ACCOUNTS.has(user.email.toLowerCase());
 
       const now = Date.now();
       let next = snapshot.docs
@@ -311,6 +322,11 @@ export default function Motorista() {
           const expiresAt = timestampToMillis(data.ofertaExpiraEm);
           const createdAtMillis = timestampToMillis(data.criadoEm || data.createdAt) || now;
           const isAgendado = data.tipoFrete === 'agendado' || Boolean(data.agendado);
+
+          // QA Isolamento: Motorista real não vê QA. Motorista QA vê os dois.
+          if (data.isQA === true && !isQADriver) {
+             return false;
+          }
 
           // 🔥 CTO FIX: Proteção Temporal Absoluta
           let isTimeValid = false;
@@ -603,6 +619,13 @@ export default function Motorista() {
                         ) : (
                            <div className="absolute top-0 right-0 bg-cyan-600 px-4 py-1.5 rounded-bl-2xl font-black text-[10px] uppercase tracking-widest text-white flex items-center gap-1.5 shadow-lg shadow-cyan-900/50">
                               <Clock size={12}/> Imediato
+                           </div>
+                        )}
+
+                        {/* TAG QA ISOLADA */}
+                        {(freight as any).isQA && (
+                           <div className="absolute top-0 left-0 bg-amber-500 px-4 py-1.5 rounded-br-2xl font-black text-[10px] uppercase tracking-widest text-black shadow-lg">
+                              SIMULAÇÃO QA
                            </div>
                         )}
 
