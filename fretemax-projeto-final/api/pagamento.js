@@ -1,6 +1,7 @@
 // =========================================================
 // NOME DO ARQUIVO: api/pagamento.js
 // Checkout Mercado Pago: autenticação, ownership e idempotência.
+// Adicionado: Ambiente Seguro de QA Isolado (Zero Trust)
 // =========================================================
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
@@ -12,6 +13,12 @@ const CHECKOUT_TTL_MS = 15 * 60 * 1000;
 const CHECKOUT_LOCK_MS = 30 * 1000;
 const REQUEST_TIMEOUT_MS = 12000;
 const MERCADO_PAGO_HOSTS = ['mercadopago.com', 'mercadopago.com.br'];
+
+// Contas autorizadas para gerar fretes de homologação sem MP Real
+const AUTHORIZED_SANDBOX_ACCOUNTS = new Set([
+  'contato@fretogo.com.br',
+  'rodrigovtr38@gmail.com',
+]);
 
 let firebaseServices = null;
 
@@ -210,6 +217,55 @@ export default async function handler(req, res) {
 
     const { freteData, valorReal, attempt } = checkoutState;
     const publicBaseUrl = getPublicBaseUrl();
+
+    // ===============================================================
+    // FLUXO QA: APROVAÇÃO SIMULADA DE FRETE SEM CUSTO
+    // Somente para emails autorizados na matriz de sandbox do servidor.
+    // ===============================================================
+    const normalizedEmail = String(decodedToken.email || '').trim().toLowerCase();
+    const isAuthorizedSandbox = decodedToken.email_verified === true && AUTHORIZED_SANDBOX_ACCOUNTS.has(normalizedEmail);
+
+    if (isAuthorizedSandbox) {
+      const qaTransactionId = `QA_BYPASS_${crypto.randomUUID()}`;
+      const isAgendado = freteData.tipoFrete === 'agendado' || freteData.agendado === true;
+      const targetStatus = isAgendado ? 'agendado' : 'disponivel';
+
+      await db.runTransaction(async transaction => {
+        const latestSnap = await transaction.get(freteRef);
+        if (!latestSnap.exists || latestSnap.data().checkoutLockToken !== lockToken) return;
+
+        transaction.update(freteRef, {
+          checkoutLock: false,
+          checkoutLockToken: FieldValue.delete(),
+          checkoutLockTime: FieldValue.delete(),
+          status: targetStatus,
+          pagamentoStatus: 'aprovado',
+          dispatchStatus: isAgendado ? 'retido_agendamento' : 'aberto_no_feed',
+          pagamentoId: qaTransactionId,
+          transactionId: qaTransactionId,
+          pagoEm: FieldValue.serverTimestamp(),
+          reembolsado: false,
+          isQA: true, // Flag obrigatória de isolamento de Feed e Financeiro
+          atualizadoEm: FieldValue.serverTimestamp(),
+        });
+        
+        const chatRef = freteRef.collection('chat').doc();
+        transaction.set(chatRef, {
+          texto: 'QA SERVER: Pagamento simulado confirmado com sucesso. Frete inserido em malha de teste (isolado).',
+          nome: 'Torre QA',
+          tipoUsuario: 'admin',
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      });
+
+      return res.status(200).json({
+        success: true,
+        transactionId: qaTransactionId,
+        url: `${publicBaseUrl}/cliente?order=${encodeURIComponent(idPedido)}`, // Redireciona de volta como aprovado
+      });
+    }
+    // ===============================================================
+
     const paymentIdempotencyKey = crypto
       .createHash('sha256')
       .update(`checkout:${idPedido}:${attempt}`)
@@ -304,6 +360,7 @@ export default async function handler(req, res) {
         checkoutUrl,
         checkoutPreferenceId: String(mpData.id || ''),
         checkoutExpiraEm,
+        isQA: false, // Força a regra em produções reais
         atualizadoEm: FieldValue.serverTimestamp(),
       };
 
