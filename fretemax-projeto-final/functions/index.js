@@ -1096,7 +1096,7 @@ const DRIVER_OPERATIONAL_TRANSITIONS = {
   aceito: ['indo_coleta'],
   indo_coleta: ['chegou_coleta'],
   chegou_coleta: ['coletando'],
-  coletando: ['em_transporte'],
+  coletando: [], // BLINDAGEM F03: Impede bypass para 'em_transporte'. Exige validação de PIN ou Exceção.
 };
 
 const DRIVER_CANCELABLE_STATUSES = new Set([
@@ -1512,17 +1512,21 @@ exports.validarPinDaEtapa = functions.runWith(runtimeOpts).https.onCall(async (d
   }
 
   const freteRef = db.collection('fretes').doc(freteId);
+  const secretsRef = freteRef.collection('secrets').doc('pins');
   const motoristaRef = db.collection('motoristas_cadastros').doc(context.auth.uid);
   const motoristaOnlineRef = db.collection('motoristas_online').doc(context.auth.uid);
 
   // 2. Transação Atômica (Evita concorrência e dupla validação)
   const result = await db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(freteRef);
+    const secretsSnap = await transaction.get(secretsRef);
+    
     if (!snapshot.exists) {
       throw new functions.https.HttpsError('not-found', 'Ordem operacional não encontrada.');
     }
 
     const frete = snapshot.data();
+    const secrets = secretsSnap.exists ? secretsSnap.data() : {};
 
     // Validação de Identidade (Apenas o motorista dono da carga pode validar)
     if (frete.motoristaId !== context.auth.uid) {
@@ -1541,10 +1545,10 @@ exports.validarPinDaEtapa = functions.runWith(runtimeOpts).https.onCall(async (d
     let etapaAtualKey = '';
     let isColeta = false;
 
-    // 3. Roteamento de Etapas (Coleta vs Múltiplas Entregas)
+    // 3. Roteamento de Etapas (Coleta vs Múltiplas Entregas) - Lendo do SECRET
     if (frete.status === 'coletando') {
       isColeta = true;
-      pinCorreto = frete.pinColeta;
+      pinCorreto = secrets.pinColeta;
       etapaAtualKey = 'coleta';
     } else if (frete.status === 'em_transporte') {
       const paradaAtualIndex = frete.paradaAtualIndex || 0;
@@ -1555,7 +1559,7 @@ exports.validarPinDaEtapa = functions.runWith(runtimeOpts).https.onCall(async (d
          throw new functions.https.HttpsError('failed-precondition', 'Todas as entregas já foram concluídas.');
       }
       
-      pinCorreto = frete.pinEntregas ? frete.pinEntregas[paradaAtualIndex] : null;
+      pinCorreto = secrets.pinEntregas ? secrets.pinEntregas[paradaAtualIndex] : null;
       etapaAtualKey = `parada_${paradaAtualIndex}`;
     } else {
       throw new functions.https.HttpsError('failed-precondition', 'O status atual da viagem não permite validação de PIN.');
@@ -1586,27 +1590,28 @@ exports.validarPinDaEtapa = functions.runWith(runtimeOpts).https.onCall(async (d
       }
     }
 
-    // 6. SUCESSO - Consumo do PIN e Avanço de Etapa
+    // 6. SUCESSO - Consumo do PIN (Secret) e Avanço de Etapa (Main)
     const payloadUpdate = {
       tentativasPin: 0,
       atualizadoEm: FieldValue.serverTimestamp()
     };
     
+    let secretsUpdate = { atualizadoEm: FieldValue.serverTimestamp() };
     let mensagemLog = '';
 
     if (isColeta) {
       payloadUpdate.status = 'em_transporte';
-      payloadUpdate.pinColeta = null; // PIN CONSUMIDO E INVALIDADO
+      secretsUpdate.pinColeta = null; // PIN CONSUMIDO E INVALIDADO NO SECRET
       mensagemLog = "✅ [Torre Operacional]: Coleta finalizada (PIN validado no servidor). Motorista a caminho do Destino Final.";
     } else {
       const paradaAtualIndex = frete.paradaAtualIndex || 0;
       const paradas = frete.paradas || [];
       const totalEntregas = paradas.length + 1;
 
-      // Consome o PIN desta entrega sem apagar os PINs das entregas seguintes
-      const pinEntregasAtualizados = [...(frete.pinEntregas || [])];
+      // Consome o PIN desta entrega no secret sem apagar os PINs das entregas seguintes
+      const pinEntregasAtualizados = [...(secrets.pinEntregas || [])];
       pinEntregasAtualizados[paradaAtualIndex] = null;
-      payloadUpdate.pinEntregas = pinEntregasAtualizados;
+      secretsUpdate.pinEntregas = pinEntregasAtualizados;
 
       if (paradaAtualIndex + 1 < totalEntregas) {
         payloadUpdate.paradaAtualIndex = paradaAtualIndex + 1;
@@ -1619,6 +1624,7 @@ exports.validarPinDaEtapa = functions.runWith(runtimeOpts).https.onCall(async (d
     }
 
     transaction.update(freteRef, payloadUpdate);
+    transaction.set(secretsRef, secretsUpdate, { merge: true });
 
     const driverState = payloadUpdate.status === 'finalizando' ? 'finalizando' : 'em_transporte';
     const driverUpdate = {
@@ -1666,16 +1672,19 @@ exports.solicitarExcecaoSemPin = functions.runWith(runtimeOpts).https.onCall(asy
   }
 
   const freteRef = db.collection('fretes').doc(freteId);
+  const secretsRef = freteRef.collection('secrets').doc('pins');
   const motoristaRef = db.collection('motoristas_cadastros').doc(context.auth.uid);
   const motoristaOnlineRef = db.collection('motoristas_online').doc(context.auth.uid);
 
   return await db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(freteRef);
+    const secretsSnap = await transaction.get(secretsRef);
     if (!snapshot.exists) {
       throw new functions.https.HttpsError('not-found', 'Frete não encontrado.');
     }
 
     const frete = snapshot.data();
+    const secrets = secretsSnap.exists ? secretsSnap.data() : {};
 
     // 2. Validação de Identidade Operacional
     if (frete.motoristaId !== context.auth.uid) {
@@ -1741,24 +1750,25 @@ exports.solicitarExcecaoSemPin = functions.runWith(runtimeOpts).https.onCall(asy
         return { success: true, pending: true, message: 'Risco detectado. Exceção registrada para análise da Torre.' };
     }
 
-    // CONCLUI EXCEPCIONALMENTE A ENTREGA (AVANÇA EXATAMENTE UMA POSIÇÃO)
+    // CONCLUI EXCEPCIONALMENTE A ENTREGA (AVANÇA EXATAMENTE UMA POSIÇÃO E CONSOME SECRET)
     const payloadUpdate = {
       atualizadoEm: FieldValue.serverTimestamp(),
       tentativasPin: 0,
       excecaoPinPendente: false,
       excecaoEtapa: null
     };
-
+    
+    let secretsUpdate = { atualizadoEm: FieldValue.serverTimestamp() };
     let mensagemLog = '';
 
     if (isColeta) {
       payloadUpdate.status = 'em_transporte';
-      payloadUpdate.pinColeta = null; // PIN CONSUMIDO E DESTRUÍDO
+      secretsUpdate.pinColeta = null; // PIN CONSUMIDO E DESTRUÍDO
       mensagemLog = "⚠️ [Exceção Operacional]: Coleta finalizada automaticamente (Ausência de PIN confirmada por evidência). Motorista liberado.";
     } else {
-      const pinEntregasAtualizados = [...(frete.pinEntregas || [])];
+      const pinEntregasAtualizados = [...(secrets.pinEntregas || [])];
       pinEntregasAtualizados[paradaAtualIndex] = null; // PIN CONSUMIDO
-      payloadUpdate.pinEntregas = pinEntregasAtualizados;
+      secretsUpdate.pinEntregas = pinEntregasAtualizados;
 
       if (paradaAtualIndex + 1 < totalEntregas) {
         payloadUpdate.paradaAtualIndex = paradaAtualIndex + 1;
@@ -1771,6 +1781,7 @@ exports.solicitarExcecaoSemPin = functions.runWith(runtimeOpts).https.onCall(asy
     }
 
     transaction.update(freteRef, payloadUpdate);
+    transaction.set(secretsRef, secretsUpdate, { merge: true });
 
     // Sync Motorista Realtime
     const driverState = payloadUpdate.status === 'finalizando' ? 'finalizando' : 'em_transporte';
@@ -1975,6 +1986,7 @@ exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data,
   }
   // 🛡️ FIM DA BLINDAGEM FINANCEIRA ZERO TRUST
 
+  // GERAÇÃO DE PINS SECRETA - F01 (NÃO SALVA NO DOCUMENTO PRINCIPAL)
   const generatePin = () => Math.floor(1000 + Math.random() * 9000).toString();
   const pinColeta = null; 
   
@@ -2023,8 +2035,6 @@ exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data,
       atualizadoEm: FieldValue.serverTimestamp(),
       notificadoD1: false,
       notificado1h: false,
-      pinColeta,
-      pinEntregas, 
       valorTotal: valorBrutoInput,
       valorBruto: valorBrutoInput,
       valorFreteBruto: valorBrutoInput,
@@ -2042,6 +2052,14 @@ exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data,
       freteId: newFreteRef.id,
       clienteId: uid,
       createdAt: FieldValue.serverTimestamp()
+    });
+
+    // F01: Segregação imediata de PINs na criação para subcoleção restrita
+    const secretsRef = newFreteRef.collection('secrets').doc('pins');
+    transaction.set(secretsRef, {
+      pinColeta: pinColeta,
+      pinEntregas: pinEntregas,
+      atualizadoEm: FieldValue.serverTimestamp()
     });
 
     return { success: true, freteId: newFreteRef.id };
@@ -2183,8 +2201,6 @@ exports.atualizarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (d
       distanciaTarifada: distanciaNum <= 15 ? 15 : distanciaNum,
       distancia: distanciaNum <= 15 ? 15 : distanciaNum,
       cidadeDestinoFormatada,
-      pinColeta: null, 
-      pinEntregas: pinEntregas,
       status: 'aguardando_pagamento',
       pagamentoStatus: 'pendente',
       dispatchStatus: 'retido_pagamento',
@@ -2201,6 +2217,14 @@ exports.atualizarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (d
     };
 
     transaction.update(freteRef, updatePayload);
+
+    // F01: Segregação na atualização (Sobrescreve os PINs velhos no SECRET apenas)
+    const secretsRef = freteRef.collection('secrets').doc('pins');
+    transaction.set(secretsRef, {
+      pinColeta: null,
+      pinEntregas: pinEntregas,
+      atualizadoEm: FieldValue.serverTimestamp()
+    }, { merge: true });
 
     return {
         success: true,
@@ -2353,19 +2377,24 @@ exports.bypassPinEtapaAdmin = functions.runWith(runtimeOpts).https.onCall(async 
   if (!freteId) throw new functions.https.HttpsError('invalid-argument', 'Identificador de frete ausente.');
 
   const freteRef = db.collection('fretes').doc(freteId);
+  const secretsRef = freteRef.collection('secrets').doc('pins');
 
   return await db.runTransaction(async (transaction) => {
     const snap = await transaction.get(freteRef);
+    const secretsSnap = await transaction.get(secretsRef);
     if (!snap.exists) throw new functions.https.HttpsError('not-found', 'Frete operacional não encontrado.');
 
     const frete = snap.data();
+    const secrets = secretsSnap.exists ? secretsSnap.data() : {};
+    
     let payloadUpdate = { atualizadoEm: FieldValue.serverTimestamp() };
+    let secretsUpdate = { atualizadoEm: FieldValue.serverTimestamp() };
     let logMsg = '';
     let nextDriverState = '';
 
     if (frete.status === 'coletando') {
       payloadUpdate.status = 'em_transporte';
-      payloadUpdate.pinColeta = null; // PIN destruído logicamente
+      secretsUpdate.pinColeta = null; // PIN destruído logicamente
       payloadUpdate.tentativasPin = 0;
       payloadUpdate.bloqueioPin = false;
       nextDriverState = 'em_transporte';
@@ -2379,10 +2408,10 @@ exports.bypassPinEtapaAdmin = functions.runWith(runtimeOpts).https.onCall(async 
          throw new functions.https.HttpsError('failed-precondition', 'Não existem mais entregas para avançar.');
       }
 
-      const pinEntregasAtualizados = [...(frete.pinEntregas || [])];
+      const pinEntregasAtualizados = [...(secrets.pinEntregas || [])];
       pinEntregasAtualizados[paradaAtualIndex] = null; 
       
-      payloadUpdate.pinEntregas = pinEntregasAtualizados;
+      secretsUpdate.pinEntregas = pinEntregasAtualizados;
       payloadUpdate.tentativasPin = 0;
       payloadUpdate.bloqueioPin = false;
 
@@ -2401,6 +2430,7 @@ exports.bypassPinEtapaAdmin = functions.runWith(runtimeOpts).https.onCall(async 
     }
 
     transaction.update(freteRef, payloadUpdate);
+    transaction.set(secretsRef, secretsUpdate, { merge: true });
 
     // Sync Operacional do Motorista
     if (frete.motoristaId) {
@@ -2435,12 +2465,15 @@ exports.aprovarExcecaoPinTorreAdmin = functions.runWith(runtimeOpts).https.onCal
   if (!freteId) throw new functions.https.HttpsError('invalid-argument', 'Identificador de frete ausente.');
 
   const freteRef = db.collection('fretes').doc(freteId);
+  const secretsRef = freteRef.collection('secrets').doc('pins');
 
   return await db.runTransaction(async (transaction) => {
     const snap = await transaction.get(freteRef);
+    const secretsSnap = await transaction.get(secretsRef);
     if (!snap.exists) throw new functions.https.HttpsError('not-found', 'Frete operacional não encontrado.');
 
     const frete = snap.data();
+    const secrets = secretsSnap.exists ? secretsSnap.data() : {};
 
     if (frete.excecaoPinPendente !== true) {
       throw new functions.https.HttpsError('failed-precondition', 'Não há exceção de PIN pendente para este frete.');
@@ -2475,19 +2508,20 @@ exports.aprovarExcecaoPinTorreAdmin = functions.runWith(runtimeOpts).https.onCal
       bloqueioPin: false,
       atualizadoEm: FieldValue.serverTimestamp()
     };
-
+    
+    let secretsUpdate = { atualizadoEm: FieldValue.serverTimestamp() };
     let logMsg = '';
     let nextDriverState = '';
 
     if (isColeta) {
       payloadUpdate.status = 'em_transporte';
-      payloadUpdate.pinColeta = null; // PIN consumido
+      secretsUpdate.pinColeta = null; // PIN consumido
       nextDriverState = 'em_transporte';
       logMsg = "✅ [TORRE ADMIN]: Exceção PENDENTE aprovada. Coleta finalizada sem PIN (Evidência validada).";
     } else {
-      const pinEntregasAtualizados = [...(frete.pinEntregas || [])];
+      const pinEntregasAtualizados = [...(secrets.pinEntregas || [])];
       pinEntregasAtualizados[paradaAtualIndex] = null; // PIN consumido
-      payloadUpdate.pinEntregas = pinEntregasAtualizados;
+      secretsUpdate.pinEntregas = pinEntregasAtualizados;
 
       if (paradaAtualIndex + 1 < totalEntregas) {
         payloadUpdate.paradaAtualIndex = paradaAtualIndex + 1;
@@ -2502,6 +2536,7 @@ exports.aprovarExcecaoPinTorreAdmin = functions.runWith(runtimeOpts).https.onCal
     }
 
     transaction.update(freteRef, payloadUpdate);
+    transaction.set(secretsRef, secretsUpdate, { merge: true });
 
     if (frete.motoristaId) {
       const motoristaRef = db.collection('motoristas_cadastros').doc(frete.motoristaId);
