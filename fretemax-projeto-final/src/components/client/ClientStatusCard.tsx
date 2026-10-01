@@ -1,4 +1,13 @@
+// =========================================================
+// NOME DO ARQUIVO: src/components/ClientStatusCard.tsx
+// CTO-Log: Blindagem F01 Implementada.
+// O Cliente agora consome os PINs da subcoleção '/secrets/pins' 
+// e não expõe mais no payload principal da documentação do frete.
+// =========================================================
+
 import { useState, useEffect } from 'react';
+import { db } from '../firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { Radar, Truck, User, Package, Lock, AlertTriangle, TrendingUp, Timer, Navigation, Star, CheckCircle2, DollarSign, Plus, RefreshCw, XCircle, Activity, FileText, Camera } from 'lucide-react';
 
 interface ClientStatusCardProps {
@@ -16,7 +25,20 @@ const formatDistance = (km: number | undefined | null) => {
 };
 
 export default function ClientStatusCard({ orderData, onSmartPricing, onRepublicar, onCancelar, liveEta }: ClientStatusCardProps) {
-  // 🔥 CTO FIX: Mapeamento defensivo para ler as propriedades com o nome exato que o Firestore armazena
+  
+  // F01: Segregação do PIN - O Embarcador lê os dados restritos daqui agora
+  const [secretPins, setSecretPins] = useState<{ pinColeta?: string, pinEntregas?: string[] | string } | null>(null);
+
+  useEffect(() => {
+    if (!orderData?.id) return;
+    const unsubscribe = onSnapshot(doc(db, `fretes/${orderData.id}/secrets/pins`), (docSnap) => {
+      if (docSnap.exists()) {
+        setSecretPins(docSnap.data() as any);
+      }
+    });
+    return () => unsubscribe();
+  }, [orderData?.id]);
+
   const status = orderData?.status;
   const motoristaNome = orderData?.motoristaNome;
   const veiculo = orderData?.motoristaVeiculo || orderData?.veiculo;
@@ -25,16 +47,14 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
   const motoristaFoto = orderData?.motoristaFoto;
   const motoristaAvaliacao = orderData?.motoristaAvaliacao;
   const valorTotal = orderData?.valorTotal;
-  const pinColeta = orderData?.pinColeta;
-  const pinEntregas = orderData?.pinEntregas;
+  
+  const pinColeta = secretPins?.pinColeta;
+  const pinEntregas = secretPins?.pinEntregas;
   const paradaAtualIndex = orderData?.paradaAtualIndex || 0;
-  const multiplasEntregas = orderData?.multiplasEntregas || false;
   
   const contatoWhatsapp = motoristaTelefone;
-
   const tipoFrete = orderData?.tipoFrete || 'imediato';
   const isAgendado = tipoFrete === 'agendado';
-
   const distancia = orderData?.distanciaRealKm || orderData?.distanciaTotalKm || orderData?.distancia;
 
   const TEMPO_FEED_SEGUNDOS = 30 * 60; 
@@ -107,7 +127,6 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
       ? Number(orderData.etaMinutes) 
       : isDataReady ? Math.max(10, Math.round(distancia * 1.5)) : 0;
 
-  // CTO FIX: Resolução do Bug Matemático do Total de Entregas
   const entregasArray = Array.isArray(pinEntregas) ? pinEntregas : (pinEntregas ? [pinEntregas] : []);
   const totalEntregas = entregasArray.length > 0 ? entregasArray.length : (orderData?.paradas ? orderData.paradas.length + 1 : 1);
 
@@ -254,7 +273,7 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
                     <User size={24} className="text-blue-400" />
                   )}
                 </div>
-                <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-amber-500 text-slate-900 text-[9px] font-black px-1.5 py-0.5 rounded flex items-center gap-0.5 border border-slate-900 shadow-md">
+                <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-amber-500 text-slate-950 text-[9px] font-black px-1.5 py-0.5 rounded flex items-center gap-0.5 border border-slate-900 shadow-md">
                   {motoristaAvaliacao || '5.0'} <Star size={8} fill="currentColor"/>
                 </div>
               </div>
@@ -342,7 +361,7 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
         {/* =======================================================
             COFRE ZERO TRUST: Revelação Baseada em Evidência (Simplificado e Focado)
             ======================================================= */}
-        {(pinColeta || entregasArray.length > 0) && (
+        {(secretPins || isColetaActive) && (
           <div className="rounded-[1.5rem] border border-cyan-500/30 bg-cyan-950/30 p-5 mt-6 relative overflow-hidden shadow-inner">
             <div className="absolute top-0 left-0 w-1 h-full bg-cyan-500"></div>
             <p className="text-[10px] font-black uppercase tracking-widest text-cyan-400 flex items-center gap-2 mb-4">
@@ -380,7 +399,7 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
                             </div>
                             <div className="bg-slate-950 p-3 rounded-xl border border-white/10 text-center">
                                 <p className="text-[9px] uppercase text-slate-500 font-bold mb-1">PIN DE LIBERAÇÃO</p>
-                                <p className="text-2xl font-mono font-black text-white tracking-[0.2em]">{pinColeta}</p>
+                                <p className="text-2xl font-mono font-black text-white tracking-[0.2em]">{pinColeta || 'Aguardando sincronização...'}</p>
                             </div>
                         </div>
                     ) : (
@@ -418,7 +437,7 @@ export default function ClientStatusCard({ orderData, onSmartPricing, onRepublic
                                 </div>
                                 <div className="bg-slate-950 p-3 rounded-xl border border-white/10 text-center">
                                     <p className="text-[9px] uppercase text-slate-500 font-bold mb-1">PIN DE LIBERAÇÃO</p>
-                                    <p className="text-2xl font-mono font-black text-white tracking-[0.2em]">{activePin}</p>
+                                    <p className="text-2xl font-mono font-black text-white tracking-[0.2em]">{activePin || 'Sincronizando...'}</p>
                                 </div>
                             </div>
                         ) : (
