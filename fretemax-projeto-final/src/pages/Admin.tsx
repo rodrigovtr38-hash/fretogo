@@ -2,13 +2,13 @@
 // NOME DO ARQUIVO: src/pages/Admin.tsx
 // CTO-Log: Torre de Controle Inteligente (Operacional Definitivo).
 // Status: Senha hardcoded removida. Card Operacional Full-Stack.
-// Adicionado: Isolamento Financeiro de Fretes QA (Sandbox).
+// Adicionado: Isolamento Financeiro de Fretes QA (Sandbox) e Cofre Zero Trust (PINs).
 // =========================================================
 
 import { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { collection, onSnapshot, doc, query, orderBy, runTransaction, where, serverTimestamp, limit, writeBatch, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, doc, query, orderBy, runTransaction, where, serverTimestamp, limit, writeBatch, getDocs, getDoc } from 'firebase/firestore';
 import { AppTripState } from '../state/tripStateMachine'; 
 import { paymentService } from '../services/paymentService';
 import MapaCliente from '../components/MapaCliente'; 
@@ -62,6 +62,9 @@ export default function Admin() {
   
   const [isProcessingContingency, setIsProcessingContingency] = useState(false);
   const [archivedAlerts, setArchivedAlerts] = useState<Set<string>>(new Set());
+
+  // F01: Estado Segregado para armazenar PINs que vêm da subcoleção blindada
+  const [secretPinsMap, setSecretPinsMap] = useState<Record<string, any>>({});
 
   // 1. CONEXÕES
   useEffect(() => {
@@ -142,6 +145,24 @@ export default function Admin() {
     });
   }, [fretes, searchTerm, statusFilter, timeFilter]);
 
+  // F01: Busca de Segredos sob demanda (Apenas operações filtradas/visíveis na Torre)
+  useEffect(() => {
+    if (tab !== 'corridas') return;
+    const activeFretes = fretesFiltrados.filter(f => !['cancelado', 'finalizado', 'entregue'].includes(f.status));
+    activeFretes.forEach(async (f) => {
+      if (!secretPinsMap[f.id]) {
+        try {
+          const snap = await getDoc(doc(db, `fretes/${f.id}/secrets/pins`));
+          if (snap.exists()) {
+            setSecretPinsMap(prev => ({ ...prev, [f.id]: snap.data() }));
+          }
+        } catch (err) {
+          console.warn(`[Torre] Falha ao recuperar PINs segregados do frete ${f.id}`);
+        }
+      }
+    });
+  }, [fretesFiltrados, tab]);
+
   const alertasCriticos = useMemo(() => {
     return fretes.filter(f => {
       if (archivedAlerts.has(f.id)) return false;
@@ -183,29 +204,34 @@ export default function Admin() {
 
   // 3. AÇÕES & CONTINGÊNCIA
   const forceStatus = async (id: string, novoStatus: string) => {
-    if (novoStatus === 'finalizado' || novoStatus === AppTripState.CANCELADO) {
-      if (!window.confirm(`Forçar status para: ${novoStatus.toUpperCase()}?`)) return;
+    if (novoStatus === 'finalizado') {
+       // NOVO-01: Remoção de Bypass Local de Pagamentos - Envio Server-Side (Cloud Function Autorizada)
+       if (!window.confirm("CONFIRMAÇÃO CRÍTICA: Deseja forçar a liquidação final deste frete (Repasse Manual)?")) return;
+       setIsProcessingContingency(true);
+       try {
+         const liquidar = httpsCallable(getFunctions(), 'liquidarRepasseAdmin');
+         await liquidar({ freteId: id });
+         alert("✅ Liquidação administrativa concluída com sucesso via Torre.");
+       } catch (e: any) {
+         alert(`Erro de Permissão (Torre): ${e.message}`);
+       } finally {
+         setIsProcessingContingency(false);
+       }
+       return;
+    }
+
+    if (novoStatus === AppTripState.CANCELADO) {
+      if (!window.confirm(`Forçar abortar operação (Cancelado)?`)) return;
       try {
         await runTransaction(db, async (t) => {
           const ref = doc(db, 'fretes', id);
           const d = await t.get(ref);
           if (!d.exists()) throw new Error("Frete não encontrado.");
-          if (novoStatus === AppTripState.CANCELADO && d.data().status === AppTripState.EM_TRANSPORTE) throw new Error("Em transporte. Abortado.");
-          
-          if (novoStatus === 'finalizado' && d.data().status !== AppTripState.ENTREGUE) {
-             throw new Error("Apenas fretes 'Entregues' podem ser forçados para 'Finalizado' (Liquidação).");
-          }
-
+          if (d.data().status === AppTripState.EM_TRANSPORTE) throw new Error("A carga já está em trânsito. Ação bloqueada.");
           const updateData: any = { status: novoStatus, adminAction: true, updatedAt: serverTimestamp() };
-          if (novoStatus === 'finalizado' && d.data().status === AppTripState.ENTREGUE) {
-            updateData.repasseEfetuado = true;
-            updateData.repasseData = serverTimestamp();
-            updateData.repassePor = authUser.uid;
-            updateData.repasseValor = Number(d.data().valorLiquidoMotorista || d.data().valorMotorista || 0);
-          }
           t.update(ref, updateData);
         });
-        alert(novoStatus === 'finalizado' ? '✅ Repasse liquidado!' : `✅ Status alterado para ${novoStatus}`);
+        alert(`✅ Status abortado com sucesso.`);
       } catch (e: any) { alert(e.message); }
     } else {
        alert("Ação restrita de Torre. Use os controles de Continência (Bypass) ou navegação orgânica da carga.");
@@ -433,6 +459,7 @@ export default function Admin() {
              ) : (
                fretesFiltrados.map(f => {
                  const estadoObj = getEstadoOperacional(f);
+                 const f_secrets = secretPinsMap[f.id] || {}; // F01: Segregação
                  
                  const origemGPS = (f.origem?.lat && f.origem?.lng) ? { lat: Number(f.origem.lat), lng: Number(f.origem.lng) } : (f.origemLat ? { lat: Number(f.origemLat), lng: Number(f.origemLng) } : null);
                  const destinoGPS = (f.destino?.lat && f.destino?.lng) ? { lat: Number(f.destino.lat), lng: Number(f.destino.lng) } : (f.destinoLat ? { lat: Number(f.destinoLat), lng: Number(f.destinoLng) } : null);
@@ -481,7 +508,7 @@ export default function Admin() {
                              <div><p className="text-[8px] text-slate-500 uppercase font-black mb-1">Motorista / Placa</p><p className="text-xs font-bold text-white truncate max-w-[120px]">{f.motoristaNome || 'Aguardando'} {f.motoristaPlaca ? `- ${f.motoristaPlaca}` : ''}</p></div>
                           </div>
 
-                          {/* PINS & FOTOS COMPROBATIVAS */}
+                          {/* PINS & FOTOS COMPROBATIVAS (Buscados da subcoleção secrets) */}
                           <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700/50">
                              <div className="flex justify-between items-center mb-3">
                                 <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest flex items-center gap-1"><ShieldCheck size={12}/> Auditoria de Entrega (PINs e Comprovantes)</p>
@@ -522,14 +549,14 @@ export default function Admin() {
                                <div className="bg-slate-950 p-3 rounded-lg border border-white/5 flex flex-col justify-between">
                                   <div>
                                      <p className="text-[8px] uppercase text-slate-500 font-bold mb-1">PIN Coleta</p>
-                                     <p className="text-sm font-mono text-white tracking-widest">{f.pinColeta || (f.pinColeta === null ? 'CONSUMIDO' : '---')}</p>
+                                     <p className="text-sm font-mono text-white tracking-widest">{f_secrets.pinColeta || (f_secrets.pinColeta === null ? 'CONSUMIDO' : '---')}</p>
                                   </div>
                                   {(f.fotosPod && f.fotosPod['coleta']) ? <a href={f.fotosPod['coleta']} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase text-cyan-400 underline mt-2 flex items-center gap-1"><Eye size={10}/> Ver Evidência</a> : <p className="text-[9px] text-amber-500 mt-2">Sem Foto</p>}
                                </div>
                                
-                               {/* Iteração de Múltiplos PINs de Entrega com resgate no Map f.fotosPod */}
-                               {f.pinEntregas && Array.isArray(f.pinEntregas) ? f.pinEntregas.map((pin: string, idx: number) => {
-                                  const fotoUrl = (f.fotosPod && f.fotosPod[`parada_${idx}`]) || (f.fotosEntregas && f.fotosEntregas[idx]);
+                               {/* Iteração de Múltiplos PINs de Entrega (lendo dos secrets seguros) */}
+                               {f_secrets.pinEntregas && Array.isArray(f_secrets.pinEntregas) ? f_secrets.pinEntregas.map((pin: string, idx: number) => {
+                                  const fotoUrl = (f.fotosPod && f.fotosPod[`parada_${idx}`]);
                                   const isCurrent = (estadoObj.isTransporte && estadoObj.paradaIndex === idx);
                                   return (
                                       <div key={idx} className={`bg-slate-950 p-3 rounded-lg border flex flex-col justify-between ${isCurrent ? 'border-cyan-500/30 bg-cyan-950/20' : 'border-white/5'}`}>
@@ -539,17 +566,17 @@ export default function Admin() {
                                   );
                                }) : (
                                   <div className={`bg-slate-950 p-3 rounded-lg border ${estadoObj.isTransporte ? 'border-cyan-500/30' : 'border-white/5'} flex flex-col justify-between`}>
-                                    <div><p className="text-[8px] uppercase text-emerald-500 font-bold mb-1">PIN Final</p><p className="text-sm font-mono text-emerald-400">{f.pinEntrega || (typeof f.pinEntregas === 'string' ? f.pinEntregas : '---')}</p></div>
-                                    {((f.fotosPod && (f.fotosPod['parada_0'] || Object.values(f.fotosPod)[0])) || f.comprovanteUrl) ? <a href={((f.fotosPod && (f.fotosPod['parada_0'] || Object.values(f.fotosPod)[0])) || f.comprovanteUrl) as string} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase text-cyan-400 underline mt-2 flex items-center gap-1"><Eye size={10}/> Ver Evidência</a> : <p className="text-[9px] text-amber-500 mt-2">Sem Foto</p>}
+                                    <div><p className="text-[8px] uppercase text-emerald-500 font-bold mb-1">PIN Final</p><p className="text-sm font-mono text-emerald-400">{f_secrets.pinEntregas || '---'}</p></div>
+                                    {((f.fotosPod && (f.fotosPod['parada_0'] || Object.values(f.fotosPod)[0]))) ? <a href={(f.fotosPod['parada_0'] || Object.values(f.fotosPod)[0]) as string} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase text-cyan-400 underline mt-2 flex items-center gap-1"><Eye size={10}/> Ver Evidência</a> : <p className="text-[9px] text-amber-500 mt-2">Sem Foto</p>}
                                   </div>
                                )}
 
                                {/* Garante a exibição de fotos extras do Map fotosPod */}
                                {f.fotosPod && Object.entries(f.fotosPod).map(([chave, url], idx) => {
                                   if (chave === 'coleta') return null;
-                                  if (Array.isArray(f.pinEntregas)) {
+                                  if (Array.isArray(f_secrets.pinEntregas)) {
                                       const index = parseInt(chave.replace('parada_', ''), 10);
-                                      if (!isNaN(index) && index < f.pinEntregas.length) return null; // Já mostrado
+                                      if (!isNaN(index) && index < f_secrets.pinEntregas.length) return null; // Já mostrado
                                   } else {
                                       if (chave === 'parada_0') return null; // Já mostrado
                                   }
