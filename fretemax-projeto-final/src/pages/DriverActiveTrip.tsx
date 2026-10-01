@@ -1,5 +1,7 @@
 // =========================================================
-// NOME DO ARQUIVO: src/pages/DriverActiveTrip.tsx
+// NOME DO ARQUIVO: src/components/DriverActiveTrip.tsx
+// CTO-Log: Blindagem F03 Implementada. Bypass de Coleta Removido.
+// O motorista deve obrigatoriamente validar Foto e PIN para iniciar a rota.
 // =========================================================
 
 import { useState, useEffect } from 'react';
@@ -139,8 +141,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       || frete.enderecoEntregaTexto
       || 'Destino da rota';
 
-  const pinEntregasArray = Array.isArray(frete.pinEntregas) ? frete.pinEntregas : (frete.pinEntregas ? [frete.pinEntregas as string] : []);
-  const totalParadas = pinEntregasArray.length > 0 ? pinEntregasArray.length : (paradas.length > 0 ? paradas.length : 1);
+  const totalParadas = paradas.length > 0 ? (paradas.length + 1) : 1; // Contabiliza as paradas extras + Destino Final
 
   const etapaAtualKey = frete.status === AppTripState.COLETANDO ? 'coleta' : `parada_${paradaAtualIndex}`;
   const isFotoConfirmada = !!frete.fotosPod?.[etapaAtualKey];
@@ -606,20 +607,15 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
             </button>
           )}
 
-          {frete.status === AppTripState.COLETANDO && !frete.pinColeta && (
-            <button onClick={() => handleStatusUpdate(AppTripState.EM_TRANSPORTE)} disabled={actionLoading} className="w-full flex flex-col items-center justify-center py-4 px-2 font-black uppercase tracking-widest rounded-xl text-slate-900 disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(16,185,129,0.4)] bg-emerald-500 hover:bg-emerald-400">
+          {/* F03: BLINDAGEM DE COLETA APLICADA AQUI - NÃO HÁ MAIS BYPASS */}
+          {frete.status === AppTripState.COLETANDO && (
+            <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full flex flex-col items-center justify-center py-4 px-2 font-black uppercase tracking-widest rounded-xl text-slate-900 disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(16,185,129,0.4)] bg-emerald-500 hover:bg-emerald-400">
               {actionLoading ? <Loader2 className="animate-spin" size={24}/> : (
                  <>
-                   <div className="flex items-center gap-2 mb-1"><Truck size={18} /> <span className="text-lg">Carga no Veículo (Iniciar Rota)</span></div>
-                   <span className="text-[9px] text-emerald-900 normal-case tracking-normal">Tudo pronto! Partir para a primeira entrega</span>
+                   <div className="flex items-center gap-2 mb-1"><Truck size={18} /> <span className="text-lg">Finalizar Carregamento</span></div>
+                   <span className="text-[9px] text-emerald-900 normal-case tracking-normal">Registrar Foto e PIN de Coleta para Iniciar Rota</span>
                  </>
               )}
-            </button>
-          )}
-
-          {frete.status === AppTripState.COLETANDO && frete.pinColeta && (
-            <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full flex items-center justify-center h-16 font-black uppercase tracking-widest rounded-xl text-black disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.4)] bg-cyan-500 hover:bg-cyan-400">
-              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : 'Registrar Evidência de Coleta (Legado)'}
             </button>
           )}
 
@@ -749,7 +745,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
                       </div>
                       
                       <p className="text-slate-400 text-xs text-center mb-4 leading-relaxed font-bold">
-                        PIN DA ENTREGA
+                        PIN DE VALIDAÇÃO
                       </p>
                       <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={4} value={pinValue} onChange={(e) => { setPinValue(e.target.value.replace(/\D/g, '')); setPinError(''); }} className="w-full p-5 text-center text-5xl font-black tracking-[0.5em] bg-slate-950 text-cyan-400 border-2 border-cyan-500/30 rounded-2xl mb-4 focus:outline-none focus:border-cyan-400 placeholder:text-slate-800" placeholder="____" />
                     </div>
