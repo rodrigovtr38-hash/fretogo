@@ -22,7 +22,6 @@ service cloud.firestore {
       ];
     }
 
-    // 🔥 CTO FIX: BLINDAGEM DE HOMOLOGAÇÃO (BLOCO 2 E 5)
     function isQATester() {
       return isAuthenticated() &&
         request.auth.token.email != null &&
@@ -70,14 +69,13 @@ service cloud.firestore {
         isAdmin() || isQATester()
       );
 
-      // 🔥 CTO FIX (PATCH BLOCO 01): BLOQUEADO NO FRONTEND. CRIAÇÃO SOMENTE VIA CLOUD FUNCTION.
       allow create: if false; 
 
       allow update: if
-        isAdmin() || isQATester() 
+        // 🔥 CTO FIX (NOVO-01): Admin NÃO PODE liquidar direto pelo frontend (bloqueio nos campos financeiros-chave).
+        ((isAdmin() || isQATester()) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['chavePixMotorista', 'liquidadoEm', 'repasseEfetuado'])) 
         ||
-        // O navegador do motorista grava somente telemetria e evidência. Aceite,
-        // progressão, PIN, cancelamento e liquidação são exclusivos do backend.
+        // Navegador do motorista grava somente telemetria e evidência. Aceite, progressão, PIN e liquidação são exclusivos do backend.
         (isAuthenticated() && 
          resource.data.motoristaId == request.auth.uid && 
          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -85,7 +83,7 @@ service cloud.firestore {
            'gpsFalhou', 'heartbeat', 'atualizadoEm', 'updatedAt'
          ]))
         ||
-        // 🔥 CTO FIX (PATCH BLOCO 01): Liberação de Auto-Bid Blindada (Margem, lucro e comissão bloqueados no front)
+        // Liberação de Auto-Bid Blindada
         (isAuthenticated() &&
          resource.data.clienteId == request.auth.uid &&
          (resource.data.status == 'expirado' || resource.data.status == 'sem_motorista' || resource.data.status == 'disponivel') &&
@@ -96,7 +94,12 @@ service cloud.firestore {
 
       allow delete: if isAdmin() || isQATester();
       
-      // Liberação para a Coleção Filha de Chat FTI
+      // 🔥 CTO FIX (F01): Blindagem Zero-Trust. PINs migrados para subcoleção isolada. Motorista NUNCA pode ler esta coleção.
+      match /secrets/{secretId} {
+        allow read: if isAdmin() || isQATester() || (isAuthenticated() && get(/databases/$(database)/documents/fretes/$(freteId)).data.clienteId == request.auth.uid);
+        allow write: if false; 
+      }
+
       match /chat/{mensagemId} {
         allow read, create: if isAuthenticated() && (
           get(/databases/$(database)/documents/fretes/$(freteId)).data.clienteId == request.auth.uid ||
