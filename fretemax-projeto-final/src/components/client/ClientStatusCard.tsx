@@ -1,12 +1,13 @@
 // =========================================================
-// NOME DO ARQUIVO: src/components/ClientStatusCard.tsx
+// NOME DO ARQUIVO: src/components/client/ClientStatusCard.tsx
 // CTO-Log: Blindagem F01 Implementada.
 // O Cliente agora consome os PINs da subcoleção '/secrets/pins' 
 // e não expõe mais no payload principal da documentação do frete.
+// Import ajustado para '../../firebase' corrigindo a build.
 // =========================================================
 
 import { useState, useEffect } from 'react';
-import { db } from '../firebase';
+import { db } from '../../firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { Radar, Truck, User, Package, Lock, AlertTriangle, TrendingUp, Timer, Navigation, Star, CheckCircle2, DollarSign, Plus, RefreshCw, XCircle, Activity, FileText, Camera } from 'lucide-react';
 
