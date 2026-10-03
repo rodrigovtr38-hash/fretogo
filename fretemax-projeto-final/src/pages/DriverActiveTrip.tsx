@@ -1,25 +1,23 @@
 // =========================================================
 // NOME DO ARQUIVO: src/components/DriverActiveTrip.tsx
-// CTO-Log: Blindagem F03 Implementada. Bypass de Coleta Removido.
-// O motorista deve obrigatoriamente validar Foto e PIN para iniciar a rota.
+// CTO-Log: Blindagem F03 Preservada. Arquitetura Refatorada.
+// O componente agora atua estritamente como Bottom Sheet Responsivo.
+// Não instancia GPS nem Mapa, reaproveitando os dados globais do Pai.
 // =========================================================
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db, auth, storage } from '../firebase'; 
-import { doc, onSnapshot, DocumentData } from 'firebase/firestore';
+import { DocumentData } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage'; 
 import { getFunctions, httpsCallable } from 'firebase/functions'; 
 import { LockKeyhole, AlertTriangle, Loader2, MapPin, Radio, Navigation, Scale, Camera, Wallet, CheckCircle2, MessageCircle, FileText, Check, XCircle, Info, UploadCloud, Truck, Package, MapPinned, HelpCircle } from 'lucide-react';
-import MapaCliente from '../components/MapaCliente';
 import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
 import { locationRealtimeService } from '../services/locationRealtimeService'; 
 import { locationService } from '../services/locationService'; 
 import { AppTripState } from '../state/tripStateMachine';
 import { TripLifecycleService } from '../services/tripLifecycleService'; 
 import { PLATFORM_LINKS, openExternalLink } from '../config/platformLinks';
-
-interface DriverActiveTripProps { freteId?: string; }
 
 interface ActiveFreightData extends DocumentData {
   id: string;
@@ -50,10 +48,13 @@ interface ActiveFreightData extends DocumentData {
   excecaoPinPendente?: boolean;
 }
 
-export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
-  const [frete, setFrete] = useState<ActiveFreightData | null>(null);
-  const [loading, setLoading] = useState(true);
-  
+interface DriverActiveTripProps { 
+  frete: ActiveFreightData;
+  currentGps: {lat: number, lng: number} | null;
+  etaAtiva: number | null;
+}
+
+export default function DriverActiveTrip({ frete, currentGps, etaAtiva }: DriverActiveTripProps) {
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [pinValue, setPinValue] = useState('');
   const [pinError, setPinError] = useState('');
@@ -68,71 +69,24 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
   const [isOcorrenciaOpen, setIsOcorrenciaOpen] = useState(false);
   const [ocorrenciaMotivo, setOcorrenciaMotivo] = useState('');
 
-  const [currentGps, setCurrentGps] = useState<{lat: number, lng: number} | null>(null);
-  const [etaAtiva, setEtaAtiva] = useState<number | null>(null);
+  if (!frete || !frete.id) return null;
 
-  useEffect(() => {
-    const unsubscribeGps = locationRealtimeService.onPositionUpdate((pos) => {
-      setCurrentGps(pos);
-    });
-    return () => unsubscribeGps();
-  }, []);
+  const paradas = frete.paradas || [];
+  const paradaAtualIndex = frete.paradaAtualIndex || 0;
+  const destinoAtual = paradas[paradaAtualIndex] || (frete.entrega || {});
 
-  useEffect(() => {
-    if (!freteId) { setLoading(false); return; }
-    const unsubscribe = onSnapshot(
-      doc(db, 'fretes', freteId),
-      (docSnap) => {
-        if (docSnap.exists()) setFrete({ id: docSnap.id, ...docSnap.data() } as ActiveFreightData);
-        else setFrete(null);
-        loading && setLoading(false);
-      },
-      (error) => {
-        console.error('[CTO-Log] Falha ao acompanhar viagem ativa:', error);
-        setOperationError('Não foi possível sincronizar a viagem. Verifique sua conexão.');
-        setLoading(false);
-      }
-    );
-    return () => unsubscribe();
-  }, [freteId, loading]);
-
-  const paradas = frete?.paradas || [];
-  const paradaAtualIndex = frete?.paradaAtualIndex || 0;
-  const destinoAtual = paradas[paradaAtualIndex] || (frete?.entrega || {});
-
-  const isFaseColeta = frete?.status 
-    ? new Set<string>([AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.CHEGOU_COLETA, AppTripState.COLETANDO]).has(String(frete.status))
-    : false;
+  const isFaseColeta = new Set<string>([AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.CHEGOU_COLETA, AppTripState.COLETANDO]).has(String(frete.status));
   
   const mapDestinoGPS = destinoAtual?.lat ? { lat: destinoAtual.lat, lng: destinoAtual.lng } : null;
-
-  const navDestinoGPS = isFaseColeta && frete?.origemLat && frete?.origemLng 
+  const navDestinoGPS = isFaseColeta && frete.origemLat && frete.origemLng 
     ? { lat: frete.origemLat, lng: frete.origemLng } 
     : mapDestinoGPS;
-
-  const mapOriginGPS = currentGps || (frete?.status === AppTripState.EM_TRANSPORTE 
-    ? (paradaAtualIndex === 0 
-        ? { lat: frete?.origemLat as number, lng: frete?.origemLng as number } 
-        : { 
-            lat: paradas[paradaAtualIndex-1]?.lat ?? frete?.origemLat as number, 
-            lng: paradas[paradaAtualIndex-1]?.lng ?? frete?.origemLng as number
-          }
-      )
-    : null);
 
   const distanceToTarget = (!currentGps || !navDestinoGPS?.lat || !navDestinoGPS?.lng) 
     ? null 
     : locationRealtimeService.calculateDistance(currentGps.lat, currentGps.lng, navDestinoGPS.lat, navDestinoGPS.lng);
 
   const distStr = distanceToTarget !== null ? (distanceToTarget > 1000 ? `${(distanceToTarget / 1000).toFixed(1)}km` : `${Math.round(distanceToTarget)}m`) : '';
-
-  if (loading) return (
-    <div className="flex h-64 items-center justify-center rounded-[2rem] border border-white/10 bg-white/5">
-      <div className="h-8 w-8 animate-spin rounded-full border-4 border-cyan-500 border-t-transparent"></div>
-    </div>
-  );
-  
-  if (!frete) return null;
 
   const enderecoAlvoTexto = isFaseColeta
     ? frete.enderecoColetaTexto
@@ -141,19 +95,15 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       || frete.enderecoEntregaTexto
       || 'Destino da rota';
 
-  const totalParadas = paradas.length > 0 ? (paradas.length + 1) : 1; // Contabiliza as paradas extras + Destino Final
+  const totalParadas = paradas.length > 0 ? (paradas.length + 1) : 1; 
 
   const etapaAtualKey = frete.status === AppTripState.COLETANDO ? 'coleta' : `parada_${paradaAtualIndex}`;
   const isFotoConfirmada = !!frete.fotosPod?.[etapaAtualKey];
-
-  const destinoFinalMap = frete.entrega?.lat ? { lat: frete.entrega.lat, lng: frete.entrega.lng } : null;
-  const paradasExtrasMap = paradas.filter(p => p.lat && p.lng).map(p => ({ lat: p.lat, lng: p.lng }));
 
   const handleOpenNav = async (app: 'waze' | 'google') => {
     setActionLoading(true);
     try {
       let originCoords = currentGps;
-
       if (!originCoords) {
          originCoords = await locationService.getCurrentLocation();
       }
@@ -178,7 +128,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
 
       openExternalLink(url);
     } catch (error) {
-      console.error('[CTO-Log] Falha na abertura da navegação.', error);
       alert("Não foi possível obter sua localização. Verifique seu GPS e tente novamente.");
     } finally {
       setActionLoading(false);
@@ -191,7 +140,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     try {
       await TripLifecycleService.executarAcaoMotorista(frete.id, novoStatus);
     } catch (e: any) {
-      console.error('[CTO-Log] Erro na transição de status:', e);
       setOperationError(e.message || 'Não foi possível avançar a etapa. Verifique sua conexão e tente novamente.');
     } finally { setActionLoading(false); }
   };
@@ -225,7 +173,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
       await TripLifecycleService.registrarEvidenciaMotorista(frete.id, etapaAtualKey, finalUrl);
       setFotoPodBase64(null);
     } catch (uploadError) {
-      console.error('[CTO-Log] Erro no upload da foto POD:', uploadError);
       setPinError('Falha no upload da foto. Verifique sua conexão e tente novamente.');
     } finally {
       setUploadingPod(false);
@@ -294,9 +241,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
     try {
       const driverId = auth.currentUser?.uid;
       if (!driverId) throw new Error("Motorista não identificado");
-
       await dispatchRealtimeService.cancelarViagemMotorista(driverId, frete.id, `Emergência/Cancelamento: ${ocorrenciaMotivo}`);
-      
       setIsPinModalOpen(false); 
       setIsOcorrenciaOpen(false);
       setPinValue('');
@@ -309,7 +254,6 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
 
   const handleLiquidacaoSubmit = async () => {
     if (!chavePix.trim()) { alert("Digite sua chave PIX para receber!"); return; }
-    
     setActionLoading(true);
     try {
       const functions = getFunctions(db.app);
@@ -363,42 +307,38 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
 
   if (frete.status === AppTripState.CANCELADO || String(frete.status) === 'cancelado') {
     return (
-      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="rounded-[2.5rem] border-2 border-red-500/30 bg-slate-900 shadow-[0_0_50px_rgba(239,68,68,0.15)] p-8">
+      <div className="fixed bottom-0 left-0 right-0 z-[50] bg-slate-900/95 backdrop-blur-xl border-t border-red-500/30 rounded-t-[2.5rem] shadow-[0_-10px_50px_rgba(239,68,68,0.15)] p-8 md:max-w-4xl md:mx-auto">
          <div className="flex justify-center mb-6">
-           <div className="w-20 h-20 bg-red-500/10 rounded-full border border-red-500/30 flex items-center justify-center">
-             <XCircle size={40} className="text-red-400" />
+           <div className="w-16 h-16 bg-red-500/10 rounded-full border border-red-500/30 flex items-center justify-center">
+             <XCircle size={32} className="text-red-400" />
            </div>
          </div>
-         <h2 className="text-center text-3xl font-black text-white uppercase italic tracking-tighter mb-2">Operação Abortada</h2>
+         <h2 className="text-center text-2xl font-black text-white uppercase italic tracking-tighter mb-2">Operação Abortada</h2>
          <p className="text-center text-slate-400 text-sm mb-8">Esta viagem foi cancelada e devolvida à Torre de Controle.</p>
-         
-         <button 
-           onClick={() => window.location.reload()} 
-           className="w-full flex items-center justify-center gap-2 bg-slate-800 h-16 font-black uppercase tracking-[0.2em] rounded-[1.5rem] transition-all hover:bg-slate-700 active:scale-95 text-white border border-slate-700 shadow-inner"
-         >
+         <button onClick={() => window.location.reload()} className="w-full flex items-center justify-center gap-2 bg-slate-800 h-14 font-black uppercase tracking-[0.2em] rounded-[1.5rem] transition-all hover:bg-slate-700 active:scale-95 text-white border border-slate-700 shadow-inner">
            Voltar ao Radar
          </button>
-      </motion.div>
+      </div>
     );
   }
 
-  if (frete.status === AppTripState.FINALIZANDO) {
+  if (frete.status === AppTripState.FINALIZANDO || frete.status === AppTripState.ENTREGUE || String(frete.status) === 'finalizado') {
     return (
-      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="rounded-[2.5rem] border-2 border-emerald-500/30 bg-slate-900 shadow-[0_0_50px_rgba(16,185,129,0.15)] p-8">
-         <div className="flex justify-center mb-6">
-           <div className="w-20 h-20 bg-emerald-500/10 rounded-full border border-emerald-500/30 flex items-center justify-center">
-             <CheckCircle2 size={40} className="text-emerald-400" />
+      <div className="fixed bottom-0 left-0 right-0 z-[50] bg-slate-900/95 backdrop-blur-xl border-t border-emerald-500/30 rounded-t-[2.5rem] shadow-[0_-10px_50px_rgba(16,185,129,0.15)] p-6 max-h-[85vh] overflow-y-auto md:max-w-4xl md:mx-auto">
+         <div className="flex justify-center mb-4 mt-2">
+           <div className="w-16 h-16 bg-emerald-500/10 rounded-full border border-emerald-500/30 flex items-center justify-center">
+             <CheckCircle2 size={32} className="text-emerald-400" />
            </div>
          </div>
-         <h2 className="text-center text-3xl font-black text-white uppercase italic tracking-tighter mb-2">Operação Concluída!</h2>
-         <p className="text-center text-slate-400 text-sm mb-6">Todos os {totalParadas} comprovantes de entrega (POD) foram enviados à Torre de Controle.</p>
+         <h2 className="text-center text-2xl font-black text-white uppercase italic tracking-tighter mb-2">Operação Concluída!</h2>
+         <p className="text-center text-slate-400 text-xs mb-6">Todos os {totalParadas} comprovantes de entrega (POD) foram enviados à Torre de Controle.</p>
 
-         <div className="bg-slate-950 p-4 rounded-2xl border border-white/5 mb-8">
+         <div className="bg-slate-950 p-4 rounded-2xl border border-white/5 mb-6">
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3 border-b border-white/5 pb-2">Resumo da Execução</p>
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="grid grid-cols-2 gap-3 text-xs">
                <div>
                   <p className="text-[9px] text-slate-500 uppercase font-bold">Carga</p>
-                  <p className="text-white font-bold truncate max-w-[120px]">{frete.qtdVolumes ? `${frete.qtdVolumes} un - ` : ''}{frete.tipoMaterial || 'Diversos'}</p>
+                  <p className="text-white font-bold truncate">{frete.qtdVolumes ? `${frete.qtdVolumes} un - ` : ''}{frete.tipoMaterial || 'Diversos'}</p>
                </div>
                <div>
                   <p className="text-[9px] text-slate-500 uppercase font-bold">Distância</p>
@@ -406,7 +346,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
                </div>
                <div>
                   <p className="text-[9px] text-slate-500 uppercase font-bold">Total a Receber</p>
-                  <p className="text-emerald-400 font-black">R$ {Number(frete.valorLiquidoMotorista || frete.valorMotorista || 0).toFixed(2).replace('.',',')}</p>
+                  <p className="text-emerald-400 font-black text-sm">R$ {Number(frete.valorLiquidoMotorista || frete.valorMotorista || 0).toFixed(2).replace('.',',')}</p>
                </div>
                <div>
                   <p className="text-[9px] text-slate-500 uppercase font-bold">Paradas</p>
@@ -415,245 +355,193 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
             </div>
          </div>
 
-         <div className="space-y-6">
-           <div className="bg-slate-950 p-6 rounded-2xl border border-white/5 relative overflow-hidden group">
-             <Wallet className="absolute -right-4 -bottom-4 w-24 h-24 text-white/5" />
-             <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500 mb-4">Seu Pix para Recebimento</p>
-             <input 
-               type="text" 
-               placeholder="Sua Chave PIX (CPF/Celular)..." 
-               value={chavePix}
-               onChange={(e) => setChavePix(e.target.value)}
-               className="w-full bg-slate-900 border border-emerald-500/30 rounded-xl py-4 px-5 text-white font-black placeholder:text-slate-600 focus:border-emerald-400 outline-none transition-all"
-             />
+         <div className="space-y-4">
+           <div className="bg-slate-950 p-5 rounded-2xl border border-white/5 relative overflow-hidden group">
+             <Wallet className="absolute -right-4 -bottom-4 w-20 h-20 text-white/5" />
+             <p className="text-[9px] font-black uppercase tracking-widest text-emerald-500 mb-3">Seu Pix para Recebimento</p>
+             <input type="text" placeholder="Sua Chave PIX (CPF/Celular)..." value={chavePix} onChange={(e) => setChavePix(e.target.value)} className="w-full bg-slate-900 border border-emerald-500/30 rounded-xl py-3 px-4 text-white text-sm font-black placeholder:text-slate-600 focus:border-emerald-400 outline-none transition-all" />
            </div>
 
-           <button 
-             onClick={handleLiquidacaoSubmit} 
-             disabled={actionLoading || !chavePix} 
-             className="w-full flex items-center justify-center gap-2 bg-emerald-500 h-16 font-black uppercase tracking-[0.2em] rounded-[1.5rem] disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:bg-emerald-400 active:scale-95 shadow-[0_10px_30px_rgba(16,185,129,0.3)] text-slate-950"
-           >
-             {actionLoading ? <Loader2 className="animate-spin" size={24}/> : <><MessageCircle size={20} /> Solicitar PIX via WhatsApp</>}
+           <button onClick={handleLiquidacaoSubmit} disabled={actionLoading || !chavePix} className="w-full flex items-center justify-center gap-2 bg-emerald-500 h-14 font-black uppercase text-xs tracking-[0.2em] rounded-[1.5rem] disabled:opacity-50 transition-all hover:bg-emerald-400 active:scale-95 shadow-[0_10px_30px_rgba(16,185,129,0.2)] text-slate-950">
+             {actionLoading ? <Loader2 className="animate-spin" size={20}/> : <><MessageCircle size={18} /> Solicitar PIX via WhatsApp</>}
+           </button>
+           
+           <button onClick={() => window.location.reload()} className="w-full flex items-center justify-center h-12 text-slate-500 font-bold text-[10px] uppercase tracking-widest hover:text-white transition-colors">
+              Finalizar e Voltar ao Radar
            </button>
          </div>
-      </motion.div>
+      </div>
     );
   }
 
+  // INTERFACE PRINCIPAL DA VIAGEM ATIVA (BOTTOM SHEET)
   return (
     <>
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="rounded-[2rem] border border-cyan-500/20 bg-slate-900 shadow-2xl p-6">
-        
-        <div className="mb-6 bg-slate-950 border border-white/5 rounded-2xl p-3 flex justify-between items-center shadow-inner">
-           <div className="flex items-center gap-2">
-              <FileText size={14} className="text-cyan-500" />
-              <div>
-                 <p className="text-[8px] font-black uppercase tracking-widest text-slate-500">Ordem Operacional</p>
-                 <p className="text-[10px] font-bold text-slate-300 truncate w-32">{frete.tipoMaterial || 'Carga Geral'} • {frete.pesoKg || frete.peso}kg</p>
-              </div>
-           </div>
-           <div className="text-right border-l border-white/5 pl-3">
-              <p className="text-[8px] font-black uppercase tracking-widest text-slate-500">Valor Final</p>
-              <p className="text-[10px] font-black text-emerald-400">R$ {Number(frete.valorLiquidoMotorista || frete.valorMotorista || 0).toFixed(2).replace('.',',')}</p>
-           </div>
+      <div className="fixed bottom-0 left-0 right-0 z-[50] bg-slate-900/95 backdrop-blur-xl border-t border-cyan-500/20 rounded-t-[2.5rem] shadow-[0_-10px_50px_rgba(0,0,0,0.5)] max-h-[80vh] flex flex-col md:max-w-4xl md:mx-auto">
+        <div className="shrink-0 pt-4 pb-2 flex justify-center">
+           <div className="w-12 h-1.5 bg-slate-700 rounded-full cursor-grab"></div>
         </div>
 
-        <div className="mb-6 bg-slate-950 border border-white/5 rounded-2xl p-5 shadow-inner max-h-[350px] overflow-y-auto">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-5 flex items-center gap-2 sticky top-0 bg-slate-950/90 backdrop-blur-sm py-1 z-20">
-            <MapPinned size={14} className="text-cyan-400" /> Rota Operacional
-          </h3>
-          <div className="flex flex-col gap-0 relative">
-             {roteiroOperacional.map((step, idx) => (
-                <div key={idx} className="flex gap-4 relative">
-                   {idx < roteiroOperacional.length - 1 && (
-                      <div className={`absolute left-[11px] top-6 bottom-[-16px] w-[2px] ${step.isCompleted ? 'bg-emerald-500/50' : 'bg-slate-800'}`}></div>
-                   )}
-                   <div className="relative z-10 flex-shrink-0 mt-1">
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
-                         step.isCompleted ? 'bg-emerald-500 border-emerald-400 text-slate-950' :
-                         step.isActive ? 'bg-blue-600 border-blue-400 text-white shadow-[0_0_15px_rgba(59,130,246,0.5)] animate-pulse' :
-                         'bg-slate-900 border-slate-700 text-slate-600'
-                      }`}>
-                         {step.isCompleted ? <Check size={12} strokeWidth={4} /> : <div className="w-1.5 h-1.5 rounded-full bg-current"></div>}
-                      </div>
-                   </div>
-                   <div className={`pb-6 ${step.isActive ? 'opacity-100' : 'opacity-60'} w-full`}>
-                      <p className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${
-                         step.isCompleted ? 'text-emerald-500' : step.isActive ? 'text-blue-400' : 'text-slate-500'
-                      }`}>
-                         {step.tipo}
-                         {step.isActive && <span className="text-[8px] bg-blue-600/20 border border-blue-500/50 text-blue-400 px-2 py-0.5 rounded-full normal-case tracking-normal">Etapa Atual</span>}
-                      </p>
-                      <p className={`text-xs mt-1 font-bold ${step.isActive ? 'text-white' : 'text-slate-400'} leading-relaxed pr-2`}>
-                         {step.endereco}
-                      </p>
-                   </div>
+        <div className="overflow-y-auto p-5 pt-2 pb-8">
+          <div className="mb-5 bg-slate-950 border border-white/5 rounded-2xl p-3 flex justify-between items-center shadow-inner">
+             <div className="flex items-center gap-2">
+                <FileText size={14} className="text-cyan-500" />
+                <div>
+                   <p className="text-[8px] font-black uppercase tracking-widest text-slate-500">Ordem Operacional</p>
+                   <p className="text-[10px] font-bold text-slate-300 truncate w-32">{frete.tipoMaterial || 'Carga Geral'} • {frete.pesoKg || frete.peso}kg</p>
                 </div>
-             ))}
+             </div>
+             <div className="text-right border-l border-white/5 pl-3">
+                <p className="text-[8px] font-black uppercase tracking-widest text-slate-500">Valor Final</p>
+                <p className="text-[10px] font-black text-emerald-400">R$ {Number(frete.valorLiquidoMotorista || frete.valorMotorista || 0).toFixed(2).replace('.',',')}</p>
+             </div>
           </div>
-        </div>
 
-        <div className="mt-8 mb-6 flex items-center justify-between rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 shadow-inner">
-          <div className="flex items-center gap-3">
-            <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span></span>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400 flex items-center gap-1"><Radio size={12}/> Rastreamento Ativo</p>
-              <p className="text-xs font-bold text-slate-300">
-                {distStr ? `Alvo a ${distStr}` : 'Central Conectada'}
-                {etaAtiva !== null ? ` • ~${etaAtiva} min` : ''}
-              </p>
+          <div className="mb-5 bg-slate-950 border border-white/5 rounded-2xl p-4 shadow-inner max-h-[250px] overflow-y-auto">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4 flex items-center gap-2 sticky top-0 bg-slate-950/90 backdrop-blur-sm py-1 z-20">
+              <MapPinned size={14} className="text-cyan-400" /> Rota Operacional
+            </h3>
+            <div className="flex flex-col gap-0 relative">
+               {roteiroOperacional.map((step, idx) => (
+                  <div key={idx} className="flex gap-4 relative">
+                     {idx < roteiroOperacional.length - 1 && (
+                        <div className={`absolute left-[11px] top-6 bottom-[-16px] w-[2px] ${step.isCompleted ? 'bg-emerald-500/50' : 'bg-slate-800'}`}></div>
+                     )}
+                     <div className="relative z-10 flex-shrink-0 mt-1">
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
+                           step.isCompleted ? 'bg-emerald-500 border-emerald-400 text-slate-950' :
+                           step.isActive ? 'bg-blue-600 border-blue-400 text-white shadow-[0_0_15px_rgba(59,130,246,0.5)] animate-pulse' :
+                           'bg-slate-900 border-slate-700 text-slate-600'
+                        }`}>
+                           {step.isCompleted ? <Check size={12} strokeWidth={4} /> : <div className="w-1.5 h-1.5 rounded-full bg-current"></div>}
+                        </div>
+                     </div>
+                     <div className={`pb-6 ${step.isActive ? 'opacity-100' : 'opacity-60'} w-full`}>
+                        <p className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${
+                           step.isCompleted ? 'text-emerald-500' : step.isActive ? 'text-blue-400' : 'text-slate-500'
+                        }`}>
+                           {step.tipo}
+                           {step.isActive && <span className="text-[8px] bg-blue-600/20 border border-blue-500/50 text-blue-400 px-2 py-0.5 rounded-full normal-case tracking-normal">Etapa Atual</span>}
+                        </p>
+                        <p className={`text-xs mt-1 font-bold ${step.isActive ? 'text-white' : 'text-slate-400'} leading-relaxed pr-2`}>
+                           {step.endereco}
+                        </p>
+                     </div>
+                  </div>
+               ))}
             </div>
           </div>
-          <div className="rounded-lg bg-emerald-500/20 px-3 py-1 border border-emerald-500/30">
-            <p className="text-[10px] font-black uppercase text-emerald-400 tracking-widest">No Prazo</p>
-          </div>
-        </div>
 
-        <div className="mb-6 text-center">
-          <h2 className="text-xl font-black text-cyan-400 uppercase tracking-widest">
-            {isFaseColeta ? 'LOCAL DE RETIRADA' : `ENTREGA ${paradaAtualIndex + 1}/${totalParadas}`}
-          </h2>
-          <div className="mt-2 flex flex-col items-center gap-2">
-            <p className="text-[10px] uppercase font-black text-slate-500">Embarcador: <span className="text-white">{frete.clienteNome || 'Privado'}</span></p>
-            <button onClick={handleContatoEmpresa} className="text-[10px] uppercase font-black tracking-widest text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors flex items-center gap-1">
-              <MessageCircle size={10} /> Contatar Empresa
-            </button>
-          </div>
-        </div>
-
-        <div className="flex justify-center mb-4">
-            <div className="bg-slate-800/50 rounded-2xl py-3 px-8 flex flex-col items-center justify-center border border-slate-700/50 text-center">
-               <Scale size={16} className="text-amber-400 mb-1" />
-               <p className="text-[9px] uppercase font-black tracking-widest text-slate-400">Peso Bruto</p>
-               <p className="text-sm font-bold text-white">{frete.pesoKg || frete.peso || 'Não informado'} kg</p>
-            </div>
-        </div>
-
-        <div className="h-[250px] w-full mb-4 rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 relative shadow-[0_0_20px_rgba(6,182,212,0.1)]">
-          <MapaCliente 
-            origem={frete.origemLat ? { lat: frete.origemLat, lng: frete.origemLng } : mapOriginGPS} 
-            destino={destinoFinalMap || mapDestinoGPS} 
-            paradasExtras={paradasExtrasMap}
-            motoristaPos={currentGps}
-            motoristaId={auth.currentUser?.uid || frete.id}
-            paradaAtualIndex={paradaAtualIndex}
-            operationalMessage={isFaseColeta ? "Buscando Carga" : `Navegando para Entrega ${paradaAtualIndex + 1}/${totalParadas}`}
-            onRouteUpdate={(eta) => setEtaAtiva(eta)}
-          />
-        </div>
-
-        <div className="mb-6 flex items-start gap-3 bg-slate-800/50 p-4 rounded-2xl border border-slate-700/50">
-          <div className="mt-1 shrink-0"><MapPin size={18} className="text-cyan-400" /></div>
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Endereço Alvo</p>
-            <p className="text-sm font-bold text-white leading-snug">{enderecoAlvoTexto}</p>
-          </div>
-        </div>
-
-        {frete.observacoes && frete.observacoes.trim() !== '' && (
-          <div className="mb-6 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 shadow-inner relative overflow-hidden group">
-            <div className="absolute top-0 left-0 w-1 h-full bg-amber-500"></div>
-            <div className="flex gap-3">
-              <Info size={20} className="text-amber-400 shrink-0 mt-0.5" />
+          <div className="mt-4 mb-5 flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 shadow-inner">
+            <div className="flex items-center gap-3">
+              <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span></span>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-amber-500 mb-2 flex items-center gap-1">
-                  Instruções da Doca / Observações
-                </p>
-                <p className="text-sm font-medium text-slate-200 leading-relaxed whitespace-pre-wrap">
-                  {frete.observacoes}
+                <p className="text-[9px] font-black uppercase tracking-widest text-emerald-400 flex items-center gap-1"><Radio size={10}/> Rastreamento Ativo</p>
+                <p className="text-[11px] font-bold text-slate-300">
+                  {distStr ? `Alvo a ${distStr}` : 'Central Conectada'}
+                  {etaAtiva !== null ? ` • ~${etaAtiva} min` : ''}
                 </p>
               </div>
             </div>
           </div>
-        )}
 
-        {operationError && (
-          <div role="alert" className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-center text-xs font-bold text-red-300">
-            {operationError}
+          <div className="mb-5 text-center">
+            <h2 className="text-lg font-black text-cyan-400 uppercase tracking-widest">
+              {isFaseColeta ? 'LOCAL DE RETIRADA' : `ENTREGA ${paradaAtualIndex + 1}/${totalParadas}`}
+            </h2>
+            <div className="mt-2 flex flex-col items-center gap-2">
+              <p className="text-[9px] uppercase font-black text-slate-500">Embarcador: <span className="text-white">{frete.clienteNome || 'Privado'}</span></p>
+              <button onClick={handleContatoEmpresa} className="text-[9px] uppercase font-black tracking-widest text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors flex items-center gap-1">
+                <MessageCircle size={10} /> Contatar Empresa
+              </button>
+            </div>
           </div>
-        )}
 
-        <div className="space-y-4">
-          {frete.status === AppTripState.ACEITO && (
-            <button onClick={() => handleStatusUpdate(AppTripState.INDO_COLETA)} disabled={actionLoading} className="w-full flex flex-col items-center justify-center bg-blue-600 py-4 px-2 font-black uppercase tracking-widest rounded-xl disabled:opacity-50 transition-all hover:bg-blue-500 active:scale-95 text-white shadow-[0_0_20px_rgba(37,99,235,0.3)]">
-              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : (
-                 <>
-                   <div className="flex items-center gap-2 mb-1"><MapPinned size={18} /> <span className="text-lg">Ir Buscar a Carga</span></div>
-                   <span className="text-[9px] text-blue-200 normal-case tracking-normal">Clique para avisar que iniciou o deslocamento</span>
-                 </>
-              )}
-            </button>
+          <div className="mb-5 flex items-start gap-3 bg-slate-800/50 p-3 rounded-xl border border-slate-700/50">
+            <div className="mt-1 shrink-0"><MapPin size={16} className="text-cyan-400" /></div>
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1">Endereço Alvo</p>
+              <p className="text-xs font-bold text-white leading-snug">{enderecoAlvoTexto}</p>
+            </div>
+          </div>
+
+          {frete.observacoes && frete.observacoes.trim() !== '' && (
+            <div className="mb-5 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 shadow-inner relative overflow-hidden group">
+              <div className="absolute top-0 left-0 w-1 h-full bg-amber-500"></div>
+              <div className="flex gap-2">
+                <Info size={16} className="text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-amber-500 mb-1">Instruções / Observações</p>
+                  <p className="text-[11px] font-medium text-slate-200 leading-relaxed whitespace-pre-wrap">{frete.observacoes}</p>
+                </div>
+              </div>
+            </div>
           )}
+
+          {operationError && (
+            <div role="alert" className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-center text-[10px] font-bold text-red-300">
+              {operationError}
+            </div>
+          )}
+
+          <div className="space-y-3">
+            {frete.status === AppTripState.ACEITO && (
+              <button onClick={() => handleStatusUpdate(AppTripState.INDO_COLETA)} disabled={actionLoading} className="w-full flex flex-col items-center justify-center bg-blue-600 py-3 px-2 font-black uppercase tracking-widest rounded-xl disabled:opacity-50 transition-all hover:bg-blue-500 active:scale-95 text-white shadow-[0_0_15px_rgba(37,99,235,0.3)]">
+                {actionLoading ? <Loader2 className="animate-spin" size={20}/> : (
+                   <><div className="flex items-center gap-2 mb-1"><MapPinned size={16} /> <span>Ir Buscar a Carga</span></div><span className="text-[8px] text-blue-200 normal-case tracking-normal">Clique para avisar que iniciou o deslocamento</span></>
+                )}
+              </button>
+            )}
+            
+            {frete.status === AppTripState.INDO_COLETA && (
+              <button onClick={() => handleStatusUpdate(AppTripState.CHEGOU_COLETA)} disabled={actionLoading} className="w-full flex flex-col items-center justify-center py-3 px-2 font-black uppercase tracking-widest rounded-xl text-white disabled:opacity-50 transition-all active:scale-95 bg-indigo-500 hover:bg-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.3)]">
+                {actionLoading ? <Loader2 className="animate-spin" size={20}/> : (
+                   <><div className="flex items-center gap-2 mb-1"><MapPin size={16} /> <span>Cheguei no Local</span></div><span className="text-[8px] text-indigo-200 normal-case tracking-normal">Avisar o embarcador que você chegou</span></>
+                )}
+              </button>
+            )}
+            
+            {frete.status === AppTripState.CHEGOU_COLETA && (
+              <button onClick={() => handleStatusUpdate(AppTripState.COLETANDO)} disabled={actionLoading} className="w-full flex flex-col items-center justify-center py-3 px-2 font-black uppercase tracking-widest rounded-xl text-slate-900 disabled:opacity-50 transition-all active:scale-95 bg-amber-400 hover:bg-amber-300 shadow-[0_0_15px_rgba(251,191,36,0.3)]">
+                {actionLoading ? <Loader2 className="animate-spin" size={20}/> : (
+                   <><div className="flex items-center gap-2 mb-1"><Package size={16} /> <span>Iniciando Carregamento</span></div><span className="text-[8px] text-amber-900 normal-case tracking-normal">Comece a colocar mercadorias no veículo</span></>
+                )}
+              </button>
+            )}
+
+            {frete.status === AppTripState.COLETANDO && (
+              <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full flex flex-col items-center justify-center py-3 px-2 font-black uppercase tracking-widest rounded-xl text-slate-900 disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_15px_rgba(16,185,129,0.3)] bg-emerald-500 hover:bg-emerald-400">
+                {actionLoading ? <Loader2 className="animate-spin" size={20}/> : (
+                   <><div className="flex items-center gap-2 mb-1"><Truck size={16} /> <span>Finalizar Carregamento</span></div><span className="text-[8px] text-emerald-900 normal-case tracking-normal">Registrar Foto e PIN de Coleta para Iniciar Rota</span></>
+                )}
+              </button>
+            )}
+
+            {frete.status === AppTripState.EM_TRANSPORTE && (
+              <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full flex flex-col items-center justify-center py-3 px-2 font-black uppercase tracking-widest rounded-xl text-slate-900 disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_15px_rgba(6,182,212,0.3)] bg-cyan-500 hover:bg-cyan-400">
+                {actionLoading ? <Loader2 className="animate-spin" size={20}/> : (
+                   <><div className="flex items-center gap-2 mb-1"><MapPin size={16} /> <span>Cheguei na Entrega {paradaAtualIndex + 1}/{totalParadas}</span></div><span className="text-[8px] text-cyan-900 normal-case tracking-normal">Registrar Foto e PIN de Segurança</span></>
+                )}
+              </button>
+            )}
+          </div>
           
-          {frete.status === AppTripState.INDO_COLETA && (
-            <button onClick={() => handleStatusUpdate(AppTripState.CHEGOU_COLETA)} disabled={actionLoading} className="w-full flex flex-col items-center justify-center py-4 px-2 font-black uppercase tracking-widest rounded-xl text-white disabled:opacity-50 transition-all active:scale-95 bg-indigo-500 hover:bg-indigo-400 shadow-[0_0_20px_rgba(99,102,241,0.3)]">
-              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : (
-                 <>
-                   <div className="flex items-center gap-2 mb-1"><MapPin size={18} /> <span className="text-lg">Cheguei no Local</span></div>
-                   <span className="text-[9px] text-indigo-200 normal-case tracking-normal">Avisar o embarcador que você chegou</span>
-                 </>
-              )}
+          <div className="grid grid-cols-2 gap-3 mt-4">
+            <button onClick={() => handleOpenNav('waze')} className="flex items-center justify-center gap-2 bg-slate-800 border border-slate-700 text-white py-3 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-slate-700 transition-colors shadow-lg">
+              <Navigation size={14} className="text-cyan-400" /> Abrir no Waze
             </button>
-          )}
-          
-          {frete.status === AppTripState.CHEGOU_COLETA && (
-            <button onClick={() => handleStatusUpdate(AppTripState.COLETANDO)} disabled={actionLoading} className="w-full flex flex-col items-center justify-center py-4 px-2 font-black uppercase tracking-widest rounded-xl text-slate-900 disabled:opacity-50 transition-all active:scale-95 bg-amber-400 hover:bg-amber-300 shadow-[0_0_20px_rgba(251,191,36,0.3)]">
-              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : (
-                 <>
-                   <div className="flex items-center gap-2 mb-1"><Package size={18} /> <span className="text-lg">Iniciando Carregamento</span></div>
-                   <span className="text-[9px] text-amber-900 normal-case tracking-normal">Comece a colocar as mercadorias no veículo</span>
-                 </>
-              )}
+            <button onClick={() => handleOpenNav('google')} className="flex items-center justify-center gap-2 bg-slate-800 border border-slate-700 text-white py-3 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-slate-700 transition-colors shadow-lg">
+              <MapPin size={14} className="text-emerald-400" /> Google Maps
             </button>
-          )}
+          </div>
 
-          {/* F03: BLINDAGEM DE COLETA APLICADA AQUI - NÃO HÁ MAIS BYPASS */}
-          {frete.status === AppTripState.COLETANDO && (
-            <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full flex flex-col items-center justify-center py-4 px-2 font-black uppercase tracking-widest rounded-xl text-slate-900 disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(16,185,129,0.4)] bg-emerald-500 hover:bg-emerald-400">
-              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : (
-                 <>
-                   <div className="flex items-center gap-2 mb-1"><Truck size={18} /> <span className="text-lg">Finalizar Carregamento</span></div>
-                   <span className="text-[9px] text-emerald-900 normal-case tracking-normal">Registrar Foto e PIN de Coleta para Iniciar Rota</span>
-                 </>
-              )}
+          <div className="mt-5 pt-4 border-t border-white/5">
+            <button onClick={() => setIsOcorrenciaOpen(true)} disabled={actionLoading} className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-inner">
+              <AlertTriangle size={14} /> Reportar Problema / Cancelar
             </button>
-          )}
-
-          {frete.status === AppTripState.EM_TRANSPORTE && (
-            <button onClick={() => setIsPinModalOpen(true)} disabled={actionLoading} className="w-full flex flex-col items-center justify-center py-4 px-2 font-black uppercase tracking-widest rounded-xl text-slate-900 disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.4)] bg-cyan-500 hover:bg-cyan-400">
-              {actionLoading ? <Loader2 className="animate-spin" size={24}/> : (
-                 <>
-                   <div className="flex items-center gap-2 mb-1"><MapPin size={18} /> <span className="text-lg">Cheguei na Entrega {paradaAtualIndex + 1}/{totalParadas}</span></div>
-                   <span className="text-[9px] text-cyan-900 normal-case tracking-normal">Registrar Foto e PIN de Segurança</span>
-                 </>
-              )}
-            </button>
-          )}
+          </div>
         </div>
-        
-        {![AppTripState.FINALIZANDO, AppTripState.ENTREGUE, AppTripState.CANCELADO, 'finalizado', 'cancelado'].includes(String(frete.status)) && (
-           <div className="grid grid-cols-2 gap-3 mt-4">
-             <button onClick={() => handleOpenNav('waze')} className="flex items-center justify-center gap-2 bg-slate-800 border border-slate-700 text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-700 transition-colors shadow-lg">
-               <Navigation size={14} className="text-cyan-400" /> Abrir no Waze
-             </button>
-             <button onClick={() => handleOpenNav('google')} className="flex items-center justify-center gap-2 bg-slate-800 border border-slate-700 text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-700 transition-colors shadow-lg">
-               <MapPin size={14} className="text-emerald-400" /> Google Maps
-             </button>
-           </div>
-        )}
-
-        {frete.status !== AppTripState.FINALIZANDO && frete.status !== AppTripState.ENTREGUE && (
-          <div className="mt-6 pt-4 border-t border-white/5">
-            <button 
-              onClick={() => setIsOcorrenciaOpen(true)} 
-              disabled={actionLoading}
-              className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-inner"
-            >
-              <AlertTriangle size={14} /> Reportar Problema / Cancelar Operação
-            </button>
-          </div>
-        )}
-      </motion.div>
+      </div>
 
       <AnimatePresence>
         {isOcorrenciaOpen && (
@@ -663,11 +551,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
               <h3 className="text-white text-center font-black mb-2 uppercase text-xl tracking-tight">Cancelar Operação</h3>
               <p className="text-slate-400 text-xs text-center mb-6 leading-relaxed">A carga será devolvida ao Radar da FretoGo para que outro parceiro assuma.</p>
               
-              <select 
-                value={ocorrenciaMotivo} 
-                onChange={(e) => setOcorrenciaMotivo(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white text-sm mb-6 outline-none focus:border-red-400"
-              >
+              <select value={ocorrenciaMotivo} onChange={(e) => setOcorrenciaMotivo(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white text-sm mb-6 outline-none focus:border-red-400">
                 <option value="" disabled>Selecione o motivo...</option>
                 <option value="Problema mecânico no veículo">Problema mecânico no veículo</option>
                 <option value="Emergência pessoal / Imprevisto grave">Emergência pessoal / Imprevisto grave</option>
@@ -714,7 +598,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
                   {!isFotoConfirmada ? (
                     <div className="mb-6 mt-4">
                       <p className="text-slate-400 text-xs text-center mb-4 leading-relaxed font-bold">
-                        A foto do canhoto assinado ou da mercadoria deixada no local é <span className="text-cyan-400">OBRIGATÓRIA</span> para liberar o teclado numérico do PIN ou solicitar exceções.
+                        A foto do canhoto ou da carga no local é <span className="text-cyan-400">OBRIGATÓRIA</span> para liberar o PIN.
                       </p>
                       <label className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${fotoPodBase64 ? 'border-emerald-500 bg-emerald-500/10' : 'border-cyan-500/30 bg-slate-950 hover:bg-slate-900 focus:border-cyan-400'}`}>
                           {fotoPodBase64 ? (
@@ -733,7 +617,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
                       
                       {fotoPodBase64 && (
                         <button onClick={handleUploadPhoto} disabled={uploadingPod} className="w-full mt-4 flex items-center justify-center gap-2 bg-emerald-500 py-3 font-black uppercase text-xs rounded-xl text-slate-950 hover:bg-emerald-400 transition-colors shadow-[0_0_15px_rgba(16,185,129,0.3)]">
-                          {uploadingPod ? <><Loader2 className="animate-spin text-black" size={16}/> Sincronizando com a Torre</> : <><UploadCloud size={16}/> Enviar Evidência Segura</>}
+                          {uploadingPod ? <><Loader2 className="animate-spin text-black" size={16}/> Sincronizando...</> : <><UploadCloud size={16}/> Enviar Evidência</>}
                         </button>
                       )}
                     </div>
@@ -741,12 +625,9 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
                     <div className="mt-4">
                       <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 mb-4 flex flex-col items-center">
                         <CheckCircle2 size={24} className="text-emerald-400 mb-1" />
-                        <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest text-center">EVIDÊNCIA REGISTRADA ✓<br/>A Torre já recebeu a foto.</span>
+                        <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest text-center">EVIDÊNCIA REGISTRADA ✓</span>
                       </div>
-                      
-                      <p className="text-slate-400 text-xs text-center mb-4 leading-relaxed font-bold">
-                        PIN DE VALIDAÇÃO
-                      </p>
+                      <p className="text-slate-400 text-xs text-center mb-4 leading-relaxed font-bold">PIN DE VALIDAÇÃO</p>
                       <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={4} value={pinValue} onChange={(e) => { setPinValue(e.target.value.replace(/\D/g, '')); setPinError(''); }} className="w-full p-5 text-center text-5xl font-black tracking-[0.5em] bg-slate-950 text-cyan-400 border-2 border-cyan-500/30 rounded-2xl mb-4 focus:outline-none focus:border-cyan-400 placeholder:text-slate-800" placeholder="____" />
                     </div>
                   )}
@@ -765,11 +646,7 @@ export default function DriverActiveTrip({ freteId }: DriverActiveTripProps) {
 
                     {isFotoConfirmada && (
                       <div className="pt-4 mt-2 border-t border-white/10">
-                        <button 
-                          onClick={handleExcecaoSemPin} 
-                          disabled={actionLoading}
-                          className="w-full flex items-center justify-center gap-2 bg-amber-500/10 py-3 font-black uppercase text-[10px] tracking-widest rounded-xl text-amber-500 border border-amber-500/30 disabled:opacity-50 hover:bg-amber-500/20 transition-all"
-                        >
+                        <button onClick={handleExcecaoSemPin} disabled={actionLoading} className="w-full flex items-center justify-center gap-2 bg-amber-500/10 py-3 font-black uppercase text-[10px] tracking-widest rounded-xl text-amber-500 border border-amber-500/30 disabled:opacity-50 hover:bg-amber-500/20 transition-all">
                           <HelpCircle size={14} /> Continuar Sem PIN (Solicitar Exceção)
                         </button>
                       </div>
