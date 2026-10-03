@@ -3,6 +3,7 @@
 // CTO-Log: Auditoria Concluída - FASE 3 (Integração).
 // Status: Nova Arquitetura Uber/99 (Mapa em Background + Bottom Sheets).
 // Adicionado: Isolamento do Mapa na Raiz e Distribuição de Props em Tempo Real.
+// Fix QA: Isolamento Bidirecional Estrito de Ambientes (QA vs PROD) no Feed.
 // =========================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -40,11 +41,13 @@ interface DriverData {
   online?: boolean;
   disponivel?: boolean;
   state?: string;
+  isQA?: boolean; // Adicionado para ancorar a regra de negócio
 }
 
 const ACTIVE_STATUSES = ['aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 'em_transporte', 'parado_operacional', 'chegou_entrega', 'entregando', 'finalizando', 'validando_comprovante'];
 const BLOCKED_DISPATCH_STATUSES = new Set(['retido_pagamento', 'retido_agendamento', 'encerrado', 'encerrado_reembolso', 'encerrado_divergencia_financeira', 'encerrado_aprovacao_tardia']);
 
+// Mantido apenas como fallback client-side para contas de dev locais. A fonte de verdade é driverData.isQA
 const AUTHORIZED_SANDBOX_ACCOUNTS = new Set([
   'contato@fretogo.com.br',
   'rodrigovtr38@gmail.com',
@@ -113,7 +116,6 @@ export default function Motorista() {
   const [filtroOrigem, setFiltroOrigem] = useState('');
   const [filtroDestino, setFiltroDestino] = useState('');
   
-  // Novos estados integrados para o Mapa Global e Viagem Ativa
   const [currentGps, setCurrentGps] = useState<{lat: number, lng: number} | null>(null);
   const [etaAtiva, setEtaAtiva] = useState<number | null>(null);
 
@@ -132,7 +134,6 @@ export default function Motorista() {
 
   useDriverRealtime(user?.uid, isOnline, activeFreight?.id);
 
-  // Monitora o GPS na camada raiz
   useEffect(() => {
     const unsubscribeGps = locationRealtimeService.onPositionUpdate((pos) => {
       if (mountedRef.current) setCurrentGps(pos);
@@ -198,8 +199,6 @@ export default function Motorista() {
     const pinEntregasArray = Array.isArray(data.pinEntregas) ? data.pinEntregas : (data.pinEntregas ? [data.pinEntregas] : []);
     const totalEntregas = pinEntregasArray.length > 0 ? pinEntregasArray.length : (paradas.length > 0 ? paradas.length + 1 : 1);
 
-    // CTO FIX: Retornamos os dados brutos espalhados (...data) para garantir que o componente
-    // da Viagem Ativa receba campos exclusivos (fotosPod, paradas, bloqueioPin) e o listener possa ser removido de lá.
     return {
       ...data, 
       id,
@@ -326,17 +325,23 @@ export default function Motorista() {
     const unsubscribe = onSnapshot(freightsQuery, snapshot => {
       if (!mountedRef.current) return;
       
-      const isQADriver = user.email && AUTHORIZED_SANDBOX_ACCOUNTS.has(user.email.toLowerCase());
+      // 🛡️ A Fonte de Verdade do QA migrou para o Documento do Motorista
+      const isQADriver = driverData?.isQA === true || (user.email && AUTHORIZED_SANDBOX_ACCOUNTS.has(user.email.toLowerCase()));
       const now = Date.now();
       
       let next = snapshot.docs
         .filter(document => {
           const data = document.data();
+          
+          // BLINDAGEM DE ISOLAMENTO BIDIRECIONAL
+          const isQAFreight = data.isQA === true;
+          if (isQAFreight !== isQADriver) {
+             return false;
+          }
+
           const expiresAt = timestampToMillis(data.ofertaExpiraEm);
           const createdAtMillis = timestampToMillis(data.criadoEm || data.createdAt) || now;
           const isAgendado = data.tipoFrete === 'agendado' || Boolean(data.agendado);
-
-          if (data.isQA === true && !isQADriver) return false;
 
           let isTimeValid = false;
           if (isAgendado) {
@@ -379,7 +384,6 @@ export default function Motorista() {
       if (!mountedRef.current) return;
       if (snapshot.empty) { setActiveFreight(null); return; }
       const activeDoc = snapshot.docs[0];
-      // Normalize inclui agora TODOS os campos espalhados da base de dados via ...data
       setActiveFreight(normalizeFreight(activeDoc.id, activeDoc.data()));
     });
     listenerRegistryRef.current.active = unsubscribe;
@@ -475,7 +479,6 @@ export default function Motorista() {
     }
   }, [fretesFiltradosOrdenados, isOnline]);
 
-  // CTO FIX: Propriedades de roteamento dinâmico calculadas globalmente para o Mapa de fundo.
   const mapProps = useMemo(() => {
     if (!activeFreight) {
       return {
@@ -548,10 +551,8 @@ export default function Motorista() {
   return (
     <div className="min-h-[100dvh] text-white relative overflow-hidden pointer-events-none flex flex-col bg-[#020617]">
       
-      {/* MAPA EM BACKGROUND ABSOLUTO */}
       <div className="fixed inset-0 z-0 pointer-events-auto">
          <MapaCliente {...(mapProps as any)} onRouteUpdate={(eta) => setEtaAtiva(eta)} />
-         {/* Gradiente sutil no rodapé para melhorar a legibilidade dos painéis inferiores */}
          <div className="absolute inset-x-0 bottom-0 h-[40vh] bg-gradient-to-t from-[#020617]/90 to-transparent pointer-events-none" />
       </div>
 
@@ -576,19 +577,16 @@ export default function Motorista() {
         </div>
       )}
 
-      {/* HEADER SUPERIOR */}
       <div className="relative z-20 pointer-events-auto">
         <DriverHeader user={user} />
       </div>
 
-      {/* BOTÃO DO RADAR QUANDO LIVRE */}
       {!activeFreight?.id && (
          <div className="relative z-20 pointer-events-auto mt-4 px-4 max-w-lg mx-auto w-full">
             <DriverRadar isOnline={isOnline} setIsOnline={handleToggleOnline} user={user} driver={driverData} />
          </div>
       )}
 
-      {/* PAINÉIS INFERIORES: VIAGEM ATIVA OU RADAR DE OFERTAS */}
       {activeFreight?.id ? (
         <div className="relative z-30 pointer-events-auto w-full mt-auto">
           <DriverActiveTrip frete={activeFreight as any} currentGps={currentGps} etaAtiva={etaAtiva} />
@@ -730,7 +728,6 @@ export default function Motorista() {
         </div>
       )}
 
-      {/* DriverApp Layer Oculto para validar Aceite sem quebrar as regras */}
       <div className={`pointer-events-auto ${selectedFreight ? "fixed inset-0 z-[100]" : "hidden"}`}>
         <DriverApp 
           freights={[]} 
