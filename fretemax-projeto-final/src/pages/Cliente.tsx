@@ -1,4 +1,3 @@
-// ARQUIVO: src/pages/Cliente.tsx
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc, Timestamp, updateDoc, getDoc } from 'firebase/firestore'; 
@@ -359,6 +358,30 @@ export default function Cliente() {
   const limitePisoOperacional = Number((valorSugeridoCalculado * 0.85).toFixed(2));
   const isOfertaAbaixoDoPiso = valorOfertaNum > 0 && valorOfertaNum < (limitePisoOperacional - 0.01);
 
+  const formatCurrency = (val: string) => {
+    let numeric = val.replace(/\D/g, '');
+    if (!numeric) return '';
+    numeric = (Number(numeric) / 100).toFixed(2).replace('.', ',');
+    return numeric;
+  };
+
+  // CTO FIX: Controle de animação IA e Melhoria de Pré-preenchimento
+  useEffect(() => {
+    if (step === 'oferta') {
+      setIsAiAnalyzing(true);
+      const timeout = setTimeout(() => setIsAiAnalyzing(false), 1500);
+
+      if (!valorOferta || valorOferta === '0,00' || valorOferta === '') {
+         const sugerido = calculoFinanceiro.precoFinalCliente + calculoFinanceiro.tollCost;
+         if (sugerido > 0) {
+            setValorOferta(formatCurrency(sugerido.toFixed(2)));
+         }
+      }
+
+      return () => clearTimeout(timeout);
+    }
+  }, [step]); // Depende apenas do step para não causar re-renders indesejados
+
   const iaChanceAceite = useMemo(() => {
     if (valorOfertaNum === 0) return null;
     if (isOfertaAbaixoDoPiso) return { status: 'Bloqueada: Abaixo do Mínimo', color: 'text-red-500', icon: <AlertOctagon size={16} /> };
@@ -372,14 +395,6 @@ export default function Cliente() {
 
   const isOfertaValida = valorOfertaNum > 0 && !isOfertaAbaixoDoPiso;
   const isOfertaBoa = valorOfertaNum >= (valorSugeridoCalculado * 0.95);
-
-  useEffect(() => {
-    if (step === 'oferta') {
-      setIsAiAnalyzing(true);
-      const timeout = setTimeout(() => setIsAiAnalyzing(false), 1500);
-      return () => clearTimeout(timeout);
-    }
-  }, [step, vehicle, validDistancia, tipoMaterial]);
 
   const pesoValido = useMemo(() => {
     const pesoNum = parseInt(peso.replace(/\D/g, ''), 10);
@@ -685,6 +700,26 @@ export default function Cliente() {
       showToast("Falha de Autenticação. Você precisa estar logado para publicar uma carga.", "error");
       return;
     }
+
+    // 🛡️ CTO FIX: VERIFICAÇÃO ZERO-TRUST PARA CONTAS DE HOMOLOGAÇÃO (QA)
+    let isQAAccount = false;
+    try {
+      const tokenResult = await currentUser.getIdTokenResult();
+      if (tokenResult.claims?.isQA || tokenResult.claims?.admin) {
+        isQAAccount = true;
+      } else {
+        // Fallback robusto para checagem por Firestore (caso a plataforma use database para roles em vez de claims)
+        const userDoc = await getDoc(doc(db, 'clientes', currentUser.uid));
+        if (userDoc.exists()) {
+           const userData = userDoc.data();
+           if (userData.isQA === true || userData.role === 'qa' || userData.role === 'admin') {
+             isQAAccount = true;
+           }
+        }
+      }
+    } catch (e) {
+      console.error("[QA Check] Erro ao verificar privilégios operacionais da conta:", e);
+    }
     
     isProcessingPayment.current = true;
     setLoadingPayment(true);
@@ -757,7 +792,6 @@ export default function Cliente() {
         observacoes: observacoes,
         valorBrutoInput: valorOfertaNum,
         valorTotal: valorOfertaNum, 
-        // --- INJEÇÃO DO BREAKDOWN FINANCEIRO TELEMÉTRICO ---
         distanciaKm: calculoFinanceiro.distanciaKm,
         quantidadeEntregas: calculoFinanceiro.quantidadeEntregas,
         valorBase: calculoFinanceiro.valorBase,
@@ -768,7 +802,6 @@ export default function Cliente() {
         percentualComissao: calculoFinanceiro.percentualComissao,
         valorLiquidoMotorista: calculoFinanceiro.valorLiquidoMotorista,
         valorPlataforma: calculoFinanceiro.valorPlataforma,
-        // ---------------------------------------------------
         cidadeOrigem: coleta.bairro || coleta.cidade, 
         cidadeDestino: destinoFinal.bairro || destinoFinal.cidade,
         enderecoColetaTexto: coleta.formatted_address || `${coleta.rua}, ${coleta.num} - ${coleta.bairro}`, 
@@ -789,6 +822,9 @@ export default function Cliente() {
         interessados: 0, 
         cotacaoPayload: cotacaoPayload,
         cotacaoToken: cotacaoToken,
+        // 🛡️ CTO FIX: Injeção da flag oficial de QA após a validação
+        isQA: isQAAccount,
+        isQAFreight: isQAAccount,
       };
 
       if (requiresNewDocument) {
@@ -955,13 +991,6 @@ export default function Cliente() {
     const newEntregas = [...entregas];
     newEntregas[index] = { ...newEntregas[index], [field]: value };
     setEntregas(newEntregas);
-  };
-
-  const formatCurrency = (val: string) => {
-    let numeric = val.replace(/\D/g, '');
-    if (!numeric) return '';
-    numeric = (Number(numeric) / 100).toFixed(2).replace('.', ',');
-    return numeric;
   };
 
   const formatTimeAgo = (timestamp: any) => {
