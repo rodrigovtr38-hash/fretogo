@@ -2289,6 +2289,170 @@ exports.cancelarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (da
 });
 
 // ========================================================
+// 14.1 REPUBLICAR FRETE (ZERO TRUST)
+// ========================================================
+exports.republicarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Usuário não autenticado.');
+  const { freteId } = data;
+  if (!freteId) throw new functions.https.HttpsError('invalid-argument', 'FreteId ausente.');
+
+  const freteRef = db.collection('fretes').doc(freteId);
+
+  return await db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(freteRef);
+    if (!snap.exists) throw new functions.https.HttpsError('not-found', 'Frete não encontrado.');
+    
+    const frete = snap.data();
+    if (frete.clienteId !== context.auth.uid && frete.empresaId !== context.auth.uid) {
+      throw new functions.https.HttpsError('permission-denied', 'Apenas o contratante pode republicar a carga.');
+    }
+
+    if (frete.motoristaId) {
+      throw new functions.https.HttpsError('failed-precondition', 'Frete já possui motorista vinculado.');
+    }
+
+    const allowRepublish = ['expirado', 'sem_motorista', 'aguardando_pagamento'].includes(frete.status);
+    if (!allowRepublish) {
+      throw new functions.https.HttpsError('failed-precondition', `Status atual (${frete.status}) não permite republicação.`);
+    }
+
+    const isPago = frete.pagamentoStatus === 'aprovado';
+    const agoraMs = Date.now();
+    const tempo15Min = agoraMs + 15 * 60 * 1000;
+
+    const updatePayload = {
+      atualizadoEm: FieldValue.serverTimestamp(),
+      status: isPago ? 'disponivel' : 'aguardando_pagamento',
+      dispatchStatus: isPago ? 'mural_aberto' : 'retido_pagamento',
+    };
+
+    if (isPago) {
+      updatePayload.ofertaExpiraEm = Timestamp.fromMillis(tempo15Min);
+    } else {
+      updatePayload.expiraEm = tempo15Min;
+    }
+
+    transaction.update(freteRef, updatePayload);
+
+    const chatRef = freteRef.collection('chat').doc();
+    transaction.set(chatRef, {
+      texto: '🔄 [Embarcador]: Carga republicada no sistema. Tempo de exposição estendido.',
+      nome: frete.clienteNome || 'Embarcador',
+      tipoUsuario: 'cliente',
+      createdAt: FieldValue.serverTimestamp()
+    });
+
+    return { success: true, freteId, novoStatus: updatePayload.status };
+  });
+});
+
+// ========================================================
+// 14.2 REPRECIFICAR FRETE (ZERO TRUST / AUTO-BID MANUAL)
+// ========================================================
+exports.reprecificarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Usuário não autenticado.');
+  const { freteId, novoValorTotal, novoValorPedagio } = data;
+  if (!freteId || !novoValorTotal) {
+    throw new functions.https.HttpsError('invalid-argument', 'FreteId ou novo valor ausentes.');
+  }
+
+  const valorBrutoInput = Number(novoValorTotal);
+  if (!Number.isFinite(valorBrutoInput) || valorBrutoInput <= 0) {
+    throw new functions.https.HttpsError('invalid-argument', 'Valor total inválido.');
+  }
+
+  const freteRef = db.collection('fretes').doc(freteId);
+
+  return await db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(freteRef);
+    if (!snap.exists) throw new functions.https.HttpsError('not-found', 'Frete não encontrado.');
+
+    const frete = snap.data();
+    if (frete.clienteId !== context.auth.uid && frete.empresaId !== context.auth.uid) {
+      throw new functions.https.HttpsError('permission-denied', 'Apenas o contratante pode reprecificar.');
+    }
+
+    // TRAVA FINANCEIRA CRÍTICA: Não é possível injetar mais dinheiro em um PIX já pago (Escrow).
+    if (frete.pagamentoStatus === 'aprovado') {
+      throw new functions.https.HttpsError(
+        'failed-precondition', 
+        'A carga já teve o pagamento aprovado. Para aumentar a oferta (Auto-Bid), cancele esta carga, solicite o estorno e crie uma nova com o valor atualizado.'
+      );
+    }
+
+    const bloqueados = ['em_transporte', 'coletando', 'finalizando', 'entregue', 'finalizado', 'cancelado', 'aceito', 'indo_coleta', 'chegou_coleta'];
+    if (bloqueados.includes(frete.status) || frete.motoristaId) {
+      throw new functions.https.HttpsError('failed-precondition', `Status atual (${frete.status}) não permite reprecificação.`);
+    }
+
+    const categoria = sanitizeText(frete.categoria || frete.veiculo, 40)?.toLowerCase();
+    if (!categoria || !VALID_VEHICLE_CATEGORIES.has(categoria)) {
+      throw new functions.https.HttpsError('internal', 'Categoria do veículo inválida na base de dados.');
+    }
+
+    const distanciaNum = Number(frete.distanciaRealKm || frete.distanciaTotalKm || frete.distancia || 15);
+    const numParadas = Array.isArray(frete.paradas) ? frete.paradas.length : 0;
+    const tipoMaterial = frete.tipoMaterial || '';
+    const isMopp = tipoMaterial.toLowerCase().includes('mopp') || tipoMaterial.toLowerCase().includes('perigos') || tipoMaterial.toLowerCase().includes('químic');
+
+    const referencia = calcularReferenciaFretoGo(distanciaNum, categoria, numParadas, isMopp);
+    const pisoPermitido = Number((referencia.valorSugeridoCalculado * 0.85).toFixed(2));
+
+    if (valorBrutoInput < (pisoPermitido - 0.01)) {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        `A oferta informada (R$ ${valorBrutoInput.toFixed(2)}) está abaixo do limite operacional permitido para a rota (R$ ${pisoPermitido.toFixed(2)}).`
+      );
+    }
+
+    const valorPedagioOriginal = novoValorPedagio !== undefined ? Number(novoValorPedagio) : Number(frete.valorPedagio || 0);
+    const tetoPedagio = Math.max(referencia.pedagioSugeridoCalculado * 1.5, valorBrutoInput * 0.30);
+    const valorPedagio = Math.max(0, Math.min(valorPedagioOriginal, tetoPedagio));
+
+    const isHeavy = ['toco', 'truck', 'carreta', 'bitrem'].includes(categoria);
+    const taxa = isHeavy ? 0.15 : 0.20;
+    const baseComissao = Math.max(0, valorBrutoInput - valorPedagio);
+    const valorComissao = Number((baseComissao * taxa).toFixed(2));
+    const valorLiquidoMotorista = Number((valorBrutoInput - valorComissao).toFixed(2));
+
+    if (!Number.isFinite(valorLiquidoMotorista) || valorLiquidoMotorista <= 0) {
+      throw new functions.https.HttpsError('internal', 'Erro interno no recálculo da liquidação do motorista.');
+    }
+
+    const updatePayload = {
+      valorTotal: valorBrutoInput,
+      valorBruto: valorBrutoInput,
+      valorFreteBruto: valorBrutoInput,
+      valorPedagio: valorPedagio,
+      taxaFreto: taxa * 100,
+      valorComissao: valorComissao,
+      lucroPlataforma: valorComissao,
+      valorLiquidoMotorista: valorLiquidoMotorista,
+      valorMotorista: valorLiquidoMotorista,
+      atualizadoEm: FieldValue.serverTimestamp()
+    };
+
+    if (frete.status === 'expirado') {
+      updatePayload.status = 'aguardando_pagamento';
+      updatePayload.dispatchStatus = 'retido_pagamento';
+      updatePayload.expiraEm = Date.now() + 15 * 60 * 1000;
+    }
+
+    transaction.update(freteRef, updatePayload);
+
+    const chatRef = freteRef.collection('chat').doc();
+    transaction.set(chatRef, {
+      texto: `💰 [Embarcador]: Oferta reprecificada para R$ ${valorBrutoInput.toFixed(2)}. Aguardando processamento do pagamento.`,
+      nome: frete.clienteNome || 'Embarcador',
+      tipoUsuario: 'cliente',
+      createdAt: FieldValue.serverTimestamp()
+    });
+
+    return { success: true, freteId, novoValorTotal: valorBrutoInput, valorMotorista: valorLiquidoMotorista };
+  });
+});
+
+// ========================================================
 // 15. AUTO-BID RECALCULATION SERVER-SIDE (COM BLINDAGEM)
 // ========================================================
 exports.recalcularAutoBid = functions.firestore.document('fretes/{freteId}').onUpdate(async (change) => {
@@ -2336,7 +2500,7 @@ exports.recalcularAutoBid = functions.firestore.document('fretes/{freteId}').onU
     return null;
   }
   // --- FIM DA BLINDAGEM ---
- 
+  
   // Proteção simples para recalculo passivo de firestore via AutoBid (teto idêntico ao criarFreteB2B)
   const tetoPedagio = Math.max(referencia.pedagioSugeridoCalculado * 1.5, valorBrutoInput * 0.30);
   const valorPedagio = Math.max(0, Math.min(valorPedagioOriginal, tetoPedagio));
