@@ -1,8 +1,8 @@
 // =========================================================
 // NOME DO ARQUIVO: src/pages/Motorista.tsx
 // CTO-Log: Auditoria Concluída - FASE 3 (Integração).
-// Status: Sincronização UI Multi-Drop (Até 25 Entregas) Ativa.
-// Adicionado: Filtro de Isolamento de Feed (QA Sandbox).
+// Status: Nova Arquitetura Uber/99 (Mapa em Background + Bottom Sheets).
+// Adicionado: Isolamento do Mapa na Raiz e Distribuição de Props em Tempo Real.
 // =========================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -16,7 +16,9 @@ import DriverAuth from '../components/motorista/DriverAuth';
 import DriverCadastro from '../components/motorista/DriverCadastro';
 import DriverRadar from '../components/motorista/DriverRadar';
 import DriverActiveTrip from './DriverActiveTrip';
+import MapaCliente from '../components/MapaCliente';
 import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
+import { locationRealtimeService } from '../services/locationRealtimeService';
 import type { OperationalFreight } from '../components/driver/dashboard/DriverDashboardLayout';
 import { Download, Search, MapPin, Flame, Clock, ThumbsUp, Star, Share2, Truck, Power, WifiOff, Activity, CalendarDays, Ruler, Loader2 } from 'lucide-react'; 
 import { NotificationService } from '../services/notificationService';
@@ -43,7 +45,6 @@ interface DriverData {
 const ACTIVE_STATUSES = ['aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 'em_transporte', 'parado_operacional', 'chegou_entrega', 'entregando', 'finalizando', 'validando_comprovante'];
 const BLOCKED_DISPATCH_STATUSES = new Set(['retido_pagamento', 'retido_agendamento', 'encerrado', 'encerrado_reembolso', 'encerrado_divergencia_financeira', 'encerrado_aprovacao_tardia']);
 
-// Contas QA que têm autorização para enxergar fretes "fantasmas" (isQA: true) no celular
 const AUTHORIZED_SANDBOX_ACCOUNTS = new Set([
   'contato@fretogo.com.br',
   'rodrigovtr38@gmail.com',
@@ -66,20 +67,20 @@ const timestampToMillis = (value: unknown): number => {
 };
 
 const FeedSkeleton = () => (
-  <div className="bg-slate-900/40 border border-slate-800 rounded-[2rem] p-6 shadow-2xl animate-pulse mb-6">
-    <div className="flex justify-between items-start mb-6">
+  <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-5 animate-pulse mb-4">
+    <div className="flex justify-between items-start mb-4">
       <div>
-        <div className="h-3 w-24 bg-slate-800 rounded-full mb-2"></div>
-        <div className="h-10 w-40 bg-slate-800 rounded-full"></div>
+        <div className="h-2 w-20 bg-slate-800 rounded-full mb-2"></div>
+        <div className="h-8 w-32 bg-slate-800 rounded-full"></div>
       </div>
-      <div className="h-8 w-20 bg-slate-800 rounded-xl"></div>
+      <div className="h-6 w-16 bg-slate-800 rounded-lg"></div>
     </div>
-    <div className="h-28 w-full bg-slate-800/50 rounded-2xl mb-6"></div>
+    <div className="h-16 w-full bg-slate-800/50 rounded-xl mb-4"></div>
     <div className="grid grid-cols-4 gap-2">
-      <div className="h-14 bg-slate-800 rounded-xl"></div>
-      <div className="h-14 bg-slate-800 rounded-xl"></div>
-      <div className="h-14 bg-slate-800 rounded-xl"></div>
-      <div className="h-14 bg-slate-800 rounded-xl"></div>
+      <div className="h-10 bg-slate-800 rounded-lg"></div>
+      <div className="h-10 bg-slate-800 rounded-lg"></div>
+      <div className="h-10 bg-slate-800 rounded-lg"></div>
+      <div className="h-10 bg-slate-800 rounded-lg"></div>
     </div>
   </div>
 );
@@ -111,13 +112,17 @@ export default function Motorista() {
 
   const [filtroOrigem, setFiltroOrigem] = useState('');
   const [filtroDestino, setFiltroDestino] = useState('');
+  
+  // Novos estados integrados para o Mapa Global e Viagem Ativa
+  const [currentGps, setCurrentGps] = useState<{lat: number, lng: number} | null>(null);
+  const [etaAtiva, setEtaAtiva] = useState<number | null>(null);
 
   const [emptyMessageIndex, setEmptyMessageIndex] = useState(0);
   const emptyMessages = [
-    "Radar monitorando oportunidades na região...",
-    "Central Operacional escaneando a malha logística...",
-    "Aguardando publicação de empresas embarcadoras...",
-    "Filtros ativos. Pronto para interceptar cargas..."
+    "Radar monitorando oportunidades...",
+    "Escaneando a malha logística...",
+    "Aguardando publicação de empresas...",
+    "Pronto para interceptar cargas..."
   ];
 
   const operationalCategory = useMemo(() => {
@@ -126,6 +131,14 @@ export default function Motorista() {
   }, [driverData]);
 
   useDriverRealtime(user?.uid, isOnline, activeFreight?.id);
+
+  // Monitora o GPS na camada raiz
+  useEffect(() => {
+    const unsubscribeGps = locationRealtimeService.onPositionUpdate((pos) => {
+      if (mountedRef.current) setCurrentGps(pos);
+    });
+    return () => unsubscribeGps();
+  }, []);
 
   useEffect(() => {
     const handleOnline = () => setHasInternet(true);
@@ -181,12 +194,14 @@ export default function Motorista() {
     const horasParada = (now - createdTime) / (1000 * 60 * 60);
     const prioridadeMural = horasParada >= 24 || Boolean(data.prioridade);
 
-    // CTO FIX: Cálculo oficial do Total de Entregas sincronizado com backend
     const paradas = data.paradas || [];
     const pinEntregasArray = Array.isArray(data.pinEntregas) ? data.pinEntregas : (data.pinEntregas ? [data.pinEntregas] : []);
     const totalEntregas = pinEntregasArray.length > 0 ? pinEntregasArray.length : (paradas.length > 0 ? paradas.length + 1 : 1);
 
+    // CTO FIX: Retornamos os dados brutos espalhados (...data) para garantir que o componente
+    // da Viagem Ativa receba campos exclusivos (fotosPod, paradas, bloqueioPin) e o listener possa ser removido de lá.
     return {
+      ...data, 
       id,
       status: data.status || 'disponivel',
       prioridade: prioridadeMural,
@@ -301,7 +316,6 @@ export default function Motorista() {
     }
     setRadarLoading(true);
     
-    // O Feed aceita somente fretes publicados após a confirmação do pagamento.
     const freightsQuery = query(
       collection(db, 'fretes'), 
       where('status', 'in', ['disponivel', 'buscando_motorista']),
@@ -312,10 +326,9 @@ export default function Motorista() {
     const unsubscribe = onSnapshot(freightsQuery, snapshot => {
       if (!mountedRef.current) return;
       
-      // Validação de Identidade QA para isolar o feed
       const isQADriver = user.email && AUTHORIZED_SANDBOX_ACCOUNTS.has(user.email.toLowerCase());
-
       const now = Date.now();
+      
       let next = snapshot.docs
         .filter(document => {
           const data = document.data();
@@ -323,26 +336,17 @@ export default function Motorista() {
           const createdAtMillis = timestampToMillis(data.criadoEm || data.createdAt) || now;
           const isAgendado = data.tipoFrete === 'agendado' || Boolean(data.agendado);
 
-          // QA Isolamento: Motorista real não vê QA. Motorista QA vê os dois.
-          if (data.isQA === true && !isQADriver) {
-             return false;
-          }
+          if (data.isQA === true && !isQADriver) return false;
 
-          // 🔥 CTO FIX: Proteção Temporal Absoluta
           let isTimeValid = false;
-
           if (isAgendado) {
-            // Fretes Agendados não morrem em 24h. Respeita expiracao caso exista.
             isTimeValid = expiresAt > 0 ? expiresAt >= now : true;
           } else {
-            // Fretes Imediatos ou Legados/Testes (sem flag agendado)
             if (expiresAt > 0) {
-              // Fonte de verdade 1: Se tem data de expiração, obedece rigorosamente.
               isTimeValid = expiresAt >= now;
             } else {
-              // Fonte de verdade 2 (Fallback): Fretes fantasmas/antigos sem expiraEm
               const ageInHours = (now - createdAtMillis) / (1000 * 60 * 60);
-              isTimeValid = ageInHours <= 24; // Aborta e destrói documentos criados há mais de 24h
+              isTimeValid = ageInHours <= 24; 
             }
           }
 
@@ -375,6 +379,7 @@ export default function Motorista() {
       if (!mountedRef.current) return;
       if (snapshot.empty) { setActiveFreight(null); return; }
       const activeDoc = snapshot.docs[0];
+      // Normalize inclui agora TODOS os campos espalhados da base de dados via ...data
       setActiveFreight(normalizeFreight(activeDoc.id, activeDoc.data()));
     });
     listenerRegistryRef.current.active = unsubscribe;
@@ -399,13 +404,10 @@ export default function Motorista() {
 
   const handleAcceptFreight = useCallback(async (freight: OperationalFreight) => {
     if (!user?.uid || !driverData) return;
-    
     try {
       await dispatchRealtimeService.aceitarCorrida(user.uid, freight.id, driverData);
-      
       setSelectedFreight(null);
       showToast('Frete aceito! A operação está vinculada ao motorista.', 'success');
-      
     } catch (error: any) { 
       const message = String(error?.message || '');
       showToast(message.includes('already-exists') || message.includes('não está mais disponível') ? "Esta carga já foi fechada por outro parceiro." : "Não foi possível aceitar este frete agora.", 'warning');
@@ -417,7 +419,7 @@ export default function Motorista() {
     try {
       if (action === 'interesse') {
         await dispatchRealtimeService.registrarInteresse(freightId);
-        showToast('Interesse registrado! A Empresa foi notificada.', 'success');
+        showToast('Interesse registrado!', 'success');
       }
       if (action === 'favorito') {
         await dispatchRealtimeService.registrarFavorito(freightId);
@@ -429,7 +431,6 @@ export default function Motorista() {
         showToast('Link da oportunidade copiado!', 'info');
       }
     } catch (error) {
-      console.error('Erro ao interagir:', error);
       showToast('Falha na comunicação de rede.', 'warning');
     }
   };
@@ -474,6 +475,52 @@ export default function Motorista() {
     }
   }, [fretesFiltradosOrdenados, isOnline]);
 
+  // CTO FIX: Propriedades de roteamento dinâmico calculadas globalmente para o Mapa de fundo.
+  const mapProps = useMemo(() => {
+    if (!activeFreight) {
+      return {
+        origem: currentGps,
+        destino: null,
+        paradasExtras: [],
+        motoristaPos: currentGps,
+        operationalMessage: isOnline ? "Buscando Oportunidades..." : "Central Desconectada",
+        motoristaId: user?.uid,
+        vehicleType: driverData?.veiculo || driverData?.categoria || 'carro'
+      };
+    }
+
+    const isFaseColeta = ['aceito', 'indo_coleta', 'chegou_coleta', 'coletando'].includes(activeFreight.status);
+    const paradas = (activeFreight as any).paradas || [];
+    const paradaAtualIndex = (activeFreight as any).paradaAtualIndex || 0;
+    const entrega = (activeFreight as any).entrega;
+    const destinoFinalMap = entrega?.lat ? { lat: entrega.lat, lng: entrega.lng } : null;
+    const paradasExtrasMap = paradas.filter((p:any) => p.lat && p.lng).map((p:any) => ({ lat: p.lat, lng: p.lng }));
+    
+    const origemLat = (activeFreight as any).origemLat;
+    const origemLng = (activeFreight as any).origemLng;
+
+    const mapOriginGPS = currentGps || (activeFreight.status === 'em_transporte'
+      ? (paradaAtualIndex === 0
+          ? { lat: origemLat, lng: origemLng }
+          : {
+              lat: paradas[paradaAtualIndex-1]?.lat ?? origemLat,
+              lng: paradas[paradaAtualIndex-1]?.lng ?? origemLng
+            }
+        )
+      : null);
+
+    return {
+       origem: origemLat ? { lat: origemLat, lng: origemLng } : mapOriginGPS,
+       destino: destinoFinalMap,
+       paradasExtras: paradasExtrasMap,
+       motoristaPos: currentGps,
+       motoristaId: user?.uid || activeFreight.id,
+       paradaAtualIndex,
+       vehicleType: driverData?.veiculo || driverData?.categoria || 'carro',
+       operationalMessage: isFaseColeta ? "Buscando Carga" : `Navegando para Entrega ${paradaAtualIndex + 1}/${(paradas.length > 0 ? paradas.length + 1 : 1)}`
+    };
+  }, [activeFreight, currentGps, isOnline, user, driverData]);
+
   if (!runtimeReady || loading || checkingDriver) {
     return (
       <div className="flex min-h-[100dvh] items-center justify-center bg-[#020617] text-white">
@@ -487,7 +534,6 @@ export default function Motorista() {
 
   if (!user) return <div className="min-h-[100dvh] bg-[#020617]"><DriverAuth /></div>;
   if (!driverData) return <div className="min-h-[100dvh] bg-[#020617]"><DriverCadastro onFinish={() => setCheckingDriver(true)} /></div>;
-
   if (driverData.status !== 'aprovado') {
     return (
       <div className="flex min-h-[100dvh] items-center justify-center bg-[#020617] px-4">
@@ -500,13 +546,18 @@ export default function Motorista() {
   }
 
   return (
-    <div className="min-h-[100dvh] bg-[#020617] text-white pb-24 relative overflow-hidden">
+    <div className="min-h-[100dvh] text-white relative overflow-hidden pointer-events-none flex flex-col bg-[#020617]">
       
-      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#020617] to-[#020617] -z-10" />
+      {/* MAPA EM BACKGROUND ABSOLUTO */}
+      <div className="fixed inset-0 z-0 pointer-events-auto">
+         <MapaCliente {...(mapProps as any)} onRouteUpdate={(eta) => setEtaAtiva(eta)} />
+         {/* Gradiente sutil no rodapé para melhorar a legibilidade dos painéis inferiores */}
+         <div className="absolute inset-x-0 bottom-0 h-[40vh] bg-gradient-to-t from-[#020617]/90 to-transparent pointer-events-none" />
+      </div>
 
       <AnimatePresence>
         {!hasInternet && (
-          <motion.div initial={{ y: -50 }} animate={{ y: 0 }} exit={{ y: -50 }} className="sticky top-0 z-[200] w-full bg-red-600 px-4 py-2 flex items-center justify-center gap-2 shadow-[0_4px_20px_rgba(220,38,38,0.5)]">
+          <motion.div initial={{ y: -50 }} animate={{ y: 0 }} exit={{ y: -50 }} className="relative z-[200] w-full bg-red-600 px-4 py-2 flex items-center justify-center gap-2 shadow-[0_4px_20px_rgba(220,38,38,0.5)] pointer-events-auto">
             <WifiOff size={16} className="text-white" />
             <span className="text-[10px] font-black uppercase tracking-widest text-white">Sem conexão. Aguardando sinal...</span>
           </motion.div>
@@ -514,7 +565,7 @@ export default function Motorista() {
       </AnimatePresence>
 
       {isInstallable && (
-        <div className="sticky top-0 z-[100] w-full bg-cyan-600 px-4 py-3 flex items-center justify-between shadow-[0_4px_20px_rgba(8,145,178,0.3)]">
+        <div className="relative z-[100] w-full bg-cyan-600 px-4 py-3 flex items-center justify-between shadow-[0_4px_20px_rgba(8,145,178,0.3)] pointer-events-auto">
           <div>
             <p className="text-xs font-black uppercase tracking-widest text-white">Baixe o Aplicativo</p>
             <p className="text-[10px] text-cyan-100 font-medium mt-0.5">Instale e feche fretes mais rápido.</p>
@@ -525,70 +576,70 @@ export default function Motorista() {
         </div>
       )}
 
-      <DriverHeader user={user} />
+      {/* HEADER SUPERIOR */}
+      <div className="relative z-20 pointer-events-auto">
+        <DriverHeader user={user} />
+      </div>
 
+      {/* BOTÃO DO RADAR QUANDO LIVRE */}
+      {!activeFreight?.id && (
+         <div className="relative z-20 pointer-events-auto mt-4 px-4 max-w-lg mx-auto w-full">
+            <DriverRadar isOnline={isOnline} setIsOnline={handleToggleOnline} user={user} driver={driverData} />
+         </div>
+      )}
+
+      {/* PAINÉIS INFERIORES: VIAGEM ATIVA OU RADAR DE OFERTAS */}
       {activeFreight?.id ? (
-        <div className="mx-auto mt-10 max-w-7xl px-4 pb-24 md:px-6">
-          <DriverActiveTrip freteId={activeFreight.id} />
-          <div className="mt-8">
+        <div className="relative z-30 pointer-events-auto w-full mt-auto">
+          <DriverActiveTrip frete={activeFreight as any} currentGps={currentGps} etaAtiva={etaAtiva} />
+          <div className="fixed top-24 right-4 z-40">
             <ChatFrete freteId={activeFreight.id} tipoUsuario="motorista" nome={driverData.nome || 'Motorista'} />
           </div>
         </div>
       ) : (
-        <>
-          <DriverRadar isOnline={isOnline} setIsOnline={handleToggleOnline} user={user} driver={driverData} />
-          
-          <div className="mx-auto max-w-4xl px-4 mt-8 animate-in fade-in slide-in-from-bottom-4 relative z-20">
+        <div className="fixed bottom-0 left-0 right-0 z-30 pointer-events-auto">
+          <div className="bg-slate-950/85 backdrop-blur-xl border-t border-cyan-500/20 rounded-t-[2.5rem] shadow-[0_-10px_50px_rgba(0,0,0,0.8)] max-h-[60vh] md:max-h-[70vh] flex flex-col md:max-w-4xl md:mx-auto">
             
-            <div className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-[2rem] p-5 md:p-6 shadow-2xl mb-8">
-              <div className="flex items-center justify-between mb-5">
+            <div className="p-5 pb-3 shrink-0 border-b border-white/5">
+              <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mb-4 cursor-grab"></div>
+              <div className="flex items-center justify-between mb-4">
                  <div className="flex items-center gap-2">
                    <Search className="text-cyan-500 w-5 h-5" />
-                   <h3 className="text-sm font-black uppercase tracking-widest text-slate-300">Feed de Fretes</h3>
+                   <h3 className="text-sm font-black uppercase tracking-widest text-slate-300">Radar de Ofertas</h3>
                  </div>
                  <div className="bg-cyan-500/10 text-cyan-400 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-cyan-500/20">
-                   {fretesFiltradosOrdenados.length} Oportunidades
+                   {fretesFiltradosOrdenados.length} Cargas
                  </div>
               </div>
               
               {!driverData?.modoRetorno && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                   <div className="relative">
-                    <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                    <input type="text" placeholder="Origem da Carga" value={filtroOrigem} onChange={e => setFiltroOrigem(e.target.value)} className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-4 pl-12 pr-4 text-sm font-bold text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all" />
+                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    <input type="text" placeholder="Origem..." value={filtroOrigem} onChange={e => setFiltroOrigem(e.target.value)} className="w-full bg-slate-900/50 border border-slate-800 rounded-xl py-2 pl-9 pr-3 text-xs font-bold text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 transition-all" />
                   </div>
                   <div className="relative">
-                    <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />
-                    <input type="text" placeholder="Destino da Carga" value={filtroDestino} onChange={e => setFiltroDestino(e.target.value)} className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-4 pl-12 pr-4 text-sm font-bold text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all" />
+                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />
+                    <input type="text" placeholder="Destino..." value={filtroDestino} onChange={e => setFiltroDestino(e.target.value)} className="w-full bg-slate-900/50 border border-slate-800 rounded-xl py-2 pl-9 pr-3 text-xs font-bold text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 transition-all" />
                   </div>
                 </div>
               )}
             </div>
 
-            <div className="space-y-6">
+            <div className="overflow-y-auto p-4 space-y-4 pb-8">
               {isOnline && radarLoading && fretesFiltradosOrdenados.length === 0 ? (
-                <>
-                   <FeedSkeleton />
-                   <FeedSkeleton />
-                </>
+                <><FeedSkeleton /><FeedSkeleton /></>
               ) : fretesFiltradosOrdenados.length === 0 ? (
                 isOnline ? (
-                  <div className="text-center py-24 bg-slate-900/40 rounded-[2rem] border border-cyan-500/20 shadow-[0_0_30px_rgba(6,182,212,0.05)] relative overflow-hidden">
-                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(6,182,212,0.1),transparent_50%)] animate-pulse" style={{ animationDuration: '4s' }}></div>
-                    <div className="relative z-10 flex flex-col items-center justify-center">
-                      <div className="w-16 h-16 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center mb-6 relative">
-                         <div className="absolute inset-0 rounded-full border border-cyan-400 animate-ping opacity-20"></div>
-                         <Activity className="w-8 h-8 text-cyan-400" />
-                      </div>
-                      <p className="text-cyan-400 font-black uppercase tracking-widest text-lg mb-2">Radar Operacional Ativo</p>
-                      <p className="text-sm font-bold text-slate-400 transition-all duration-500 max-w-sm mx-auto leading-relaxed">{emptyMessages[emptyMessageIndex]}</p>
-                    </div>
+                  <div className="text-center py-10">
+                    <Activity className="w-8 h-8 text-cyan-400 mx-auto mb-3 animate-pulse" />
+                    <p className="text-cyan-400 font-black uppercase tracking-widest text-sm mb-1">Radar Ativo</p>
+                    <p className="text-xs font-bold text-slate-400 transition-all duration-500">{emptyMessages[emptyMessageIndex]}</p>
                   </div>
                 ) : (
-                  <div className="text-center py-20 bg-slate-900/30 rounded-[2rem] border border-slate-800 border-dashed">
-                    <Power className="w-12 h-12 text-slate-700 mx-auto mb-4" />
-                    <p className="text-slate-500 font-medium text-lg">Sinal da Central Desligado.</p>
-                    <p className="text-sm text-slate-600 mt-2">Fique online para receber ofertas no mural.</p>
+                  <div className="text-center py-10">
+                    <Power className="w-8 h-8 text-slate-700 mx-auto mb-3" />
+                    <p className="text-slate-500 font-medium text-sm">Sinal da Central Desligado.</p>
                   </div>
                 )
               ) : (
@@ -599,120 +650,74 @@ export default function Motorista() {
                     const totalD = (freight as any).totalEntregas || 1;
 
                     return (
-                      <motion.div 
-                        key={freight.id} 
-                        layout
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.9, height: 0, overflow: 'hidden' }}
-                        transition={{ duration: 0.3 }}
-                        className="bg-slate-900/80 backdrop-blur-sm border border-slate-800 rounded-[2rem] p-6 shadow-2xl relative overflow-hidden transition-all hover:border-slate-700 mb-6"
-                      >
+                      <motion.div key={freight.id} layout initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, height: 0 }} className="bg-slate-900/80 border border-slate-800 rounded-[1.5rem] p-5 relative overflow-hidden hover:border-slate-700 transition-all">
+                        
                         {freight.prioridade ? (
-                           <div className="absolute top-0 right-0 bg-gradient-to-r from-red-600 to-orange-500 px-4 py-1.5 rounded-bl-2xl font-black text-[10px] uppercase tracking-widest text-white flex items-center gap-1.5 shadow-lg">
-                              <Flame size={12} className="animate-pulse"/> Urgente
+                           <div className="absolute top-0 right-0 bg-gradient-to-r from-red-600 to-orange-500 px-3 py-1 rounded-bl-xl font-black text-[9px] uppercase tracking-widest text-white flex items-center gap-1">
+                              <Flame size={10}/> Urgente
                            </div>
                         ) : freight.agendado ? (
-                           <div className="absolute top-0 right-0 bg-purple-600 px-4 py-1.5 rounded-bl-2xl font-black text-[10px] uppercase tracking-widest text-white flex items-center gap-1.5 shadow-lg shadow-purple-900/50">
-                              <CalendarDays size={12}/> Agendado
+                           <div className="absolute top-0 right-0 bg-purple-600 px-3 py-1 rounded-bl-xl font-black text-[9px] uppercase tracking-widest text-white flex items-center gap-1">
+                              <CalendarDays size={10}/> Agendado
                            </div>
                         ) : (
-                           <div className="absolute top-0 right-0 bg-cyan-600 px-4 py-1.5 rounded-bl-2xl font-black text-[10px] uppercase tracking-widest text-white flex items-center gap-1.5 shadow-lg shadow-cyan-900/50">
-                              <Clock size={12}/> Imediato
+                           <div className="absolute top-0 right-0 bg-cyan-600 px-3 py-1 rounded-bl-xl font-black text-[9px] uppercase tracking-widest text-white flex items-center gap-1">
+                              <Clock size={10}/> Imediato
                            </div>
                         )}
 
-                        {/* TAG QA ISOLADA */}
                         {(freight as any).isQA && (
-                           <div className="absolute top-0 left-0 bg-amber-500 px-4 py-1.5 rounded-br-2xl font-black text-[10px] uppercase tracking-widest text-black shadow-lg">
-                              SIMULAÇÃO QA
+                           <div className="absolute top-0 left-0 bg-amber-500 px-3 py-1 rounded-br-xl font-black text-[9px] uppercase tracking-widest text-black">
+                              QA
                            </div>
                         )}
 
-                        <div className="flex justify-between items-start mb-6 pt-2">
-                           <div className="flex flex-col gap-1.5">
-                              <span className="text-[10px] text-emerald-500 font-black uppercase tracking-widest">Valor Líquido</span>
-                              <h3 className="text-4xl md:text-5xl font-black text-emerald-400 tracking-tighter">R$ {freight.valorMotorista?.toFixed(2).replace('.', ',')}</h3>
-                              
-                              {/* CTO FIX: Tag Visual para alertar Motorista ANTES do Aceite */}
+                        <div className="flex justify-between items-start mb-4 mt-2">
+                           <div>
+                              <span className="text-[9px] text-emerald-500 font-black uppercase tracking-widest">Valor Líquido</span>
+                              <h3 className="text-3xl font-black text-emerald-400 tracking-tighter">R$ {freight.valorMotorista?.toFixed(2).replace('.', ',')}</h3>
                               {totalD > 1 ? (
-                                <div className="inline-flex items-center justify-center bg-cyan-500/20 border border-cyan-500/40 rounded-lg px-3 py-1 mt-1 w-max">
-                                   <span className="text-[10px] font-black text-cyan-400 uppercase tracking-widest">MULTI-DROP • {totalD} ENTREGAS</span>
-                                </div>
+                                <div className="inline-flex bg-cyan-500/20 border border-cyan-500/40 rounded px-2 py-0.5 mt-1"><span className="text-[9px] font-black text-cyan-400 uppercase">MULTI-DROP • {totalD} ENT</span></div>
                               ) : (
-                                <div className="inline-flex items-center justify-center bg-slate-800 border border-slate-700 rounded-lg px-3 py-1 mt-1 w-max">
-                                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">1 ENTREGA (DIRETA)</span>
-                                </div>
+                                <div className="inline-flex bg-slate-800 border border-slate-700 rounded px-2 py-0.5 mt-1"><span className="text-[9px] font-black text-slate-400 uppercase">1 ENTREGA</span></div>
                               )}
                            </div>
-                           <div className="text-right">
-                              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Publicado</p>
-                              <span className="bg-slate-950 text-slate-400 text-[10px] px-3 py-1.5 rounded-lg font-bold uppercase tracking-widest border border-slate-800">{formatTimeAgo(freight.createdAt)}</span>
+                           <div className="text-right pt-1">
+                              <span className="bg-slate-950 text-slate-400 text-[9px] px-2 py-1 rounded font-bold uppercase tracking-widest border border-slate-800">{formatTimeAgo(freight.createdAt)}</span>
                            </div>
                         </div>
 
-                        <div className="bg-slate-950 rounded-2xl p-5 border border-slate-800/50 mb-6 relative">
-                           <div className="absolute left-[31px] top-10 bottom-10 w-px bg-slate-800"></div>
-                           <div className="flex items-start gap-4 mb-6 relative z-10">
-                              <div className="w-6 h-6 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center shrink-0 mt-1"><div className="w-2 h-2 rounded-full bg-slate-400"></div></div>
+                        <div className="bg-slate-950 rounded-xl p-3 border border-slate-800/50 mb-4">
+                           <div className="flex items-start gap-3 mb-3">
+                              <div className="w-5 h-5 rounded-full bg-slate-800 border border-slate-600 flex items-center justify-center mt-0.5"><div className="w-1.5 h-1.5 rounded-full bg-slate-400"></div></div>
                               <div>
-                                 <p className="text-[10px] uppercase tracking-widest font-black text-slate-500 mb-1">Pegar em</p>
-                                 <p className="text-sm font-bold text-white leading-snug">{freight.enderecoColetaTexto}</p>
+                                 <p className="text-[9px] uppercase tracking-widest font-black text-slate-500">Coleta</p>
+                                 <p className="text-xs font-bold text-white truncate max-w-[200px]">{freight.enderecoColetaTexto}</p>
                               </div>
                            </div>
-                           <div className="flex items-start gap-4 relative z-10">
-                              <div className="w-6 h-6 rounded-full bg-emerald-900/50 border-2 border-emerald-50 flex items-center justify-center shrink-0 mt-1"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div></div>
+                           <div className="flex items-start gap-3">
+                              <div className="w-5 h-5 rounded-full bg-emerald-900/50 border border-emerald-50 flex items-center justify-center mt-0.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div></div>
                               <div>
-                                 <p className="text-[10px] uppercase tracking-widest font-black text-emerald-500 mb-1">{totalD > 1 ? 'Último Destino' : 'Entregar em'}</p>
-                                 <p className="text-sm font-bold text-white leading-snug">{freight.enderecoEntregaTexto}</p>
+                                 <p className="text-[9px] uppercase tracking-widest font-black text-emerald-500">{totalD > 1 ? 'Último Destino' : 'Entrega'}</p>
+                                 <p className="text-xs font-bold text-white truncate max-w-[200px]">{freight.enderecoEntregaTexto}</p>
                               </div>
                            </div>
                         </div>
 
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-6">
-                          <div className="bg-slate-900 rounded-xl p-3 text-center border border-slate-800">
-                            <p className="text-[9px] text-emerald-500 uppercase font-black tracking-widest mb-1">Ganho / KM</p>
-                            <p className="text-sm font-black text-emerald-400">R$ {ganhoPorKm.toFixed(2)}</p>
-                          </div>
-                          <div className="bg-slate-900 rounded-xl p-3 text-center border border-slate-800">
-                            <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Distância</p>
-                            <p className="text-sm font-bold text-slate-300">{freight.distanciaTotalKm?.toFixed(1)} km</p>
-                          </div>
-                          <div className="bg-slate-900 rounded-xl p-3 text-center border border-slate-800">
-                            <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Peso / Vol</p>
-                            <p className="text-sm font-bold text-slate-300">{freight.pesoKg ? `${freight.pesoKg}kg` : `${freight.volumes} vol`}</p>
-                          </div>
-                          <div className="bg-slate-900 rounded-xl p-3 text-center border border-slate-800 flex flex-col justify-center overflow-hidden">
-                            <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Carga</p>
-                            <p className="text-[11px] font-bold text-slate-300 truncate w-full px-1">{freight.tipoCarga || 'Geral'}</p>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-3 gap-2 mb-5 border-t border-slate-800 pt-5">
-                            <button onClick={() => handleSocialAction('interesse', freight.id)} className="flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-blue-400 transition-colors">
-                               <ThumbsUp size={20}/>
-                               <span className="text-[9px] font-black uppercase tracking-widest">Interesse</span>
-                            </button>
-                            <button onClick={() => handleSocialAction('favorito', freight.id)} className="flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-amber-400 transition-colors">
-                               <Star size={20}/>
-                               <span className="text-[9px] font-black uppercase tracking-widest">Salvar</span>
-                            </button>
-                            <button onClick={() => handleSocialAction('share', freight.id)} className="flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-cyan-400 transition-colors">
-                               <Share2 size={20}/>
-                               <span className="text-[9px] font-black uppercase tracking-widest">Enviar</span>
-                            </button>
+                        <div className="grid grid-cols-4 gap-2 mb-4">
+                          <div className="bg-slate-900 rounded-lg p-2 text-center border border-slate-800"><p className="text-[8px] text-emerald-500 uppercase font-black mb-0.5">Ganho/KM</p><p className="text-[10px] font-black text-emerald-400">R$ {ganhoPorKm.toFixed(2)}</p></div>
+                          <div className="bg-slate-900 rounded-lg p-2 text-center border border-slate-800"><p className="text-[8px] text-slate-500 uppercase font-black mb-0.5">Dist.</p><p className="text-[10px] font-bold text-slate-300">{freight.distanciaTotalKm?.toFixed(1)}km</p></div>
+                          <div className="bg-slate-900 rounded-lg p-2 text-center border border-slate-800"><p className="text-[8px] text-slate-500 uppercase font-black mb-0.5">Peso</p><p className="text-[10px] font-bold text-slate-300">{freight.pesoKg ? `${freight.pesoKg}kg` : `${freight.volumes}v`}</p></div>
+                          <div className="bg-slate-900 rounded-lg p-2 text-center border border-slate-800 flex flex-col justify-center overflow-hidden"><p className="text-[8px] text-slate-500 uppercase font-black mb-0.5">Carga</p><p className="text-[9px] font-bold text-slate-300 truncate">{freight.tipoCarga || 'Geral'}</p></div>
                         </div>
 
                         {!isOnline ? (
-                          <button onClick={() => {
-                            handleToggleOnline(true);
-                            showToast('Você está online! Confirme os detalhes e aceite o frete.', 'success');
-                          }} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-[0.2em] py-4 rounded-xl shadow-lg shadow-blue-900/50 transition-all active:scale-95 flex items-center justify-center gap-2 border border-blue-500">
-                              <Power size={18} /> Ficar Online para Aceitar
+                          <button onClick={() => { handleToggleOnline(true); showToast('Confirme os detalhes e aceite.', 'success'); }} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black uppercase text-[10px] tracking-[0.2em] py-3 rounded-lg flex items-center justify-center gap-2">
+                              <Power size={14} /> Ficar Online para Aceitar
                           </button>
                         ) : (
-                          <button onClick={() => handleSelectFreight(freight)} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase tracking-[0.2em] py-4 rounded-xl shadow-lg shadow-emerald-900/50 transition-all active:scale-95 flex items-center justify-center gap-2 border border-emerald-500">
-                              <Truck size={18} /> Aceitar e Viajar
+                          <button onClick={() => handleSelectFreight(freight)} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase text-[10px] tracking-[0.2em] py-3 rounded-lg flex items-center justify-center gap-2">
+                              <Truck size={14} /> Aceitar e Viajar
                           </button>
                         )}
                       </motion.div>
@@ -722,32 +727,33 @@ export default function Motorista() {
               )}
             </div>
           </div>
-
-          <div className={selectedFreight ? "block" : "hidden"}>
-            <DriverApp 
-              freights={[]} 
-              selectedFreight={selectedFreight} 
-              activeFreight={activeFreight} 
-              isOnline={isOnline} 
-              loading={radarLoading} 
-              driverCategory={operationalCategory} 
-              driverName={driverData.nome} 
-              onToggleOnline={handleToggleOnline} 
-              onSelectFreight={handleSelectFreight} 
-              onCloseFreight={handleCloseFreight} 
-              onAcceptFreight={handleAcceptFreight} 
-            />
-          </div>
-        </>
+        </div>
       )}
 
+      {/* DriverApp Layer Oculto para validar Aceite sem quebrar as regras */}
+      <div className={`pointer-events-auto ${selectedFreight ? "fixed inset-0 z-[100]" : "hidden"}`}>
+        <DriverApp 
+          freights={[]} 
+          selectedFreight={selectedFreight} 
+          activeFreight={activeFreight} 
+          isOnline={isOnline} 
+          loading={radarLoading} 
+          driverCategory={operationalCategory} 
+          driverName={driverData.nome} 
+          onToggleOnline={handleToggleOnline} 
+          onSelectFreight={handleSelectFreight} 
+          onCloseFreight={handleCloseFreight} 
+          onAcceptFreight={handleAcceptFreight} 
+        />
+      </div>
+
       {toast && (
-        <div className="fixed bottom-10 left-1/2 z-[120] -translate-x-1/2 animate-in slide-in-from-bottom-5 w-[90%] max-w-sm">
-          <div className={`rounded-[1.5rem] border px-6 py-4 text-xs font-black uppercase tracking-widest shadow-2xl flex items-center gap-2 ${
+        <div className="fixed bottom-10 left-1/2 z-[120] -translate-x-1/2 animate-in slide-in-from-bottom-5 w-[90%] max-w-sm pointer-events-auto">
+          <div className={`rounded-2xl border px-4 py-3 text-[10px] font-black uppercase tracking-widest shadow-2xl flex items-center gap-2 justify-center ${
             toast.type === 'success' ? 'border-emerald-500/30 bg-emerald-900/90 text-emerald-400' : 
             toast.type === 'warning' ? 'border-amber-500/30 bg-amber-900/90 text-amber-400' : 
             'border-blue-500/30 bg-blue-900/90 text-blue-400'
-          } backdrop-blur-md text-center justify-center`}>
+          } backdrop-blur-md`}>
             {toast.msg}
           </div>
         </div>
