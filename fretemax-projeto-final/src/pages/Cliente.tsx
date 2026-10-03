@@ -946,7 +946,6 @@ export default function Cliente() {
   };
 
   const handleAddEntrega = () => {
-    // CTO FIX: A validação permite que o array chegue exatamente a 25 destinos de entrega
     if (entregas.length < 25) setEntregas([...entregas, { cep: '', bairro: '', rua: '', num: '' }]);
     else showToast('Limite máximo de 24 paradas intermediárias (25 entregas no total) atingido.', 'warning');
   };
@@ -1525,7 +1524,6 @@ export default function Cliente() {
         {step === 'busca' && orderData && (
           <div className="mx-auto w-full animate-in fade-in slide-in-from-bottom-8 duration-700">
 
-            {/* CTO FIX: EXPERIÊNCIA DE CONCLUSÃO DE FRETE - Permanece na tela exibindo as informações até o cliente optar por Novo Frete */}
             {orderData?.status === 'finalizado' && (
               <div className="bg-emerald-600 rounded-[2.5rem] p-8 shadow-2xl text-white mb-6 text-center relative overflow-hidden">
                 <CheckCircle size={48} className="mx-auto mb-4 text-emerald-200" />
@@ -1543,24 +1541,49 @@ export default function Cliente() {
             <div className="flex flex-col gap-6 mb-8">
                 {orderData?.status === 'aguardando_pagamento' && (
                   <div className="bg-blue-600 rounded-[2.5rem] p-8 shadow-2xl text-white mb-2 relative overflow-hidden">
-                    <h3 className="text-3xl font-black mb-4 flex items-center gap-3">
-                       <CheckCircle size={32}/> Seu frete está pronto
-                    </h3>
-                    <p className="text-blue-100 mb-6 text-base font-medium leading-relaxed">
-                       Encontramos motoristas parceiros disponíveis para atender essa região. Seu frete será enviado aos motoristas após a confirmação do pagamento.
-                    </p>
-                    {realDriversCount > 0 && (
-                       <p className="inline-block bg-blue-500/50 px-4 py-2 rounded-xl text-white font-bold text-sm mb-6">
-                          {realDriversCount} motoristas disponíveis próximos à coleta
-                       </p>
-                    )}
-                    <button onClick={handlePagarReserva} disabled={loadingPayment} className="w-full bg-slate-900 hover:bg-black text-white text-lg font-black uppercase tracking-[0.2em] py-5 rounded-[1.5rem] flex items-center justify-center gap-3 transition-all shadow-xl disabled:opacity-50 disabled:cursor-not-allowed">
-                       {loadingPayment ? <Loader2 className="animate-spin" /> : <Lock size={20}/>}
-                       {loadingPayment ? 'Conectando...' : 'Confirmar e pagar'}
-                    </button>
-                    <p className="text-center text-[10px] text-blue-200 mt-4 font-bold uppercase tracking-widest">
-                       Seu pagamento fica protegido até a conclusão do serviço, conforme as regras da plataforma.
-                    </p>
+                    {(() => {
+                      // Verifica se o pagamento já foi iniciado (possui ID) e se NÃO está num estado de recusa/erro.
+                      const checkoutIniciado = (orderData?.transactionId || orderData?.pagamentoId || orderData?.pagamentoStatus === 'pendente' || orderData?.pagamentoStatus === 'in_process') && !['recusado', 'cancelado', 'erro', 'erro_pagamento'].includes(orderData?.pagamentoStatus || '');
+
+                      if (checkoutIniciado) {
+                        return (
+                          <>
+                             <h3 className="text-3xl font-black mb-4 flex items-center gap-3">
+                                <Loader2 className="animate-spin" size={32}/> Processando...
+                             </h3>
+                             <div className="flex flex-col items-center justify-center p-8 bg-slate-900/40 rounded-[1.5rem] border border-white/10 mt-4">
+                                <Loader2 className="h-10 w-10 animate-spin text-cyan-400 mb-4" />
+                                <p className="text-center font-bold text-xl text-white">Aguardando confirmação do pagamento.</p>
+                                <p className="text-center text-sm text-blue-200 mt-2">Esta tela será atualizada automaticamente.</p>
+                             </div>
+                          </>
+                        );
+                      }
+
+                      // Caso não tenha checkout ativo (ainda não clicou em pagar, ou pagamento anterior recusado)
+                      return (
+                        <>
+                           <h3 className="text-3xl font-black mb-4 flex items-center gap-3">
+                              <CheckCircle size={32}/> Seu frete está pronto
+                           </h3>
+                           <p className="text-blue-100 mb-6 text-base font-medium leading-relaxed">
+                              Encontramos motoristas parceiros disponíveis para atender essa região. Seu frete será enviado aos motoristas após a confirmação do pagamento.
+                           </p>
+                           {realDriversCount > 0 && (
+                              <p className="inline-block bg-blue-500/50 px-4 py-2 rounded-xl text-white font-bold text-sm mb-6">
+                                 {realDriversCount} motoristas disponíveis próximos à coleta
+                              </p>
+                           )}
+                           <button onClick={handlePagarReserva} disabled={loadingPayment} className="w-full bg-slate-900 hover:bg-black text-white text-lg font-black uppercase tracking-[0.2em] py-5 rounded-[1.5rem] flex items-center justify-center gap-3 transition-all shadow-xl disabled:opacity-50 disabled:cursor-not-allowed">
+                              {loadingPayment ? <Loader2 className="animate-spin" /> : <Lock size={20}/>}
+                              {loadingPayment ? 'Conectando...' : 'Confirmar e pagar'}
+                           </button>
+                           <p className="text-center text-[10px] text-blue-200 mt-4 font-bold uppercase tracking-widest">
+                              Seu pagamento fica protegido até a conclusão do serviço, conforme as regras da plataforma.
+                           </p>
+                        </>
+                      );
+                    })()}
                   </div>
                 )}
 
