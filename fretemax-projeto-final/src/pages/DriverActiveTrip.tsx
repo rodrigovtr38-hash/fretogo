@@ -2,16 +2,16 @@
 // NOME DO ARQUIVO: src/components/DriverActiveTrip.tsx
 // CTO-Log: Blindagem F03 Preservada. Arquitetura Refatorada.
 // O componente agora atua estritamente como Bottom Sheet Responsivo.
-// Não instancia GPS nem Mapa, reaproveitando os dados globais do Pai.
+// CTO-Log [Lote 1]: Persistência de POD corrigida e Timeouts nas Cloud Functions implementados.
 // =========================================================
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db, auth, storage } from '../firebase'; 
 import { DocumentData } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage'; 
 import { getFunctions, httpsCallable } from 'firebase/functions'; 
-import { LockKeyhole, AlertTriangle, Loader2, MapPin, Radio, Navigation, Scale, Camera, Wallet, CheckCircle2, MessageCircle, FileText, Check, XCircle, Info, UploadCloud, Truck, Package, MapPinned, HelpCircle } from 'lucide-react';
+import { LockKeyhole, AlertTriangle, Loader2, MapPin, Radio, Navigation, Camera, Wallet, CheckCircle2, MessageCircle, FileText, Check, XCircle, Info, UploadCloud, Truck, Package, MapPinned, HelpCircle } from 'lucide-react';
 import { dispatchRealtimeService } from '../services/dispatchRealtimeService';
 import { locationRealtimeService } from '../services/locationRealtimeService'; 
 import { locationService } from '../services/locationService'; 
@@ -54,6 +54,17 @@ interface DriverActiveTripProps {
   etaAtiva: number | null;
 }
 
+// Utility para adicionar timeout seguro em Promises nativas (Cloud Functions)
+const withTimeout = <T,>(promise: Promise<T>, ms: number, errorMessage = 'Tempo limite excedido. Verifique sua conexão.'): Promise<T> => {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(errorMessage)), ms);
+    promise
+      .then(resolve)
+      .catch(reject)
+      .finally(() => clearTimeout(timer));
+  });
+};
+
 export default function DriverActiveTrip({ frete, currentGps, etaAtiva }: DriverActiveTripProps) {
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [pinValue, setPinValue] = useState('');
@@ -63,22 +74,21 @@ export default function DriverActiveTrip({ frete, currentGps, etaAtiva }: Driver
   
   const [fotoPodBase64, setFotoPodBase64] = useState<string | null>(null);
   const [uploadingPod, setUploadingPod] = useState(false);
+  // Flag visual para segurar a UI enquanto o Firestore não devolve o status verdadeiro (evita o flicker)
+  const [isWaitingFirestorePod, setIsWaitingFirestorePod] = useState(false);
   
   const [chavePix, setChavePix] = useState('');
 
   const [isOcorrenciaOpen, setIsOcorrenciaOpen] = useState(false);
   const [ocorrenciaMotivo, setOcorrenciaMotivo] = useState('');
 
-  if (!frete || !frete.id) return null;
+  const paradas = frete?.paradas || [];
+  const paradaAtualIndex = frete?.paradaAtualIndex || 0;
+  const destinoAtual = paradas[paradaAtualIndex] || (frete?.entrega || {});
 
-  const paradas = frete.paradas || [];
-  const paradaAtualIndex = frete.paradaAtualIndex || 0;
-  const destinoAtual = paradas[paradaAtualIndex] || (frete.entrega || {});
-
-  const isFaseColeta = new Set<string>([AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.CHEGOU_COLETA, AppTripState.COLETANDO]).has(String(frete.status));
-  
+  const isFaseColeta = new Set<string>([AppTripState.ACEITO, AppTripState.INDO_COLETA, AppTripState.CHEGOU_COLETA, AppTripState.COLETANDO]).has(String(frete?.status));
   const mapDestinoGPS = destinoAtual?.lat ? { lat: destinoAtual.lat, lng: destinoAtual.lng } : null;
-  const navDestinoGPS = isFaseColeta && frete.origemLat && frete.origemLng 
+  const navDestinoGPS = isFaseColeta && frete?.origemLat && frete?.origemLng 
     ? { lat: frete.origemLat, lng: frete.origemLng } 
     : mapDestinoGPS;
 
@@ -89,16 +99,34 @@ export default function DriverActiveTrip({ frete, currentGps, etaAtiva }: Driver
   const distStr = distanceToTarget !== null ? (distanceToTarget > 1000 ? `${(distanceToTarget / 1000).toFixed(1)}km` : `${Math.round(distanceToTarget)}m`) : '';
 
   const enderecoAlvoTexto = isFaseColeta
-    ? frete.enderecoColetaTexto
+    ? frete?.enderecoColetaTexto
     : destinoAtual?.enderecoTexto
       || (destinoAtual?.rua ? `${destinoAtual.rua}, ${destinoAtual.num || 's/n'} - ${destinoAtual.bairro || ''}` : '')
-      || frete.enderecoEntregaTexto
+      || frete?.enderecoEntregaTexto
       || 'Destino da rota';
 
   const totalParadas = paradas.length > 0 ? (paradas.length + 1) : 1; 
+  const etapaAtualKey = frete?.status === AppTripState.COLETANDO ? 'coleta' : `parada_${paradaAtualIndex}`;
+  const isFotoConfirmada = !!frete?.fotosPod?.[etapaAtualKey];
 
-  const etapaAtualKey = frete.status === AppTripState.COLETANDO ? 'coleta' : `parada_${paradaAtualIndex}`;
-  const isFotoConfirmada = !!frete.fotosPod?.[etapaAtualKey];
+  // Escuta ativa: se o Firestore confirmou a foto remotamente, destravamos a UI de espera local.
+  useEffect(() => {
+      if (isFotoConfirmada) {
+          setIsWaitingFirestorePod(false);
+      }
+  }, [isFotoConfirmada]);
+
+  // Limpa o base64 e erros sempre que o modal é fechado
+  useEffect(() => {
+    if (!isPinModalOpen) {
+       setFotoPodBase64(null);
+       setPinError('');
+       setPinValue('');
+       setIsWaitingFirestorePod(false);
+    }
+  }, [isPinModalOpen]);
+
+  if (!frete || !frete.id) return null;
 
   const handleOpenNav = async (app: 'waze' | 'google') => {
     setActionLoading(true);
@@ -162,17 +190,25 @@ export default function DriverActiveTrip({ frete, currentGps, etaAtiva }: Driver
   };
 
   const handleUploadPhoto = async () => {
-    if (!fotoPodBase64 || uploadingPod || frete.bloqueioPin) return;
+    if (!fotoPodBase64 || uploadingPod || frete.bloqueioPin || isWaitingFirestorePod) return;
     setUploadingPod(true);
     setPinError('');
+    
     try {
       const fileRef = ref(storage, `pods/${frete.id}/${etapaAtualKey}.jpg`);
       await uploadString(fileRef, fotoPodBase64, 'data_url');
       const finalUrl = await getDownloadURL(fileRef);
 
+      // Trava visual local enquanto aguardamos o webhook/firestore propagar isFotoConfirmada
+      setIsWaitingFirestorePod(true); 
       await TripLifecycleService.registrarEvidenciaMotorista(frete.id, etapaAtualKey, finalUrl);
-      setFotoPodBase64(null);
+      
+      // NOTA CTO: Não apagamos o fotoPodBase64 aqui mais!
+      // A foto permanece como "placeholder visual" para o motorista sentir que deu certo, 
+      // até o Firebase confirmar a prop `isFotoConfirmada` e trocar o componente.
+      
     } catch (uploadError) {
+      setIsWaitingFirestorePod(false);
       setPinError('Falha no upload da foto. Verifique sua conexão e tente novamente.');
     } finally {
       setUploadingPod(false);
@@ -215,7 +251,13 @@ export default function DriverActiveTrip({ frete, currentGps, etaAtiva }: Driver
     try {
       const functions = getFunctions(db.app);
       const solicitarExcecaoSemPin = httpsCallable(functions, 'solicitarExcecaoSemPin');
-      const result: any = await solicitarExcecaoSemPin({ freteId: frete.id });
+      
+      // Proteção de 20 segundos contra travamentos de conexão lenta do motorista
+      const result: any = await withTimeout(
+         solicitarExcecaoSemPin({ freteId: frete.id }), 
+         20000, 
+         "A rede está muito lenta e não recebemos confirmação da Torre. Verifique o status da sua viagem antes de tentar novamente."
+      );
       
       if (result.data?.pending) {
         alert("ENTREGA EM ANÁLISE\n\nA ocorrência foi encaminhada para a Torre de Controle.");
@@ -226,7 +268,7 @@ export default function DriverActiveTrip({ frete, currentGps, etaAtiva }: Driver
       setIsPinModalOpen(false);
       setPinValue('');
     } catch (e: any) {
-      setPinError(e.message || 'Erro ao processar a exceção. Tente novamente.');
+      setPinError(e.message || 'Erro ao processar a exceção. Tente novamente ou contate o suporte.');
     } finally {
       setActionLoading(false);
     }
@@ -258,12 +300,19 @@ export default function DriverActiveTrip({ frete, currentGps, etaAtiva }: Driver
     try {
       const functions = getFunctions(db.app);
       const liquidarViagemMotorista = httpsCallable(functions, 'liquidarViagemMotorista');
-      await liquidarViagemMotorista({ freteId: frete.id, chavePix: chavePix });
+      
+      // Proteção de 25 segundos para liquidação (operação financeira crítica)
+      await withTimeout(
+          liquidarViagemMotorista({ freteId: frete.id, chavePix: chavePix }), 
+          25000, 
+          "A comunicação com o sistema financeiro demorou muito. Verifique pelo WhatsApp se a sua corrida já foi finalizada antes de clicar novamente."
+      );
       
       const msg = `Olá, finalizei a corrida #${frete.id.slice(0,8).toUpperCase()}.\nMinha chave PIX é: ${chavePix}\nO canhoto já foi enviado no app. Fico no aguardo do repasse.`;
       openExternalLink(`${PLATFORM_LINKS.SUPPORT_WHATSAPP}?text=${encodeURIComponent(msg)}`);
+      
     } catch (error: any) {
-      alert(error.message || "Falha na comunicação. Tente novamente.");
+      alert(error.message || "Falha na comunicação. Se sua internet estiver ruim, avise o suporte pelo WhatsApp.");
     } finally { 
       setActionLoading(false); 
     }
@@ -315,6 +364,7 @@ export default function DriverActiveTrip({ frete, currentGps, etaAtiva }: Driver
          </div>
          <h2 className="text-center text-2xl font-black text-white uppercase italic tracking-tighter mb-2">Operação Abortada</h2>
          <p className="text-center text-slate-400 text-sm mb-8">Esta viagem foi cancelada e devolvida à Torre de Controle.</p>
+         {/* Débito Técnico Preservado Temporariamente para não quebrar a árvore local */}
          <button onClick={() => window.location.reload()} className="w-full flex items-center justify-center gap-2 bg-slate-800 h-14 font-black uppercase tracking-[0.2em] rounded-[1.5rem] transition-all hover:bg-slate-700 active:scale-95 text-white border border-slate-700 shadow-inner">
            Voltar ao Radar
          </button>
@@ -616,8 +666,8 @@ export default function DriverActiveTrip({ frete, currentGps, etaAtiva }: Driver
                       </label>
                       
                       {fotoPodBase64 && (
-                        <button onClick={handleUploadPhoto} disabled={uploadingPod} className="w-full mt-4 flex items-center justify-center gap-2 bg-emerald-500 py-3 font-black uppercase text-xs rounded-xl text-slate-950 hover:bg-emerald-400 transition-colors shadow-[0_0_15px_rgba(16,185,129,0.3)]">
-                          {uploadingPod ? <><Loader2 className="animate-spin text-black" size={16}/> Sincronizando...</> : <><UploadCloud size={16}/> Enviar Evidência</>}
+                        <button onClick={handleUploadPhoto} disabled={uploadingPod || isWaitingFirestorePod} className="w-full mt-4 flex items-center justify-center gap-2 bg-emerald-500 py-3 font-black uppercase text-xs rounded-xl text-slate-950 hover:bg-emerald-400 transition-colors shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+                          {(uploadingPod || isWaitingFirestorePod) ? <><Loader2 className="animate-spin text-black" size={16}/> {uploadingPod ? 'Enviando...' : 'Verificando...'}</> : <><UploadCloud size={16}/> Enviar Evidência</>}
                         </button>
                       )}
                     </div>
@@ -636,7 +686,7 @@ export default function DriverActiveTrip({ frete, currentGps, etaAtiva }: Driver
 
                   <div className="flex flex-col gap-3 mt-4">
                     <div className="flex gap-2">
-                      <button onClick={() => { setIsPinModalOpen(false); setPinValue(''); setPinError(''); setFotoPodBase64(null); }} className="w-1/3 bg-transparent border border-white/10 py-4 font-black uppercase text-xs rounded-xl text-slate-400 hover:bg-white/5">Voltar</button>
+                      <button onClick={() => { setIsPinModalOpen(false); }} className="w-1/3 bg-transparent border border-white/10 py-4 font-black uppercase text-xs rounded-xl text-slate-400 hover:bg-white/5">Voltar</button>
                       {isFotoConfirmada && (
                         <button onClick={handlePinSubmit} disabled={actionLoading || pinValue.length < 4} className="w-2/3 flex items-center justify-center bg-cyan-500 py-4 font-black uppercase tracking-widest rounded-xl text-slate-950 disabled:opacity-50 hover:bg-cyan-400 shadow-lg shadow-cyan-500/20">
                           {actionLoading ? <Loader2 className="animate-spin text-black" size={18}/> : 'Validar PIN'}
