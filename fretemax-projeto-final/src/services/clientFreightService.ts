@@ -308,6 +308,57 @@ class ClientFreightService {
     }
   }
 
+  async republicarFrete(freteId: string): Promise<ServiceResult> {
+    const normalizedFreteId = typeof freteId === 'string' ? freteId.trim() : '';
+    if (!normalizedFreteId) return { success: false, error: 'FRETE_ID_INVALIDO' };
+
+    try {
+      const functions = getFunctions();
+      const republicarFreteB2B = httpsCallable<{ freteId: string }, { success?: boolean }>(
+        functions,
+        'republicarFreteB2B'
+      );
+      const response = await republicarFreteB2B({ freteId: normalizedFreteId });
+      
+      return response.data?.success
+        ? { success: true }
+        : { success: false, error: 'ERRO_REPUBLICAR_FRETE_SERVIDOR' };
+    } catch (error: unknown) {
+      console.error('[FREIGHT SERVICE] Erro ao republicar frete:', error);
+      return { success: false, error: normalizeError(error, 'ERRO_REPUBLICAR_FRETE') };
+    }
+  }
+
+  async reprecificarFrete(freteId: string, novoValorTotal: number, novoValorPedagio?: number): Promise<ServiceResult> {
+    const normalizedFreteId = typeof freteId === 'string' ? freteId.trim() : '';
+    if (!normalizedFreteId) return { success: false, error: 'FRETE_ID_INVALIDO' };
+
+    if (typeof novoValorTotal !== 'number' || !Number.isFinite(novoValorTotal) || novoValorTotal <= 0) {
+      return { success: false, error: 'NOVO_VALOR_TOTAL_INVALIDO' };
+    }
+
+    try {
+      const functions = getFunctions();
+      const reprecificarFreteB2B = httpsCallable<
+        { freteId: string; novoValorTotal: number; novoValorPedagio?: number },
+        { success?: boolean }
+      >(functions, 'reprecificarFreteB2B');
+      
+      const response = await reprecificarFreteB2B({ 
+        freteId: normalizedFreteId, 
+        novoValorTotal, 
+        novoValorPedagio 
+      });
+      
+      return response.data?.success
+        ? { success: true }
+        : { success: false, error: 'ERRO_REPRECIFICAR_FRETE_SERVIDOR' };
+    } catch (error: unknown) {
+      console.error('[FREIGHT SERVICE] Erro ao reprecificar frete:', error);
+      return { success: false, error: normalizeError(error, 'ERRO_REPRECIFICAR_FRETE') };
+    }
+  }
+
   async buscarFrete(freteId: string): Promise<ServiceResult<Record<string, unknown>>> {
     const normalizedFreteId = typeof freteId === 'string' ? freteId.trim() : '';
     if (!normalizedFreteId) return { success: false, error: 'FRETE_ID_INVALIDO' };
