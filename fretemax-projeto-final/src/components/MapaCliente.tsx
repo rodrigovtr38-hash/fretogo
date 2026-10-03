@@ -1,3 +1,9 @@
+// =========================================================
+// NOME DO ARQUIVO: src/components/MapaCliente.tsx
+// CTO-Log: Blindagem F03 Preservada. Arquitetura Refatorada.
+// CTO-Log [Lote 2]: Graceful Degradation de Rotas (Fallback Haversine e Proteção Directions API)
+// =========================================================
+
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { GoogleMap, Marker, Polyline, DirectionsRenderer, useJsApiLoader } from '@react-google-maps/api';
 
@@ -116,9 +122,6 @@ function MapaCliente({
 
       // 1. Cenário pré-aceite: Motorista não existe.
       if (!motoristaId) {
-          // Limite ampliado de 10 para 25 entregas, compatível com a liberação de contrato do backend.
-          // Se o total de paradas superar o máximo da API Directions (25 waypoints), 
-          // ativamos graceful degradation usando a Polyline reta (fallback visual).
           if (allStops.length > 25) return null;
 
           return {
@@ -157,7 +160,13 @@ function MapaCliente({
 
   // 🔥 CTO FIX: Chamada Real ao Google Maps baseada na rota ativa calculada (Dispara apenas nas trocas de estado)
   useEffect(() => {
-     if (!isLoaded || !activeRouting || !window.google) return;
+     if (!isLoaded || !window.google) return;
+     
+     // 1. Fallback: Se não há rota viária disponível (estourou waypoints), limpar lixo de rota anterior
+     if (!activeRouting) {
+         setDirectionsResult(null);
+         return;
+     }
      
      const directionsService = new window.google.maps.DirectionsService();
 
@@ -169,8 +178,8 @@ function MapaCliente({
      }, (result, status) => {
          if (status === window.google.maps.DirectionsStatus.OK && result) {
              setDirectionsResult(result);
-
-             // Extrai a matemática viária base inicial
+             
+             // A extração viária que emite o callback inicial de tempo e distância:
              if (result.routes && result.routes.length > 0) {
                  const route = result.routes[0];
                  let distMeters = 0;
@@ -188,29 +197,20 @@ function MapaCliente({
                      onRouteUpdateRef.current(etaMinutes, distanceKm);
                  }
              }
+         } else {
+             // 2. Fallback: Recusa do provedor (MAX_WAYPOINTS_EXCEEDED, ZERO_RESULTS)
+             setDirectionsResult(null);
          }
      });
   }, [isLoaded, activeRouting]);
 
-  // 🔥 CTO FIX: Atualização Offline de ETA/Distância em Tempo Real via Motor Matemático (Haversine Ratio)
-  // Calcula o progresso sem acionar novas chamadas de API do Google Maps.
+  // 🔥 CTO FIX: Atualização Offline de ETA/Distância em Tempo Real via Motor Matemático
+  // Suporta gracefully tanto a rota viária (Ratio da leg) quanto o fallback de Haversine se a API falhar.
   useEffect(() => {
-      if (!motoristaPos || !directionsResult || !directionsResult.routes[0] || !onRouteUpdateRef.current) return;
+      if (!motoristaPos || !onRouteUpdateRef.current) return;
 
-      const route = directionsResult.routes[0];
-      if (!route.legs || route.legs.length === 0) return;
-
-      const firstLeg = route.legs[0]; // A perna que o motorista está percorrendo atualmente
-      if (!firstLeg.start_location || !firstLeg.end_location) return;
-
-      const startLat = firstLeg.start_location.lat();
-      const startLng = firstLeg.start_location.lng();
-      const endLat = firstLeg.end_location.lat();
-      const endLng = firstLeg.end_location.lng();
-
-      // Cálculo de distância em linha reta (Haversine)
       const calcHaversine = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-          const R = 6371; 
+          const R = 6371; // km
           const dLat = (lat2 - lat1) * Math.PI / 180;
           const dLon = (lon2 - lon1) * Math.PI / 180;
           const a = Math.sin(dLat/2) * Math.sin(dLat/2) + 
@@ -219,31 +219,85 @@ function MapaCliente({
           return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       };
 
-      const initialLineDist = calcHaversine(startLat, startLng, endLat, endLng);
-      const currentLineDist = calcHaversine(motoristaPos.lat, motoristaPos.lng, endLat, endLng);
+      // 1. ESTRATÉGIA A (Primária): API Viária ativa e funcionando perfeitamente
+      if (directionsResult && directionsResult.routes[0]) {
+          const route = directionsResult.routes[0];
+          if (!route.legs || route.legs.length === 0) return;
 
-      // Descobre o percentual que falta para finalizar a perna atual
-      let ratio = initialLineDist > 0.05 ? (currentLineDist / initialLineDist) : 0;
-      if (ratio > 1) ratio = 1; // Trava a distância na máxima calculada pelo Google Maps original
-      if (ratio < 0) ratio = 0;
+          const firstLeg = route.legs[0]; // A perna que o motorista está percorrendo atualmente
+          if (!firstLeg.start_location || !firstLeg.end_location) return;
 
-      // Aplica a proporção (ratio) exclusivamente nos totais da perna em andamento
-      let remainingDistMeters = (firstLeg.distance?.value || 0) * ratio;
-      let remainingDurSeconds = (firstLeg.duration?.value || 0) * ratio;
+          const startLat = firstLeg.start_location.lat();
+          const startLng = firstLeg.start_location.lng();
+          const endLat = firstLeg.end_location.lat();
+          const endLng = firstLeg.end_location.lng();
 
-      // Soma o total absoluto de todas as entregas (pernas) seguintes se houver
-      for (let i = 1; i < route.legs.length; i++) {
-          remainingDistMeters += route.legs[i].distance?.value || 0;
-          remainingDurSeconds += route.legs[i].duration?.value || 0;
+          const initialLineDist = calcHaversine(startLat, startLng, endLat, endLng);
+          const currentLineDist = calcHaversine(motoristaPos.lat, motoristaPos.lng, endLat, endLng);
+
+          // Descobre o percentual que falta para finalizar a perna atual
+          let ratio = initialLineDist > 0.05 ? (currentLineDist / initialLineDist) : 0;
+          if (ratio > 1) ratio = 1; // Trava a distância na máxima calculada pelo Google Maps original
+          if (ratio < 0) ratio = 0;
+
+          // Aplica a proporção (ratio) exclusivamente nos totais da perna em andamento
+          let remainingDistMeters = (firstLeg.distance?.value || 0) * ratio;
+          let remainingDurSeconds = (firstLeg.duration?.value || 0) * ratio;
+
+          // Soma o total absoluto de todas as entregas (pernas) seguintes se houver
+          for (let i = 1; i < route.legs.length; i++) {
+              remainingDistMeters += route.legs[i].distance?.value || 0;
+              remainingDurSeconds += route.legs[i].duration?.value || 0;
+          }
+
+          const etaMinutes = Math.max(1, Math.ceil(remainingDurSeconds / 60));
+          const distanceKm = Number((remainingDistMeters / 1000).toFixed(1));
+
+          onRouteUpdateRef.current(etaMinutes, distanceKm);
+      } 
+      // 2. ESTRATÉGIA B (Fallback Contingência): API falhou, rota > 25 limites, ou degradada propositalmente.
+      else {
+          let pendingTargets: Coordinates[] = [];
+          const msg = (operationalMessage || '').toLowerCase();
+          const isGoingToPickup = msg.includes('aceito') || msg.includes('indo') || msg.includes('coleta');
+          
+          if (isGoingToPickup && origem) {
+              // Rumo à coleta: o único alvo pendente relevante é a Origem
+              pendingTargets = [origem];
+          } else if (allStops.length > 0) {
+              // Em transporte: calcula os targets a partir da parada atual pra frente
+              const pIndex = paradaAtualIndex || 0;
+              pendingTargets = allStops.slice(pIndex);
+          }
+
+          if (pendingTargets.length === 0) return;
+
+          let totalStraightDistKm = 0;
+          let currentLoc = motoristaPos;
+
+          // Iteração em linha reta sobre as entregas futuras
+          for (const target of pendingTargets) {
+              if (currentLoc.lat && currentLoc.lng && target.lat && target.lng) {
+                  totalStraightDistKm += calcHaversine(currentLoc.lat, currentLoc.lng, target.lat, target.lng);
+              }
+              currentLoc = target; 
+          }
+
+          // FATOR DE TORTUOSIDADE (1.3): Aproximação técnica estrita para UI/UX de vias urbanas reais
+          // AVISO CTO: Apenas estimativa visual de fallback! Não utilizar em serviços de faturamento.
+          const estimatedDistanceKm = totalStraightDistKm * 1.3;
+          
+          // Prevenção de divisão por zero ou quebra visual se telemetria do app zerar
+          const safeSpeedKmH = (speed && speed > 0 && isFinite(speed)) ? speed : 30; 
+          const estimatedDurHours = estimatedDistanceKm / safeSpeedKmH;
+
+          const distanceKm = Number(Math.max(0, estimatedDistanceKm).toFixed(1));
+          const etaMinutes = Math.max(1, Math.ceil(estimatedDurHours * 60));
+
+          onRouteUpdateRef.current(etaMinutes, distanceKm);
       }
 
-      const etaMinutes = Math.max(1, Math.ceil(remainingDurSeconds / 60));
-      const distanceKm = Number((remainingDistMeters / 1000).toFixed(1));
-
-      // Emite a nova ETA cirúrgica para a interface do cliente
-      onRouteUpdateRef.current(etaMinutes, distanceKm);
-
-  }, [motoristaPos, directionsResult]);
+  }, [motoristaPos, directionsResult, allStops, paradaAtualIndex, origem, operationalMessage, speed]);
 
   const getVehicleIcon = (category: string) => {
     if (!isLoaded || !window.google) return null;
