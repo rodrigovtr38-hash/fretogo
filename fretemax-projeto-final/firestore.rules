@@ -81,16 +81,9 @@ service cloud.firestore {
          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
            'motoristaLat', 'motoristaLng', 'motoristaHeading',
            'gpsFalhou', 'heartbeat', 'atualizadoEm', 'updatedAt'
-         ]))
-        ||
-        // Liberação de Auto-Bid Blindada
-        (isAuthenticated() &&
-         resource.data.clienteId == request.auth.uid &&
-         (resource.data.status == 'expirado' || resource.data.status == 'sem_motorista' || resource.data.status == 'disponivel') &&
-         request.resource.data.status == 'disponivel' &&
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-           'status', 'valorTotal', 'prioridade', 'ofertaExpiraEm', 'createdAt', 'updatedAt'
          ]));
+         // O BLOCO DE "Auto-Bid" QUE PERMITIA GRAVAÇÃO DIRETA PELO CLIENTE FOI DELETADO NESTA AUDITORIA.
+         // Clientes não podem mais atualizar 'status' ou 'valorTotal' por conta própria pelo Frontend.
 
       allow delete: if isAdmin() || isQATester();
       
