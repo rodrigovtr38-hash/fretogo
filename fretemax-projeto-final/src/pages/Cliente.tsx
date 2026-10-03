@@ -12,6 +12,7 @@ import ClientStatusCard from '../components/client/ClientStatusCard';
 import ClientCancelModal from '../components/client/ClientCancelModal';
 import { paymentService } from '../services/paymentService'; 
 import { useClientFreight } from '../hooks/useClientFreight';
+import { clientFreightService } from '../services/clientFreightService';
 
 import { mapsLoader } from '../services/mapsLoader';
 import { locationService } from '../services/locationService'; 
@@ -873,23 +874,17 @@ export default function Cliente() {
     if (!currentOrderId) return;
     try {
       showToast('Limpando sistema e republicando...', 'warning');
-      const dataExpiracao = new Date();
-      dataExpiracao.setMinutes(dataExpiracao.getMinutes() + 15);
+      
+      const response = await clientFreightService.republicarFrete(currentOrderId);
+      
+      if (!response.success) {
+        throw new Error(response.error || 'Erro ao republicar frete no servidor.');
+      }
 
-      await updateDoc(doc(db, 'fretes', currentOrderId), {
-        status: 'disponivel',
-        motoristaId: null,
-        motoristaNome: null,
-        motoristaZap: null,
-        motoristaVeiculo: null,
-        motoristaPlaca: null,
-        reservadoEm: null,
-        ofertaExpiraEm: Timestamp.fromDate(dataExpiracao),
-        updatedAt: serverTimestamp()
-      });
       showToast('Carga republicada. Aberta para novos parceiros.', 'success');
-    } catch (error) {
-      showToast('Erro ao republicar.', 'error');
+    } catch (error: any) {
+      console.error("Erro ao republicar frete:", error);
+      showToast(error.message || 'Erro ao republicar.', 'error');
     }
   };
 
@@ -899,20 +894,17 @@ export default function Cliente() {
       showToast('Recalculando e injetando nova oferta...', 'warning');
       
       const novoBruto = (orderData.valorTotal || orderData.valorFreteBruto || 0) + valorAdicional;
-      const dataExpiracao = new Date();
-      dataExpiracao.setMinutes(dataExpiracao.getMinutes() + 15);
+      
+      const response = await clientFreightService.reprecificarFrete(currentOrderId, novoBruto);
 
-      await updateDoc(doc(db, 'fretes', currentOrderId), {
-        valorTotal: novoBruto,
-        status: 'disponivel',
-        prioridade: true,
-        ofertaExpiraEm: Timestamp.fromDate(dataExpiracao),
-        updatedAt: serverTimestamp()
-      });
+      if (!response.success) {
+        throw new Error(response.error || 'Erro ao reprecificar frete no servidor.');
+      }
       
       showToast(`Sucesso! Oferta aumentada em R$ ${valorAdicional}.`, 'success');
-    } catch (error) {
-      showToast('Erro ao atualizar a oferta no banco.', 'error');
+    } catch (error: any) {
+      console.error("Erro ao reprecificar frete:", error);
+      showToast(error.message || 'Erro ao atualizar a oferta no banco.', 'error');
     }
   };
 
