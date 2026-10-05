@@ -16,7 +16,7 @@ const runtimeOpts = {
 };
 
 const VALID_VEHICLE_CATEGORIES = new Set([
-  'moto', 'carro', 'utilitarios', 'toco', 'truck', 'carreta', 'bitrem'
+  'moto', 'carro', 'carro_pequeno', 'utilitarios', 'utilitario', 'toco', 'truck', 'carreta', 'carreta_ls', 'bitrem', 'bi_trem_cegonha'
 ]);
 
 const ALLOWED_FREIGHT_SCALAR_FIELDS = [
@@ -35,23 +35,27 @@ const ALLOWED_FREIGHT_SCALAR_FIELDS = [
 
 const VEHICLE_WEIGHT_LIMITS = {
   moto: 30,
-  carro: 250,
-  utilitarios: 800,
+  carro: 250, carro_pequeno: 250,
+  utilitarios: 800, utilitario: 800,
   toco: 4000,
   truck: 12000,
-  carreta: 30000,
-  bitrem: 45000,
+  carreta: 30000, carreta_ls: 30000,
+  bitrem: 45000, bi_trem_cegonha: 45000,
 };
 
 // 🛡️ DICIONÁRIO FINANCEIRO E TABELA DE REFERÊNCIA (AUTORIDADE BACKEND)
 const VEHICLE_FINANCE_CONFIG = {
   moto: { baseRate: 30, perKm: 2.00, isHeavy: false },
   carro: { baseRate: 100, perKm: 4.00, isHeavy: false },
+  carro_pequeno: { baseRate: 100, perKm: 4.00, isHeavy: false },
   utilitarios: { baseRate: 180, perKm: 6.00, isHeavy: false },
+  utilitario: { baseRate: 180, perKm: 6.00, isHeavy: false },
   toco: { baseRate: 350, perKm: 7.00, isHeavy: true },
   truck: { baseRate: 550, perKm: 8.50, isHeavy: true },
   carreta: { baseRate: 1200, perKm: 10.50, isHeavy: true },
-  bitrem: { baseRate: 1800, perKm: 12.50, isHeavy: true }
+  carreta_ls: { baseRate: 1200, perKm: 10.50, isHeavy: true },
+  bitrem: { baseRate: 1800, perKm: 12.50, isHeavy: true },
+  bi_trem_cegonha: { baseRate: 1800, perKm: 12.50, isHeavy: true }
 };
 
 const ROUTE_SECRET = process.env.APP_SECRET;
@@ -100,7 +104,7 @@ function calcularReferenciaFretoGo(distancia, categoria, numParadasAdicionais, i
 
   // 5. Cálculo do Pedágio
   let pedagioEstimado = 0;
-  if (validDistancia > 40 && cat !== 'moto' && cat !== 'carro') {
+  if (validDistancia > 40 && cat !== 'moto' && cat !== 'carro' && cat !== 'carro_pequeno') {
     pedagioEstimado = validDistancia * (config.isHeavy ? 0.85 : 0.35);
   }
 
@@ -287,7 +291,7 @@ function sanitizeFreightPayload(payload, uid) {
 
   if (tipoFrete === 'agendado') {
     const scheduledAt = parseTimestampMillis(payload.dataAgendada);
-    const minimumLeadMs = ['toco', 'truck', 'carreta', 'bitrem'].includes(categoria)
+    const minimumLeadMs = ['toco', 'truck', 'carreta', 'carreta_ls', 'bitrem', 'bi_trem_cegonha'].includes(categoria)
       ? 12 * 60 * 60 * 1000
       : 15 * 60 * 1000;
     if (!Number.isFinite(scheduledAt) || scheduledAt < Date.now() + minimumLeadMs) {
@@ -817,6 +821,9 @@ exports.iniciarDespachoAutomatico = functions.runWith(runtimeOpts).firestore
     if (!Number.isFinite(origemLat) || !Number.isFinite(origemLng)) return null;
     if (!categoria || !VALID_VEHICLE_CATEGORIES.has(categoria)) return null;
 
+    // ISOLAMENTO QA/PROD
+    const freteIsQA = depois.isQA === true || depois.isQAFreight === true;
+
     try {
       const opened = await db.runTransaction(async transaction => {
         const currentSnap = await transaction.get(change.after.ref);
@@ -836,14 +843,35 @@ exports.iniciarDespachoAutomatico = functions.runWith(runtimeOpts).firestore
 
       if (!opened) return null;
 
+      // RESOLUÇÃO DE CONTRATO (COMPATIBILIDADE DE CATEGORIA)
+      const categoriasEquivalentes = {
+          'moto': ['moto'],
+          'carro': ['carro', 'carro_pequeno'],
+          'carro_pequeno': ['carro', 'carro_pequeno'],
+          'utilitarios': ['utilitarios', 'utilitario'],
+          'utilitario': ['utilitarios', 'utilitario'],
+          'toco': ['toco'],
+          'truck': ['truck'],
+          'carreta': ['carreta', 'carreta_ls'],
+          'carreta_ls': ['carreta', 'carreta_ls'],
+          'bitrem': ['bitrem', 'bi_trem_cegonha'],
+          'bi_trem_cegonha': ['bitrem', 'bi_trem_cegonha']
+      };
+      const categoriasBusca = categoriasEquivalentes[categoria] || [categoria];
+
       const motoristasSnap = await db.collection('motoristas_cadastros')
         .where('online', '==', true)
         .where('disponivel', '==', true)
-        .where('categoria', '==', categoria)
+        .where('categoria', 'in', categoriasBusca)
         .get();
 
       await Promise.all(motoristasSnap.docs.map(async motoristaDoc => {
         const motorista = motoristaDoc.data();
+        
+        // APLICAÇÃO DA BARREIRA DE ISOLAMENTO (NUNCA CRUZA QA COM PROD)
+        const motoristaIsQA = motorista.isQA === true || motorista.isQADriver === true;
+        if (freteIsQA !== motoristaIsQA) return;
+
         const latitude = Number(motorista.location?.lat ?? motorista.latitude);
         const longitude = Number(motorista.location?.lng ?? motorista.longitude);
         if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
@@ -1227,6 +1255,14 @@ exports.alterarStatusOperacionalMotorista = functions.runWith(runtimeOpts).https
       if (!motorista || motorista.status !== 'aprovado') {
         throw new functions.https.HttpsError('permission-denied', 'Cadastro do motorista não está aprovado.');
       }
+
+      // ISOLAMENTO QA/PROD BARREIRA EXTRA NO ACEITE DIRETO
+      const freteIsQA = frete.isQA === true || frete.isQAFreight === true;
+      const motoristaIsQA = motorista.isQA === true || motorista.isQADriver === true;
+      if (freteIsQA !== motoristaIsQA) {
+        throw new functions.https.HttpsError('permission-denied', 'Incompatibilidade de ambiente operacional (QA vs PROD). Acesso negado.');
+      }
+
       if (frete.status === 'aceito' && frete.motoristaId === motoristaId) {
         return { success: true, novoStatus: 'aceito', idempotent: true };
       }
@@ -1776,7 +1812,7 @@ exports.solicitarExcecaoSemPin = functions.runWith(runtimeOpts).https.onCall(asy
         mensagemLog = `⚠️ [Exceção Operacional]: Entrega ${paradaAtualIndex + 1}/${totalEntregas} validada (Ausência de PIN com evidência).`;
       } else {
         payloadUpdate.status = 'finalizando';
-        mensagemLog = "🏁 ⚠️ [Exceção Operacional]: Última entrega validada sem PIN (evidência confirmada). Rota finalizada com sucesso.";
+        mensagemLog = "🏁 ⚠️️ [Exceção Operacional]: Última entrega validada sem PIN (evidência confirmada). Rota finalizada com sucesso.";
       }
     }
 
@@ -1973,7 +2009,7 @@ exports.criarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (data,
     throw new functions.https.HttpsError('invalid-argument', 'Valores financeiros inválidos.');
   }
 
-  const isHeavy = ['toco', 'truck', 'carreta', 'bitrem'].includes(categoria);
+  const isHeavy = ['toco', 'truck', 'carreta', 'carreta_ls', 'bitrem', 'bi_trem_cegonha'].includes(categoria);
   const taxa = isHeavy ? 0.15 : 0.20;
   
   // A comissão incide sobre (Bruto - Pedágio Validado), impedindo zeramento.
@@ -2175,7 +2211,7 @@ exports.atualizarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async (d
       throw new functions.https.HttpsError('invalid-argument', 'Valores financeiros inválidos.');
     }
 
-    const isHeavy = ['toco', 'truck', 'carreta', 'bitrem'].includes(categoriaParaCalculo);
+    const isHeavy = ['toco', 'truck', 'carreta', 'carreta_ls', 'bitrem', 'bi_trem_cegonha'].includes(categoriaParaCalculo);
     const taxa = isHeavy ? 0.15 : 0.20;
     const baseComissao = Math.max(0, valorBrutoInput - valorPedagio);
     const valorComissao = Number((baseComissao * taxa).toFixed(2));
@@ -2409,7 +2445,7 @@ exports.reprecificarFreteB2B = functions.runWith(runtimeOpts).https.onCall(async
     const tetoPedagio = Math.max(referencia.pedagioSugeridoCalculado * 1.5, valorBrutoInput * 0.30);
     const valorPedagio = Math.max(0, Math.min(valorPedagioOriginal, tetoPedagio));
 
-    const isHeavy = ['toco', 'truck', 'carreta', 'bitrem'].includes(categoria);
+    const isHeavy = ['toco', 'truck', 'carreta', 'carreta_ls', 'bitrem', 'bi_trem_cegonha'].includes(categoria);
     const taxa = isHeavy ? 0.15 : 0.20;
     const baseComissao = Math.max(0, valorBrutoInput - valorPedagio);
     const valorComissao = Number((baseComissao * taxa).toFixed(2));
@@ -2510,7 +2546,7 @@ exports.recalcularAutoBid = functions.firestore.document('fretes/{freteId}').onU
     return null;
   }
 
-  const isHeavy = ['toco', 'truck', 'carreta', 'bitrem'].includes(categoria);
+  const isHeavy = ['toco', 'truck', 'carreta', 'carreta_ls', 'bitrem', 'bi_trem_cegonha'].includes(categoria);
   const taxa = isHeavy ? 0.15 : 0.20;
   const baseComissao = Math.max(0, valorBrutoInput - valorPedagio);
   const valorComissao = Number((baseComissao * taxa).toFixed(2));
