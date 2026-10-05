@@ -1,7 +1,7 @@
 // =========================================================
 // NOME DO ARQUIVO: src/services/driverMatchingService.ts
 // CTO-Log: Fase 3 - Homologação de Integração Distribuída.
-// Status: Validação de Raio Geográfico e Sincronização de Banco 100% seguras.
+// Status: Validação de Raio Geográfico, Isolamento QA/PROD Zero-Trust e Sincronização de Categoria 100% seguros.
 // =========================================================
 
 import { collection, getDocs, query, where, serverTimestamp, runTransaction, doc } from 'firebase/firestore';
@@ -9,17 +9,24 @@ import { db } from '../firebase';
 
 export type CategoriaVeiculo =
   | 'moto'
+  | 'carro'
   | 'carro_pequeno'
+  | 'utilitarios'
   | 'utilitario'
   | 'toco'
   | 'truck'
+  | 'carreta'
   | 'carreta_ls'
-  | 'bi_trem_cegonha';
+  | 'bitrem'
+  | 'bi_trem_cegonha'
+  | string;
 
 export interface DriverMatchingPayload {
   categoria: CategoriaVeiculo;
   origem: { lat: number; lng: number; };
-  cidadeDestino?: string; 
+  cidadeDestino?: string;
+  isQA?: boolean;
+  isQAFreight?: boolean;
 }
 
 export interface FretePayload {
@@ -32,6 +39,8 @@ export interface FretePayload {
   valor: number;
   peso: number;
   descricao: string;
+  isQA?: boolean;
+  isQAFreight?: boolean;
 }
 
 export interface MatchedDriver {
@@ -47,15 +56,21 @@ export interface MatchedDriver {
   avaliacao?: number;
   viagens?: number;
   distanciaKm: number;
+  isQA?: boolean;
+  isQADriver?: boolean;
 }
 
-const CATEGORY_RADIUS: Record<CategoriaVeiculo, number[]> = {
+const CATEGORY_RADIUS: Record<string, number[]> = {
   moto: [5, 15, 30],
+  carro: [5, 15, 30],
   carro_pequeno: [5, 15, 30],
+  utilitarios: [10, 25, 50],
   utilitario: [10, 25, 50],
   toco: [20, 50, 120],
   truck: [20, 50, 120],
+  carreta: [100, 250],
   carreta_ls: [100, 250],
+  bitrem: [100, 250],
   bi_trem_cegonha: [100, 250],
 };
 
@@ -87,20 +102,41 @@ function getBoundingBox(lat: number, lng: number, distanceKm: number) {
 export class DriverMatchingService {
   static async buscarMotoristas(payload: DriverMatchingPayload): Promise<MatchedDriver[]> {
     try {
-      const raios = CATEGORY_RADIUS[payload.categoria];
+      const categoriaOriginal = (payload.categoria as string)?.toLowerCase() || 'utilitario';
+      
+      const categoriasEquivalentes: Record<string, string[]> = {
+          'moto': ['moto'],
+          'carro': ['carro', 'carro_pequeno'],
+          'carro_pequeno': ['carro', 'carro_pequeno'],
+          'utilitarios': ['utilitarios', 'utilitario'],
+          'utilitario': ['utilitarios', 'utilitario'],
+          'toco': ['toco'],
+          'truck': ['truck'],
+          'carreta': ['carreta', 'carreta_ls'],
+          'carreta_ls': ['carreta', 'carreta_ls'],
+          'bitrem': ['bitrem', 'bi_trem_cegonha'],
+          'bi_trem_cegonha': ['bitrem', 'bi_trem_cegonha']
+      };
+      
+      const categoriasBusca = categoriasEquivalentes[categoriaOriginal] || [categoriaOriginal];
+      const raios = CATEGORY_RADIUS[categoriaOriginal] || CATEGORY_RADIUS['utilitario'];
+      
       if (!raios) return []; 
 
       const maxRaio = raios[raios.length - 1]; 
-
       const box = getBoundingBox(payload.origem.lat, payload.origem.lng, maxRaio);
+      
+      // ISOLAMENTO QA/PROD DA CARGA
+      const freteIsQA = payload.isQA === true || payload.isQAFreight === true;
 
       const motoristasRef = collection(db, 'motoristas_online'); 
       
+      // Usando 'in' para garantir a captura independente de nomenclatura normalizada/legada
       const q = query(
         motoristasRef,
         where('online', '==', true),
         where('disponivel', '==', true),
-        where('categoria', '==', payload.categoria), 
+        where('categoria', 'in', categoriasBusca), 
         where('latitude', '>=', box.latMin),
         where('latitude', '<=', box.latMax)
       );
@@ -113,6 +149,10 @@ export class DriverMatchingService {
 
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
+        
+        // 🛡️ BARREIRA ISOLAMENTO QA/PROD
+        const motoristaIsQA = data.isQA === true || data.isQADriver === true;
+        if (freteIsQA !== motoristaIsQA) return;
         
         if (data.longitude < box.lngMin || data.longitude > box.lngMax) return;
 
@@ -143,6 +183,8 @@ export class DriverMatchingService {
           avaliacao: data.avaliacao || 5,
           viagens: data.viagens || 0,
           distanciaKm,
+          isQA: data.isQA,
+          isQADriver: data.isQADriver
         });
       });
 
@@ -175,6 +217,16 @@ export async function enviarOfertaMotorista(motoristaId: string, frete: FretePay
     await runTransaction(db, async (transaction) => {
       const motoristaDoc = await transaction.get(motoristaRef);
       if (!motoristaDoc.exists()) throw new Error("Motorista não existe.");
+      
+      const motoristaData = motoristaDoc.data();
+      
+      // 🛡️ BARREIRA ISOLAMENTO QA/PROD ZERO-TRUST (BACKEND-DRIVEN TRANSACTIONS)
+      const freteIsQA = frete.isQA === true || frete.isQAFreight === true;
+      const motoristaIsQA = motoristaData.isQA === true || motoristaData.isQADriver === true;
+      
+      if (freteIsQA !== motoristaIsQA) {
+         throw new Error("Bloqueio de segurança: Incompatibilidade cruzada de ambiente (QA/PROD).");
+      }
 
       transaction.update(motoristaRef, {
         ofertaAtual: {
