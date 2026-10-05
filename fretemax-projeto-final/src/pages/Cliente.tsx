@@ -602,7 +602,11 @@ export default function Cliente() {
       setOrigemGPS(origCoords);
       const pGPS: Coords[] = entregas.map(stop => ({ lat: stop.lat!, lng: stop.lng! }));
       
-      const cacheKey = JSON.stringify({ origem: origCoords, entregas: pGPS });
+      // Criar chave determinística para evitar missings baseados em UI meta-dados
+      const cacheKey = JSON.stringify({ 
+          origem: { lat: origCoords.lat, lng: origCoords.lng }, 
+          entregas: pGPS.map(p => ({ lat: p.lat, lng: p.lng })) 
+      });
 
       if (rotaCache.current[cacheKey]) {
         const cached = rotaCache.current[cacheKey];
@@ -643,7 +647,10 @@ export default function Cliente() {
       }
 
       const newPGPS = finalEntregas.map(stop => ({ lat: stop.lat!, lng: stop.lng! }));
-      const newCacheKey = JSON.stringify({ origem: origCoords, entregas: newPGPS });
+      const newCacheKey = JSON.stringify({ 
+          origem: { lat: origCoords.lat, lng: origCoords.lng }, 
+          entregas: newPGPS.map(p => ({ lat: p.lat, lng: p.lng }))
+      });
 
       rotaCache.current[cacheKey] = {
         distanciaKm: result.distanciaKm,
@@ -929,7 +936,13 @@ export default function Cliente() {
     try {
       showToast('Recalculando e injetando nova oferta...', 'warning');
       
-      const novoBruto = (orderData.valorTotal || orderData.valorFreteBruto || 0) + valorAdicional;
+      const baseValue = orderData.valorTotal ?? orderData.valorFreteBruto;
+      
+      if (baseValue === undefined || baseValue === null || isNaN(baseValue) || baseValue <= 0) {
+        throw new Error('Erro de integridade financeira: Valor base ausente ou inválido.');
+      }
+      
+      const novoBruto = baseValue + valorAdicional;
       
       const response = await clientFreightService.reprecificarFrete(currentOrderId, novoBruto);
 
