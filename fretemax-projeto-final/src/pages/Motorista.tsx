@@ -4,6 +4,7 @@
 // Status: Nova Arquitetura Uber/99 (Mapa em Background + Bottom Sheets).
 // Adicionado: Isolamento do Mapa na Raiz e Distribuição de Props em Tempo Real.
 // Fix QA: Isolamento Bidirecional Estrito de Ambientes (QA vs PROD) no Feed.
+// Fix Lote 1: Expansão tolerante de Categoria e Clock Skew Protection.
 // =========================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -67,6 +68,27 @@ const timestampToMillis = (value: unknown): number => {
   if (typeof value === 'number') return value;
   const parsed = new Date(String(value)).getTime();
   return Number.isFinite(parsed) ? parsed : 0;
+};
+
+// Tolerância operacional de correspondência de categoria 
+const isCategoriaCompativel = (freightCat: string, driverCat: string): boolean => {
+  if (!freightCat || !driverCat) return false;
+  if (freightCat === driverCat) return true;
+
+  const gruposDeCompatibilidade = [
+    ['moto', 'motocicleta'],
+    ['carro', 'passeio', 'sedan', 'hatch'],
+    ['utilitario', 'fiorino', 'van', 'vuc', 'caminhonete', 'pickup', 'hr', 'kombi'],
+    ['caminhao', 'toco', 'truck', 'carreta', 'bau', 'sider', 'bitrem']
+  ];
+
+  for (const grupo of gruposDeCompatibilidade) {
+    const fMatch = grupo.some(alias => freightCat.includes(alias));
+    const dMatch = grupo.some(alias => driverCat.includes(alias));
+    if (fMatch && dMatch) return true;
+  }
+
+  return false;
 };
 
 const FeedSkeleton = () => (
@@ -342,16 +364,20 @@ export default function Motorista() {
           const expiresAt = timestampToMillis(data.ofertaExpiraEm);
           const createdAtMillis = timestampToMillis(data.criadoEm || data.createdAt) || now;
           const isAgendado = data.tipoFrete === 'agendado' || Boolean(data.agendado);
+          
+          // Tolerância para desincronização de relógio local (Clock Skew)
+          const TOLERANCIA_TEMPO_MS = 2 * 60 * 60 * 1000; // + 2 horas de tolerância
 
           let isTimeValid = false;
           if (isAgendado) {
-            isTimeValid = expiresAt > 0 ? expiresAt >= now : true;
+            isTimeValid = expiresAt > 0 ? (expiresAt + TOLERANCIA_TEMPO_MS) >= now : true;
           } else {
             if (expiresAt > 0) {
-              isTimeValid = expiresAt >= now;
+              isTimeValid = (expiresAt + TOLERANCIA_TEMPO_MS) >= now;
             } else {
               const ageInHours = (now - createdAtMillis) / (1000 * 60 * 60);
-              isTimeValid = ageInHours <= 24; 
+              // Permitir até 26 horas para mitigar fuso/horário adiantado local
+              isTimeValid = ageInHours <= 26; 
             }
           }
 
@@ -362,7 +388,8 @@ export default function Motorista() {
         })
         .map(document => normalizeFreight(document.id, document.data()));
 
-      next = next.filter(freight => freight.categoria === operationalCategory);
+      // Filtragem por compatibilidade operacional segura
+      next = next.filter(freight => isCategoriaCompativel(freight.categoria, operationalCategory));
       next = next.filter(freight => !freight.motoristaId); 
 
       setAvailableFreights(next); 
