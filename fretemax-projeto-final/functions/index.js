@@ -896,6 +896,132 @@ exports.iniciarDespachoAutomatico = functions.runWith(runtimeOpts).firestore
   });
 
 // ========================================================
+// 6.1 AVANÇO DE FILA DISPATCH (D1 REAL)
+// ========================================================
+exports.avancarDispatchParaProximoMotorista = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Sessão inválida para avanço de fila.');
+  }
+
+  const freteId = sanitizeText(data?.freteId, 160);
+  if (!freteId) {
+    throw new functions.https.HttpsError('invalid-argument', 'FreteId é obrigatório.');
+  }
+
+  const freteRef = db.collection('fretes').doc(freteId);
+  let motoristaSelecionado = null;
+  let isFallbackMural = false;
+  let valorFila = 0;
+  let distanciaFila = 0;
+
+  await db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(freteRef);
+    if (!snap.exists) {
+      throw new functions.https.HttpsError('not-found', 'Frete não encontrado.');
+    }
+
+    const frete = snap.data();
+
+    // 2. Verificar se o frete ainda pode receber motorista
+    if (!['disponivel', 'buscando_motorista'].includes(frete.status)) {
+      throw new functions.https.HttpsError('failed-precondition', 'Status da viagem bloqueado para novos motoristas.');
+    }
+
+    // Cenário Aceite durante o avanço: Evita que Motorista 2 seja chamado se Motorista 1 já aceitou.
+    if (frete.motoristaId) {
+      throw new functions.https.HttpsError('failed-precondition', 'O frete já foi aceito por um motorista e alocado.');
+    }
+
+    // 3. Respeitar validação de pagamento
+    if (frete.pagamentoStatus !== 'aprovado') {
+      throw new functions.https.HttpsError('failed-precondition', 'Operação retida. Pagamento não está aprovado.');
+    }
+
+    // 4. Isolamento QA / PRODUÇÃO
+    const freteIsQA = frete.isQA === true || frete.isQAFreight === true;
+
+    // 5 & 6. Lendo fila e index atual
+    const fila = Array.isArray(frete.candidatosFila) ? frete.candidatosFila : [];
+    let currentIndex = typeof frete.dispatchIndex === 'number' ? frete.dispatchIndex : -1;
+    valorFila = Number(frete.valorMotorista || frete.valorTotal || 0);
+
+    if (fila.length === 0) {
+      isFallbackMural = true;
+    } else {
+      // 7. Encontrar o próximo candidato válido
+      while (currentIndex + 1 < fila.length) {
+        currentIndex++;
+        const candidateId = fila[currentIndex];
+        if (!candidateId) continue;
+
+        const motoristaRef = db.collection('motoristas_cadastros').doc(candidateId);
+        const motoristaSnap = await transaction.get(motoristaRef);
+
+        if (motoristaSnap.exists) {
+          const motorista = motoristaSnap.data();
+          const motoristaIsQA = motorista.isQA === true || motorista.isQADriver === true;
+
+          if (freteIsQA === motoristaIsQA && motorista.online === true && motorista.disponivel === true) {
+            motoristaSelecionado = candidateId;
+
+            // Base formativa para a notificação PUSH
+            const origemLat = Number(frete.origem?.lat ?? frete.origemLat);
+            const origemLng = Number(frete.origem?.lng ?? frete.origemLng);
+            const latitude = Number(motorista.location?.lat ?? motorista.latitude);
+            const longitude = Number(motorista.location?.lng ?? motorista.longitude);
+            if (Number.isFinite(origemLat) && Number.isFinite(latitude)) {
+              distanciaFila = calcularDistanciaExata(origemLat, origemLng, latitude, longitude);
+            }
+            break;
+          }
+        }
+      }
+
+      if (!motoristaSelecionado) {
+        isFallbackMural = true;
+      }
+    }
+
+    // 8. Atualizar de forma segura e exclusiva via Transação
+    if (motoristaSelecionado) {
+      transaction.update(freteRef, {
+        dispatchIndex: currentIndex,
+        motoristaAtualDestaque: motoristaSelecionado,
+        dispatchStatus: 'ofertando_fila',
+        dispatchStartedAt: FieldValue.serverTimestamp(),
+        ofertaExpiraEm: Timestamp.fromMillis(Date.now() + 15 * 60 * 1000), 
+        atualizadoEm: FieldValue.serverTimestamp()
+      });
+    } else if (isFallbackMural) {
+      // 10. Fallback Mural - Comportamento Atual Preservado
+      transaction.update(freteRef, {
+        dispatchIndex: currentIndex,
+        motoristaAtualDestaque: null,
+        dispatchStatus: 'mural_aberto',
+        ofertaExpiraEm: Timestamp.fromMillis(Date.now() + 15 * 60 * 1000),
+        atualizadoEm: FieldValue.serverTimestamp()
+      });
+    }
+  });
+
+  // 9. Utilizar o mecanismo de Oferta RTDB/Push que já existe no projeto
+  if (motoristaSelecionado) {
+    await sendPushInternal(
+      motoristaSelecionado,
+      'motorista',
+      '🚚 Nova Carga Direcionada!',
+      `R$ ${Number.isFinite(valorFila) ? valorFila.toFixed(2) : '0,00'} - A ${distanciaFila.toFixed(1)} km. Você é o próximo da fila!`,
+      { freteId, tipo: 'nova_oferta_fila' }
+    );
+    return { success: true, dispatchStatus: 'ofertando_fila', motoristaOfertado: motoristaSelecionado };
+  }
+
+  if (isFallbackMural) {
+    return { success: true, dispatchStatus: 'mural_aberto', fallback: true };
+  }
+});
+
+// ========================================================
 // 7. WATCHDOG DO MURAL (O verdadeiro Ceifador de 15 Minutos)
 // ========================================================
 exports.watchdogOfertasExpiradas = functions.runWith(runtimeOpts).pubsub.schedule('every 1 minutes').onRun(async () => {
@@ -1812,7 +1938,7 @@ exports.solicitarExcecaoSemPin = functions.runWith(runtimeOpts).https.onCall(asy
         mensagemLog = `⚠️ [Exceção Operacional]: Entrega ${paradaAtualIndex + 1}/${totalEntregas} validada (Ausência de PIN com evidência).`;
       } else {
         payloadUpdate.status = 'finalizando';
-        mensagemLog = "🏁 ⚠️️ [Exceção Operacional]: Última entrega validada sem PIN (evidência confirmada). Rota finalizada com sucesso.";
+        mensagemLog = "🏁 ⚠ [Exceção Operacional]: Última entrega validada sem PIN (evidência confirmada). Rota finalizada com sucesso.";
       }
     }
 
