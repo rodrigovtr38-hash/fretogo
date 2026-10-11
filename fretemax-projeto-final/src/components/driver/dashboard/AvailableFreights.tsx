@@ -3,6 +3,7 @@
 // CTO-Log: FASE 3 - Auditoria UX Feed.
 // Correção: Remoção do botão de favoritar. Injeção de Tipo de Carga e Volumes.
 // CTO-Log [Bloco 3]: Anti-Duplicação Absoluta, Anti-Ghosting e Padronização.
+// CTO-Log [Segurança Financeira]: Desativação do Broadcast Storm de Visualizações.
 // =========================================================
 
 import { useEffect, useRef, useState } from 'react';
@@ -57,7 +58,9 @@ export default function AvailableFreights({
       freights.forEach(freight => {
         if (!viewedFreights.current.has(freight.id)) {
           viewedFreights.current.add(freight.id);
-          dispatchRealtimeService.registrarVisualizacao(freight.id);
+          // 🔥 CTO FIX: Comentado para estancar o Broadcast Storm no Firestore.
+          // Atualizar o banco a cada view gerava uma cascata de leituras para toda a frota.
+          // dispatchRealtimeService.registrarVisualizacao(freight.id);
           hasNewFreight = true; 
         }
       });
