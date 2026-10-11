@@ -2,9 +2,10 @@
 // NOME DO ARQUIVO: src/pages/Motorista.tsx
 // CTO-Log: Auditoria Concluída - FASE 3 (Integração).
 // Status: Nova Arquitetura Uber/99 (Mapa em Background + Bottom Sheets).
-// Adicionado: Isolamento do Mapa na Raiz e Distribuição de Props em Tempo Real.
 // Fix QA: Isolamento Bidirecional Estrito de Ambientes (QA vs PROD) no Feed.
 // Fix Lote 1: Expansão tolerante de Categoria e Clock Skew Protection.
+// 🔥 CTO FIX [Segurança Financeira]: Morte do Listener Zumbi (Só consome banco se Online).
+// 🔥 CTO FIX [Segurança Financeira]: Remoção do loop de registrarVisualizacao no pai.
 // =========================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -42,13 +43,12 @@ interface DriverData {
   online?: boolean;
   disponivel?: boolean;
   state?: string;
-  isQA?: boolean; // Adicionado para ancorar a regra de negócio
+  isQA?: boolean;
 }
 
 const ACTIVE_STATUSES = ['aceito', 'indo_coleta', 'chegou_coleta', 'coletando', 'em_transporte', 'parado_operacional', 'chegou_entrega', 'entregando', 'finalizando', 'validando_comprovante'];
 const BLOCKED_DISPATCH_STATUSES = new Set(['retido_pagamento', 'retido_agendamento', 'encerrado', 'encerrado_reembolso', 'encerrado_divergencia_financeira', 'encerrado_aprovacao_tardia']);
 
-// Mantido apenas como fallback client-side para contas de dev locais. A fonte de verdade é driverData.isQA
 const AUTHORIZED_SANDBOX_ACCOUNTS = new Set([
   'contato@fretogo.com.br',
   'rodrigovtr38@gmail.com',
@@ -70,7 +70,6 @@ const timestampToMillis = (value: unknown): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-// Tolerância operacional de correspondência de categoria 
 const isCategoriaCompativel = (freightCat: string, driverCat: string): boolean => {
   if (!freightCat || !driverCat) return false;
   if (freightCat === driverCat) return true;
@@ -87,7 +86,6 @@ const isCategoriaCompativel = (freightCat: string, driverCat: string): boolean =
     const dMatch = grupo.some(alias => driverCat.includes(alias));
     if (fMatch && dMatch) return true;
   }
-
   return false;
 };
 
@@ -116,8 +114,6 @@ export default function Motorista() {
   const authReadyRef = useRef(false);
   const listenerRegistryRef = useRef<{ freights?: () => void; active?: () => void; driver?: () => void; }>({});
   
-  const viewedFreights = useRef<Set<string>>(new Set());
-
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [checkingDriver, setCheckingDriver] = useState(true);
@@ -331,9 +327,13 @@ export default function Motorista() {
     }
   }, [isOnline, availableFreights.length]);
 
+  // 🔥 CTO FIX: A raiz financeira estava aqui. O listener zumbi foi aniquilado.
+  // Injetamos `!isOnline` na condição de saída e nas dependências. 
+  // Motorista Offline = Banco de Dados Fechado. Custo Zero.
   useEffect(() => {
-    if (!runtimeReady || !user?.uid || !driverData || driverData.status !== 'aprovado') {
-      setAvailableFreights([]); return;
+    if (!runtimeReady || !user?.uid || !driverData || driverData.status !== 'aprovado' || !isOnline) {
+      setAvailableFreights([]); 
+      return;
     }
     setRadarLoading(true);
     
@@ -347,7 +347,6 @@ export default function Motorista() {
     const unsubscribe = onSnapshot(freightsQuery, snapshot => {
       if (!mountedRef.current) return;
       
-      // 🛡️ A Fonte de Verdade do QA migrou para o Documento do Motorista
       const isQADriver = driverData?.isQA === true || (user.email && AUTHORIZED_SANDBOX_ACCOUNTS.has(user.email.toLowerCase()));
       const now = Date.now();
       
@@ -355,18 +354,14 @@ export default function Motorista() {
         .filter(document => {
           const data = document.data();
           
-          // BLINDAGEM DE ISOLAMENTO BIDIRECIONAL
           const isQAFreight = data.isQA === true;
-          if (isQAFreight !== isQADriver) {
-             return false;
-          }
+          if (isQAFreight !== isQADriver) return false;
 
           const expiresAt = timestampToMillis(data.ofertaExpiraEm);
           const createdAtMillis = timestampToMillis(data.criadoEm || data.createdAt) || now;
           const isAgendado = data.tipoFrete === 'agendado' || Boolean(data.agendado);
           
-          // Tolerância para desincronização de relógio local (Clock Skew)
-          const TOLERANCIA_TEMPO_MS = 2 * 60 * 60 * 1000; // + 2 horas de tolerância
+          const TOLERANCIA_TEMPO_MS = 2 * 60 * 60 * 1000;
 
           let isTimeValid = false;
           if (isAgendado) {
@@ -376,7 +371,6 @@ export default function Motorista() {
               isTimeValid = (expiresAt + TOLERANCIA_TEMPO_MS) >= now;
             } else {
               const ageInHours = (now - createdAtMillis) / (1000 * 60 * 60);
-              // Permitir até 26 horas para mitigar fuso/horário adiantado local
               isTimeValid = ageInHours <= 26; 
             }
           }
@@ -388,7 +382,6 @@ export default function Motorista() {
         })
         .map(document => normalizeFreight(document.id, document.data()));
 
-      // Filtragem por compatibilidade operacional segura
       next = next.filter(freight => isCategoriaCompativel(freight.categoria, operationalCategory));
       next = next.filter(freight => !freight.motoristaId); 
 
@@ -401,7 +394,7 @@ export default function Motorista() {
     
     listenerRegistryRef.current.freights = unsubscribe;
     return () => unsubscribe();
-  }, [runtimeReady, user, driverData, operationalCategory, normalizeFreight]);
+  }, [runtimeReady, user, driverData, operationalCategory, normalizeFreight, isOnline]); // Dependência isOnline adicionada
 
   useEffect(() => {
     if (!runtimeReady || !user?.uid) { setActiveFreight(null); return; }
@@ -495,16 +488,8 @@ export default function Motorista() {
     });
   }, [availableFreights, filtroOrigem, filtroDestino, driverData?.modoRetorno, driverData?.destinoRetorno]);
 
-  useEffect(() => {
-    if (isOnline && fretesFiltradosOrdenados.length > 0) {
-      fretesFiltradosOrdenados.forEach(freight => {
-        if (!viewedFreights.current.has(freight.id)) {
-          viewedFreights.current.add(freight.id);
-          dispatchRealtimeService.registrarVisualizacao(freight.id).catch(() => {});
-        }
-      });
-    }
-  }, [fretesFiltradosOrdenados, isOnline]);
+  // 🔥 CTO FIX: O bloco de "registrarVisualizacao" em cascata estava clonado aqui no componente pai.
+  // Ele foi completamente removido para estancar o Broadcast Storm que gerava centenas de Writes/Reads inúteis.
 
   const mapProps = useMemo(() => {
     if (!activeFreight) {
