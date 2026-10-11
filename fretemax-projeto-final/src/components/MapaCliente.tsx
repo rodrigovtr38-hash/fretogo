@@ -2,6 +2,7 @@
 // NOME DO ARQUIVO: src/components/MapaCliente.tsx
 // CTO-Log: Blindagem F03 Preservada. Arquitetura Refatorada.
 // CTO-Log [Lote 2]: Graceful Degradation de Rotas (Fallback Haversine e Proteção Directions API)
+// 🔥 CTO FIX [Segurança Maps]: Implementação de Cache de Rota (Hashing) para impedir Spam na API do Google e erro de Rota Indisponível.
 // =========================================================
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
@@ -55,6 +56,7 @@ function MapaCliente({
   const mapRef = useRef<google.maps.Map | null>(null);
   const boundsInitialized = useRef(false);
   const onRouteUpdateRef = useRef(onRouteUpdate);
+  const lastRouteRequestRef = useRef<string | null>(null); // 🔥 CTO FIX: Cofre de Memória para Trava de Spam
   const [directionsResult, setDirectionsResult] = useState<google.maps.DirectionsResult | null>(null);
   
   const speed = useMemo(() => Math.floor(Math.random() * (60 - 30 + 1) + 30), [motoristaPos]);
@@ -89,7 +91,7 @@ function MapaCliente({
     }
   }, [isLoaded, routePath]);
 
-  // 🔥 CTO FIX: Consolida todos os pontos de destino em um único array limpo
+  // Consolida todos os pontos de destino em um único array limpo
   const allStops = useMemo(() => {
       const stops: Coordinates[] = [];
       if (paradasExtras && paradasExtras.length > 0) {
@@ -116,7 +118,7 @@ function MapaCliente({
       }
   }, [motoristaLat, motoristaLng, pickupStartPos]);
 
-  // 🔥 CTO FIX [Bloco 3]: Inteligência do Roteador blindada contra memory/API leak do GPS e escalada para 25 entregas
+  // Inteligência do Roteador blindada contra memory/API leak do GPS e escalada para 25 entregas
   const activeRouting = useMemo(() => {
       if (!origem || !destino) return null;
 
@@ -155,18 +157,26 @@ function MapaCliente({
 
       return { origin: startPoint, destination: endDrop, waypoints };
 
-  // 🔥 NOTA: motoristaLat e motoristaLng NÃO ESTÃO AQUI para impedir múltiplas requisições pagas!
   }, [origem, destino, motoristaId, allStops, operationalMessage, paradaAtualIndex, pickupStartPos]);
 
-  // 🔥 CTO FIX: Chamada Real ao Google Maps baseada na rota ativa calculada (Dispara apenas nas trocas de estado)
+  // 🔥 CTO FIX: Chamada Real ao Google Maps baseada na rota ativa calculada 
   useEffect(() => {
      if (!isLoaded || !window.google) return;
      
      // 1. Fallback: Se não há rota viária disponível (estourou waypoints), limpar lixo de rota anterior
      if (!activeRouting) {
          setDirectionsResult(null);
+         lastRouteRequestRef.current = null;
          return;
      }
+
+     // 🔥 A GRANDE TRAVA (Anti-Spam): Transforma a rota em texto e compara. 
+     // Se for igual, cancela a requisição e usa a que já está na tela.
+     const currentRouteHash = JSON.stringify(activeRouting);
+     if (lastRouteRequestRef.current === currentRouteHash) {
+         return; 
+     }
+     lastRouteRequestRef.current = currentRouteHash;
      
      const directionsService = new window.google.maps.DirectionsService();
 
@@ -204,7 +214,7 @@ function MapaCliente({
      });
   }, [isLoaded, activeRouting]);
 
-  // 🔥 CTO FIX: Atualização Offline de ETA/Distância em Tempo Real via Motor Matemático
+  // Atualização Offline de ETA/Distância em Tempo Real via Motor Matemático
   // Suporta gracefully tanto a rota viária (Ratio da leg) quanto o fallback de Haversine se a API falhar.
   useEffect(() => {
       if (!motoristaPos || !onRouteUpdateRef.current) return;
@@ -284,7 +294,6 @@ function MapaCliente({
           }
 
           // FATOR DE TORTUOSIDADE (1.3): Aproximação técnica estrita para UI/UX de vias urbanas reais
-          // AVISO CTO: Apenas estimativa visual de fallback! Não utilizar em serviços de faturamento.
           const estimatedDistanceKm = totalStraightDistKm * 1.3;
           
           // Prevenção de divisão por zero ou quebra visual se telemetria do app zerar
@@ -303,7 +312,7 @@ function MapaCliente({
     if (!isLoaded || !window.google) return null;
     
     const svgCar = "M17.402 2.048c-.286-.682-.94-1.144-1.681-1.187l-7.442-.437c-.74-.043-1.42.38-1.748 1.045L4.03 6H1.5A1.5 1.5 0 0 0 0 7.5v6A1.5 1.5 0 0 0 1.5 15h.71a2.992 2.992 0 0 0 5.58 0h8.42a2.992 2.992 0 0 0 5.58 0h.71A1.5 1.5 0 0 0 24 13.5v-3.8c0-.663-.44-1.24-1.085-1.436l-5.513-1.654z";
-    const svgFiorino = "M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z";
+    const svgFiorino = "M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5-.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z";
     const svgTruck = "M22 10h-2V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v8H1v2h1c0 1.66 1.34 3 3 3s3-1.34 3-3h8c0 1.66 1.34 3 3 3s3-1.34 3-3h1v-4c0-2.21-1.79-4-4-4zm-17 9c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm14 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-4-9H4V6h11v4zm4-2h1c.55 0 1 .45 1 1v1h-3V7c1.1 0 2 .9 2 2z";
     const svgMoto = "M19 14.5c0 1.93-1.57 3.5-3.5 3.5s-3.5-1.57-3.5-3.5c0-.47.1-.91.27-1.32l-1.92-1.92c-.24.08-.5.14-.75.14-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5c.34 0 .67.07.96.2l3.41-3.4c-.16-.39-.27-.8-.27-1.24C13.7 1.28 15.28 0 17.5 0S21 1.57 21 3.5c0 .48-.1.93-.28 1.34l-3.39 3.4c.12.28.17.58.17.88 0 1.05-.65 1.95-1.58 2.33l1.83 1.83c.41-.17.85-.28 1.32-.28 1.93 0 3.5 1.57 3.5 3.5zm-3.5-1.5c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zM5 14.5c0 1.93 1.57 3.5 3.5 3.5s3.5-1.57 3.5-3.5-1.57-3.5-3.5-3.5-3.5 1.57-3.5 3.5zm3.5-1.5c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2z";
 
