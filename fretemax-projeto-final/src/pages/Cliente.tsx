@@ -380,7 +380,7 @@ export default function Cliente() {
 
       return () => clearTimeout(timeout);
     }
-  }, [step]); // Depende apenas do step para não causar re-renders indesejados
+  }, [step]); 
 
   const iaChanceAceite = useMemo(() => {
     if (valorOfertaNum === 0) return null;
@@ -473,6 +473,7 @@ export default function Cliente() {
     }));
   }, [nome, coleta, entregas, peso, tipoMaterial, qtdVolumes, observacoes, vehicle, tipoFrete, dataAgendada, whatsapp, documento, valorOferta]);
 
+  // CTO FIX: Blindagem do onSnapshot para evitar recriação de referências e loops no Mapa
   useEffect(() => {
     if (!currentOrderId) return;
     const unsubscribe = onSnapshot(doc(db, 'fretes', currentOrderId), (snap) => {
@@ -491,13 +492,16 @@ export default function Cliente() {
       }
 
       if (data.origemLat && data.origemLng) {
-        setOrigemGPS({ lat: data.origemLat, lng: data.origemLng });
+        setOrigemGPS(prev => (prev?.lat === data.origemLat && prev?.lng === data.origemLng) ? prev : { lat: data.origemLat, lng: data.origemLng });
       }
       if (data.destinoLat && data.destinoLng) {
-        setDestinoGPS({ lat: data.destinoLat, lng: data.destinoLng });
+        setDestinoGPS(prev => (prev?.lat === data.destinoLat && prev?.lng === data.destinoLng) ? prev : { lat: data.destinoLat, lng: data.destinoLng });
       }
       if (data.paradas && data.paradas.length > 1) {
-         setParadasGPS(data.paradas.slice(0, -1).map((p: any) => ({ lat: p.lat, lng: p.lng })));
+         setParadasGPS(prev => {
+            const newParadas = data.paradas!.slice(0, -1).map((p: any) => ({ lat: p.lat, lng: p.lng }));
+            return JSON.stringify(prev) === JSON.stringify(newParadas) ? prev : newParadas;
+         });
       }
 
       if (data.status === 'finalizado') {
@@ -602,7 +606,6 @@ export default function Cliente() {
       setOrigemGPS(origCoords);
       const pGPS: Coords[] = entregas.map(stop => ({ lat: stop.lat!, lng: stop.lng! }));
       
-      // Criar chave determinística para evitar missings baseados em UI meta-dados
       const cacheKey = JSON.stringify({ 
           origem: { lat: origCoords.lat, lng: origCoords.lng }, 
           entregas: pGPS.map(p => ({ lat: p.lat, lng: p.lng })) 
@@ -708,14 +711,12 @@ export default function Cliente() {
       return;
     }
 
-    // 🛡️ CTO FIX: VERIFICAÇÃO ZERO-TRUST PARA CONTAS DE HOMOLOGAÇÃO (QA)
     let isQAAccount = false;
     try {
       const tokenResult = await currentUser.getIdTokenResult();
       if (tokenResult.claims?.isQA || tokenResult.claims?.admin) {
         isQAAccount = true;
       } else {
-        // Fallback robusto para checagem por Firestore (caso a plataforma use database para roles em vez de claims)
         const userDoc = await getDoc(doc(db, 'clientes', currentUser.uid));
         if (userDoc.exists()) {
            const userData = userDoc.data();
@@ -829,7 +830,6 @@ export default function Cliente() {
         interessados: 0, 
         cotacaoPayload: cotacaoPayload,
         cotacaoToken: cotacaoToken,
-        // 🛡️ CTO FIX: Injeção da flag oficial de QA após a validação
         isQA: isQAAccount,
         isQAFreight: isQAAccount,
       };
